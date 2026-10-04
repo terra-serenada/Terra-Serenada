@@ -1,7 +1,9 @@
 {
   "name": "Terra Serenada - Catatan Kebun",
   "short_name": "Terra Serenada",
-  "start_url": "./kebun-catatan-tanam.html",
+  "id": "./index.html",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f2f6ef",
   "theme_color": "#4f823d",

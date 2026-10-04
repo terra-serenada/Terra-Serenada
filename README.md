@@ -1,16 +1,17 @@
-## Hi there 👋
+# Terra Serenada
 
-<!--
-**terra-serenada/Terra-Serenada** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+PWA jurnal kebun pribadi.
 
-Here are some ideas to get you started:
+## GitHub Pages
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+Upload the contents of this folder directly to the root of the `main` branch.
+
+Required files:
+- `index.html`
+- `manifest.webmanifest`
+- `sw.js`
+- `icon.svg`
+- `404.html`
+
+For a project site named `Terra-Serenada`, the expected URL is:
+`https://terra-serenada.github.io/Terra-Serenada/`
