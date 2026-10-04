@@ -1,4 +1,4 @@
-const CACHE = 'terra-serenada-v2';
+const CACHE = 'terra-serenada-v3';
 const APP_SHELL = [
   './index.html',
   './manifest.webmanifest',
