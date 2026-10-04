@@ -1,0 +1,10 @@
+{
+  "name": "Terra Serenada - Catatan Kebun",
+  "short_name": "Terra Serenada",
+  "start_url": "./kebun-catatan-tanam.html",
+  "display": "standalone",
+  "background_color": "#f2f6ef",
+  "theme_color": "#4f823d",
+  "description": "Jurnal tanaman pribadi untuk tanggal tanam, foto, penyiraman, dan pengingat panen.",
+  "icons": [{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
