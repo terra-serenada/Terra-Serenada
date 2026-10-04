@@ -15,3 +15,7 @@ Required files:
 
 For a project site named `Terra-Serenada`, the expected URL is:
 `https://terra-serenada.github.io/Terra-Serenada/`
+
+
+## Tampilan daftar tanaman
+Setiap tanaman ditampilkan sebagai satu baris ringkas. Tekan tombol `+` untuk membuka detail lengkap dan tombol `−` untuk menutupnya.

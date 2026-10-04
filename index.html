@@ -45,7 +45,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 .card{background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow)}
 .form{padding:16px;margin-bottom:18px}.form h2{font-size:16px;margin:0 0 14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px;font-weight:650}.full{grid-column:1/-1}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
 .section-title{display:flex;justify-content:space-between;align-items:center;margin:18px 2px 9px}.section-title h2{font-size:16px;margin:0}.count{color:var(--muted);font-size:12px}
-.items{display:grid;gap:9px}.item{padding:14px}.item-top{display:flex;justify-content:space-between;gap:12px}.plant{font-size:16px;font-weight:800}.meta{font-size:12px;color:var(--muted);margin-top:3px}.badge{white-space:nowrap;font-size:10px;font-weight:800;border-radius:999px;padding:6px 8px;background:var(--accent2);color:var(--accent)}
+.items{display:grid;gap:8px}.item{padding:0;overflow:hidden}.plant-row{display:flex;align-items:center;gap:10px;padding:14px;min-height:68px}.plant-main{min-width:0;flex:1}.plant-main .plant{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.plant-summary{display:flex;align-items:center;gap:7px;margin-top:4px}.plant-toggle{width:38px;height:38px;flex:0 0 38px;border-radius:12px;background:var(--accent2);color:var(--accent);border:1px solid var(--border);font-size:22px;font-weight:500;line-height:1;display:grid;place-items:center;cursor:pointer}.plant-detail{display:none;padding:0 14px 14px;border-top:1px solid var(--border)}.item.expanded .plant-detail{display:block}.item.expanded .plant-toggle{transform:none}.item-expanded-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.item-expanded-actions button{padding:8px 10px;font-size:12px}.item-top{display:flex;justify-content:space-between;gap:12px}.plant{font-size:16px;font-weight:800}.meta{font-size:12px;color:var(--muted);margin-top:3px}.badge{white-space:nowrap;font-size:10px;font-weight:800;border-radius:999px;padding:6px 8px;background:var(--accent2);color:var(--accent)}
 .item-mid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:11px 0}.mini{background:var(--surface2);padding:9px;border-radius:11px}.mini span{display:block;font-size:10px;color:var(--muted)}.mini b{display:block;margin-top:2px;font-size:12px}.item-actions{display:flex;gap:5px;justify-content:flex-end}.item-actions button{padding:7px 10px;font-size:12px}
 .empty{padding:34px 16px;text-align:center;color:var(--muted)}
 .fab{position:fixed;right:18px;bottom:82px;width:58px;height:58px;border-radius:18px;background:var(--accent);color:white;border:0;font-size:27px;box-shadow:0 10px 24px rgba(50,100,35,.28);z-index:12}
@@ -143,6 +143,7 @@ let data=JSON.parse(localStorage.getItem(KEY)||'[]');
 let harvests=JSON.parse(localStorage.getItem(HARVEST_KEY)||'[]');
 let editingId=null;
 let harvestPlantId=null;
+const expandedPlants=new Set();
 const $=id=>document.getElementById(id);
 function save(){localStorage.setItem(KEY,JSON.stringify(data));localStorage.setItem(HARVEST_KEY,JSON.stringify(harvests));render();}
 function today(){return new Date().toISOString().slice(0,10)}
@@ -161,8 +162,38 @@ function filtered(){const q=$('search').value.trim().toLowerCase();const f=$('fi
 function render(){
   const now=new Date(); const recent=data.filter(x=>daysBetween(x.date,now)<=7).length; const harvest=data.filter(x=>{if(x.harvestDays===''||x.harvestDays==null)return false;return Number(x.harvestDays)-daysBetween(x.date,now)<=7}).length; const beds=new Set(data.map(x=>x.bed).filter(Boolean)).size;
   $('statTotal').textContent=data.length;$('statRecent').textContent=recent;$('statHarvest').textContent=harvest;$('statBeds').textContent=beds;
-  const arr=filtered();$('listCount').textContent=`${arr.length} catatan`;
-  if(!arr.length){$('items').innerHTML='<div class="card empty">Belum ada catatan yang cocok.<br><span style="font-size:12px">Tekan “＋ Tanam Baru” untuk mulai.</span></div>';} else { $('items').innerHTML=arr.map(x=>{const age=daysBetween(x.date);let harvest='-';if(x.harvestDays!==''&&x.harvestDays!=null) harvest=fmt(new Date(new Date(x.date+'T00:00:00').getTime()+Number(x.harvestDays)*86400000).toISOString().slice(0,10));const s=status(x);return `<article class="card item"><div class="item-top"><div><div class="plant">${esc(x.name)}${x.variety?` <span style="font-weight:500;color:var(--muted)">· ${esc(x.variety)}</span>`:''}</div><div class="meta">${x.bed?`📍 ${esc(x.bed)} · `:''}ditanam ${fmt(x.date)}</div></div><span class="badge">${s.text}</span></div><div class="item-mid"><div class="mini"><span>Umur</span><b>${age} hari</b></div><div class="mini"><span>Jumlah</span><b>${x.qty||1}</b></div><div class="mini"><span>Estimasi panen</span><b>${harvest}</b></div></div>${x.photo?`<img src="${x.photo}" alt="${esc(x.name)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-bottom:10px">`:''}${x.waterEvery?`<div class="meta" style="margin-bottom:7px">💧 Siram tiap ${x.waterEvery} hari${x.lastWater?` · terakhir ${fmt(x.lastWater)}`:''}</div>`:''}${x.note?`<div class="meta" style="margin-bottom:10px">📝 ${esc(x.note)}</div>`:''}<div class="item-actions"><button class="secondary" data-harvest="${x.id}">🧺 Catat Panen</button><button class="secondary" data-water="${x.id}">💧 Siram</button><button class="secondary" data-edit="${x.id}">Edit</button><button class="danger" data-del="${x.id}">Hapus</button></div></article>`}).join(''); }
+  const arr=filtered();$('listCount').textContent=`${arr.length} tanaman`;
+  // Remove expansion state for plants that are no longer present after search/filter.
+  const visibleIds=new Set(arr.map(x=>x.id));
+  [...expandedPlants].forEach(id=>{if(!visibleIds.has(id))expandedPlants.delete(id)});
+  if(!arr.length){$('items').innerHTML='<div class="card empty">Belum ada tanaman yang cocok.<br><span style="font-size:12px">Tekan “＋ Tanam Baru” untuk mulai.</span></div>';}
+  else {
+    $('items').innerHTML=arr.map(x=>{
+      const age=daysBetween(x.date);
+      let harvest='-';
+      if(x.harvestDays!==''&&x.harvestDays!=null) harvest=fmt(new Date(new Date(x.date+'T00:00:00').getTime()+Number(x.harvestDays)*86400000).toISOString().slice(0,10));
+      const st=status(x), expanded=expandedPlants.has(x.id);
+      const harvestsForPlant=harvests.filter(h=>h.plantId===x.id).sort((a,b)=>b.date.localeCompare(a.date));
+      const latestHarvest=harvestsForPlant[0];
+      return `<article class="card item ${expanded?'expanded':''}" data-plant-card="${esc(x.id)}">
+        <div class="plant-row">
+          <div class="plant-main"><div class="plant">${esc(x.name)}${x.variety?` <span style="font-weight:500;color:var(--muted)">· ${esc(x.variety)}</span>`:''}</div>
+            <div class="plant-summary"><span class="meta">${x.bed?`📍 ${esc(x.bed)} · `:''}${age} hari</span><span class="badge">${st.text}</span>${harvestsForPlant.length?`<span class="meta">🧺 ${harvestsForPlant.length} panen</span>`:''}</div>
+          </div>
+          <button class="plant-toggle" data-toggle="${esc(x.id)}" aria-label="${expanded?'Tutup':'Buka'} detail ${esc(x.name)}" aria-expanded="${expanded}">${expanded?'−':'+'}</button>
+        </div>
+        <div class="plant-detail">
+          <div class="item-mid"><div class="mini"><span>Umur</span><b>${age} hari</b></div><div class="mini"><span>Jumlah</span><b>${x.qty||1}</b></div><div class="mini"><span>Estimasi panen</span><b>${harvest}</b></div></div>
+          ${x.photo?`<img src="${x.photo}" alt="${esc(x.name)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-bottom:10px">`:''}
+          <div class="meta">🌱 Ditanam ${fmt(x.date)}${x.bed?` · 📍 ${esc(x.bed)}`:''}</div>
+          ${x.waterEvery?`<div class="meta" style="margin-top:7px">💧 Siram tiap ${x.waterEvery} hari${x.lastWater?` · terakhir ${fmt(x.lastWater)}`:''}</div>`:''}
+          ${x.note?`<div class="meta" style="margin-top:7px">📝 ${esc(x.note)}</div>`:''}
+          ${latestHarvest?`<div class="meta" style="margin-top:8px">🧺 Panen terakhir: ${fmt(latestHarvest.date)} · ${esc(String(latestHarvest.qty))} ${esc(latestHarvest.unit||'kg')} · ${esc(latestHarvest.quality||'Baik')}</div>`:''}
+          <div class="item-expanded-actions"><button class="secondary" data-harvest="${x.id}">🧺 Catat Panen</button><button class="secondary" data-water="${x.id}">💧 Siram</button><button class="secondary" data-edit="${x.id}">Edit</button><button class="danger" data-del="${x.id}">Hapus</button></div>
+        </div>
+      </article>`;
+    }).join('');
+  }
   renderHarvests();
 }
 $('addTop').onclick=()=>openForm();$('cancelBtn').onclick=closeForm;
@@ -170,7 +201,7 @@ $('saveBtn').onclick=()=>{const name=$('fName').value.trim(),date=$('fDate').val
 $('harvestCancel').onclick=closeHarvestModal;
 $('harvestModal').onclick=e=>{if(e.target.id==='harvestModal')closeHarvestModal()};
 $('harvestSave').onclick=()=>{const plantId=$('hPlant').value,date=$('hDate').value,qty=Number($('hQty').value);if(!plantId||!date||!(qty>0)){showToast('Tanaman, tanggal, dan jumlah panen wajib diisi');return}harvests.push({id:crypto.randomUUID(),plantId,date,qty,unit:$('hUnit').value,quality:$('hQuality').value,note:$('hNote').value.trim(),createdAt:new Date().toISOString()});save();closeHarvestModal();showToast(`🧺 Panen ${plantName(plantId)} dicatat`)};
-$('items').onclick=e=>{const edit=e.target.closest('[data-edit]'),del=e.target.closest('[data-del]'),water=e.target.closest('[data-water]'),harvest=e.target.closest('[data-harvest]');if(harvest){openHarvestModal(harvest.dataset.harvest);return}if(water){const x=data.find(a=>a.id===water.dataset.water);if(x){x.lastWater=today();save();showToast(`💧 ${x.name} sudah disiram`);scheduleNotifications();}}if(edit){const x=data.find(a=>a.id===edit.dataset.edit);if(x)openForm(x)}if(del){const x=data.find(a=>a.id===del.dataset.del);if(x&&confirm(`Hapus catatan ${x.name}?`)){data=data.filter(a=>a.id!==x.id);save();showToast('Catatan dihapus')}}};
+$('items').onclick=e=>{const toggle=e.target.closest('[data-toggle]'),edit=e.target.closest('[data-edit]'),del=e.target.closest('[data-del]'),water=e.target.closest('[data-water]'),harvest=e.target.closest('[data-harvest]');if(toggle){const id=toggle.dataset.toggle;if(expandedPlants.has(id))expandedPlants.delete(id);else expandedPlants.add(id);render();return}if(harvest){openHarvestModal(harvest.dataset.harvest);return}if(water){const x=data.find(a=>a.id===water.dataset.water);if(x){x.lastWater=today();save();showToast(`💧 ${x.name} sudah disiram`);scheduleNotifications();}}if(edit){const x=data.find(a=>a.id===edit.dataset.edit);if(x)openForm(x)}if(del){const x=data.find(a=>a.id===del.dataset.del);if(x&&confirm(`Hapus catatan ${x.name}?`)){expandedPlants.delete(x.id);data=data.filter(a=>a.id!==x.id);save();showToast('Catatan dihapus')}}};
 $('harvestItems').onclick=e=>{const hdel=e.target.closest('[data-hdel]');if(hdel){const h=harvests.find(a=>a.id===hdel.dataset.hdel);if(h&&confirm('Hapus catatan panen ini?')){harvests=harvests.filter(a=>a.id!==h.id);save();showToast('Catatan panen dihapus')}}};
 $('search').oninput=render;$('filter').onchange=render;
 $('exportBtn').onclick=()=>{const head=['Nama','Varietas','Tanggal Tanam','Lokasi/Bed','Estimasi Panen (hari)','Jumlah','Catatan'];const rows=data.map(x=>[x.name,x.variety,x.date,x.bed,x.harvestDays,x.qty,x.note]);const csv=[head,...rows].map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='catatan-kebun.csv';a.click();URL.revokeObjectURL(a.href)};
