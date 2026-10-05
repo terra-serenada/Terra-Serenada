@@ -1,1 +1,84 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="110" fill="#4f823d"/><text x="256" y="330" text-anchor="middle" font-size="250">🌱</text></svg>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1536 1536" width="1536" height="1536">
+  <defs>
+    <linearGradient id="leftLeaf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#dfff3f"/>
+      <stop offset="35%" stop-color="#5fe52f"/>
+      <stop offset="72%" stop-color="#0ab83f"/>
+      <stop offset="100%" stop-color="#007d35"/>
+    </linearGradient>
+    <linearGradient id="rightLeaf" x1="0.15" y1="0" x2="0.9" y2="1">
+      <stop offset="0%" stop-color="#caff32"/>
+      <stop offset="32%" stop-color="#48d62c"/>
+      <stop offset="72%" stop-color="#00a43e"/>
+      <stop offset="100%" stop-color="#006d37"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff52d"/>
+      <stop offset="20%" stop-color="#a8ed2e"/>
+      <stop offset="48%" stop-color="#16bd3d"/>
+      <stop offset="78%" stop-color="#008d3d"/>
+      <stop offset="100%" stop-color="#005d38"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1536" height="1536" fill="#000"/>
+
+  <!-- Shield/body -->
+  <path fill="url(#shield)" d="
+    M387 543 H690
+    C735 543 762 572 762 617
+    V1010
+    C762 1058 745 1103 713 1137
+    C694 1157 673 1173 648 1192
+    C691 1170 728 1137 749 1097
+    C771 1056 782 1012 782 965
+    V617
+    C782 570 811 543 856 543
+    H1148 V790
+    C1148 948 1087 1074 984 1177
+    C902 1259 817 1316 768 1348
+    C719 1316 634 1259 552 1177
+    C449 1074 387 948 387 790 Z"/>
+
+  <!-- Central stem -->
+  <path fill="url(#leftLeaf)" d="
+    M768 531
+    C768 531 760 603 760 677
+    V1004
+    C760 1060 739 1107 700 1142
+    C679 1161 658 1175 637 1188
+    C690 1136 710 1093 710 1025
+    V615
+    C710 570 729 548 768 531 Z"/>
+
+  <!-- Left leaf -->
+  <path fill="url(#leftLeaf)" d="
+    M768 552
+    C743 474 691 391 608 337
+    C537 291 445 279 393 281
+    C398 354 423 432 477 488
+    C533 546 617 565 708 575
+    C735 578 756 569 768 552 Z"/>
+
+  <!-- Right leaf -->
+  <path fill="url(#rightLeaf)" d="
+    M776 552
+    C795 476 842 394 925 338
+    C998 289 1093 279 1146 281
+    C1141 356 1113 434 1059 489
+    C1003 545 918 565 828 575
+    C803 578 786 570 776 552 Z"/>
+
+  <!-- Leaf highlights -->
+  <path d="M768 552 C708 514 634 452 561 392 C505 347 452 317 401 292"
+        fill="none" stroke="#baff45" stroke-width="7" opacity=".22"/>
+  <path d="M777 552 C841 514 914 452 987 393 C1042 348 1097 317 1140 292"
+        fill="none" stroke="#d4ff45" stroke-width="7" opacity=".18"/>
+
+  <!-- Edge accents -->
+  <path d="M387 543 V790 C387 948 449 1074 552 1177 C634 1259 719 1316 768 1348"
+        fill="none" stroke="#4dff3d" stroke-width="5" opacity=".65"/>
+  <path d="M1148 543 V790 C1148 948 1087 1074 984 1177"
+        fill="none" stroke="#27f36a" stroke-width="5" opacity=".55"/>
+</svg>
