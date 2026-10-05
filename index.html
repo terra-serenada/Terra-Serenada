@@ -68,6 +68,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 .timeline-label{font-size:12px;font-weight:750;margin-top:2px}
 .timeline-detail{font-size:11px;color:var(--muted);margin-top:2px}
 .timeline-harvest{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.timeline-more{margin-top:9px}.timeline-more button{width:100%;padding:8px 10px;font-size:11px}
 
 .garden-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 14px}
 .garden-actions button{min-height:46px}
@@ -79,6 +80,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 
 /* Terra Serenada — compact plant list + expandable journal */
 .plant-list-v5{display:flex;flex-direction:column;gap:9px}
+.plant-thumb-v6{width:58px;height:58px;border-radius:14px;overflow:hidden;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);display:grid;place-items:center}.plant-thumb-v6 img{width:100%;height:100%;object-fit:cover;display:block}.plant-thumb-placeholder-v6{font-size:27px;line-height:1}.plant-summary-v5{padding:10px 12px;min-height:78px}.plant-summary-copy{flex:1}.plant-summary-main-v6{display:flex;align-items:center;gap:12px;min-width:0}.plant-name-v5{font-size:16px}.plant-variety-v5{font-size:12px;margin-top:4px}.plant-toggle-v5{width:38px;height:38px}
 .plant-card-v5{border:1px solid var(--border);border-radius:17px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
 .plant-summary-v5{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 15px;cursor:pointer;user-select:none;min-height:68px}
 .plant-summary-v5:active{background:var(--surface2)}
@@ -246,6 +248,7 @@ let harvestPlantId=null;
 let journeyPlantId=null;
 let lessonPlantId=null;
 const openPlants=new Set();
+const expandedTimelines=new Set();
 const $=id=>document.getElementById(id);
 function save(){localStorage.setItem(KEY,JSON.stringify(data));localStorage.setItem(HARVEST_KEY,JSON.stringify(harvests));localStorage.setItem(GARDEN_EVENTS_KEY,JSON.stringify(gardenEvents));localStorage.setItem(ATTENTION_KEY,JSON.stringify(attentions));render();}
 function today(){return new Date().toISOString().slice(0,10)}
@@ -347,7 +350,15 @@ function plantTimeline(item){
   (Array.isArray(item.events)?item.events:[]).forEach(e=>{let icon=e.type==='flowering'?'🌼':e.type==='photo'?'📸':'🌿';events.push({date:e.date,sort:e.date+'T'+(e.createdAt||'12:00:00'),icon,label:e.label||'Perkembangan',detail:e.note||'',photo:e.photo||''});});
   harvests.filter(h=>h.plantId===item.id).forEach(h=>events.push({date:h.date,sort:h.date+'T'+(h.createdAt||'12:00:00'),icon:'🧺',label:'Panen',detail:`${String(h.qty)} ${h.unit||'kg'}${h.quality?` · kualitas ${h.quality.toLowerCase()}`:''}${h.note?` · ${h.note}`:''}`}));
   events.sort((a,b)=>a.sort.localeCompare(b.sort));
-  return `<div class="plant-timeline"><div class="timeline-title">📖 Perjalanan tanaman</div><div class="timeline">${events.map(e=>`<div class="timeline-event"><div class="timeline-dot">${e.icon}</div><div class="timeline-content"><div class="timeline-date">${fmt(e.date)}</div><div class="timeline-label">${esc(e.label)}</div>${e.detail?`<div class="timeline-detail">${esc(e.detail)}</div>`:''}${e.photo?`<img class="journey-photo" src="${e.photo}" alt="Foto perjalanan ${esc(item.name)}">`:''}</div></div>`).join('')}</div></div>`;
+  const expanded=expandedTimelines.has(item.id);
+  const visible=expanded?events:events.slice(-5);
+  const hiddenCount=Math.max(0,events.length-5);
+  return `<div class="plant-timeline"><div class="timeline-title">📖 Perjalanan tanaman</div><div class="timeline">${visible.map(e=>`<div class="timeline-event"><div class="timeline-dot">${e.icon}</div><div class="timeline-content"><div class="timeline-date">${fmt(e.date)}</div><div class="timeline-label">${esc(e.label)}</div>${e.detail?`<div class="timeline-detail">${esc(e.detail)}</div>`:''}${e.photo?`<img class="journey-photo" src="${e.photo}" alt="Foto perjalanan ${esc(item.name)}">`:''}</div></div>`).join('')}</div>${hiddenCount?`<div class="timeline-more"><button type="button" class="secondary" data-timeline-toggle="${esc(item.id)}">${expanded?'Sembunyikan riwayat lama':`Lihat semua riwayat (${events.length})`}</button></div>`:''}</div>`;
+}
+function plantThumbnail(item){
+  const events=Array.isArray(item.events)?item.events:[];
+  const photos=events.filter(e=>e&&e.photo).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  return photos[0]?.photo||item.photo||'';
 }
 function render(){
   const now=new Date();
@@ -370,6 +381,7 @@ function render(){
       if(x.harvestDays!==''&&x.harvestDays!=null) harvest=fmt(new Date(new Date(x.date+'T00:00:00').getTime()+Number(x.harvestDays)*86400000).toISOString().slice(0,10));
       const s=status(x);
       const open=openPlants.has(x.id);
+      const thumb=plantThumbnail(x);
       const details=`
         <div class="plant-detail-head">
           <div><div class="plant-detail-title">${esc(x.name)}</div>${x.variety?`<div class="plant-detail-sub">Varietas: ${esc(x.variety)}</div>`:''}</div>
@@ -395,7 +407,10 @@ function render(){
         </div>`;
       return `<article class="plant-card-v5${open?' is-open':''}" data-plant-card="${esc(x.id)}">
         <div class="plant-summary-v5" data-toggle-plant="${esc(x.id)}" role="button" tabindex="0" aria-expanded="${open}">
-          <div class="summary-copy plant-summary-copy"><div class="plant-name-v5">${esc(x.name)}</div><div class="plant-variety-v5">${x.variety?esc(x.variety):'Varietas belum diisi'}</div></div>
+          <div class="plant-summary-main-v6">
+            <div class="plant-thumb-v6">${thumb?`<img src="${thumb}" alt="Foto ${esc(x.name)}">`:'<span class="plant-thumb-placeholder-v6">🌱</span>'}</div>
+            <div class="summary-copy plant-summary-copy"><div class="plant-name-v5">${esc(x.name)}</div><div class="plant-variety-v5">${x.variety?esc(x.variety):'-'}</div></div>
+          </div>
           <button type="button" class="plant-toggle-v5" data-toggle-plant="${esc(x.id)}" aria-expanded="${open}" aria-label="${open?'Tutup':'Buka'} detail ${esc(x.name)}">${open?'⌃':'›'}</button>
         </div>
         <div class="plant-details-v5">${details}</div>
@@ -425,13 +440,15 @@ $('items').onclick=e=>{
     if(card){const open=openPlants.has(id);card.classList.toggle('is-open',open);card.querySelectorAll('[data-toggle-plant]').forEach(el=>el.setAttribute('aria-expanded',String(open)));const btn=card.querySelector('.plant-toggle-v5');if(btn){btn.textContent=open?'⌃':'›';btn.setAttribute('aria-label',`${open?'Tutup':'Buka'} detail ${card.querySelector('.plant-name-v5')?.textContent||'tanaman'}`)}}
     return;
   }
+  const timelineToggle=e.target.closest('[data-timeline-toggle]');
+  if(timelineToggle){const id=timelineToggle.dataset.timelineToggle;if(expandedTimelines.has(id)) expandedTimelines.delete(id); else expandedTimelines.add(id);render();return;}
   const edit=e.target.closest('[data-edit]'),del=e.target.closest('[data-del]'),harvest=e.target.closest('[data-harvest]'),journey=e.target.closest('[data-journey]'),lesson=e.target.closest('[data-lesson]'),attention=e.target.closest('[data-attention]');
   if(attention){openAttentionModal(attention.dataset.attention);return}
    if(journey){openJourneyModal(journey.dataset.journey);return}
   if(lesson){openLessonModal(lesson.dataset.lesson);return}
   if(harvest){openHarvestModal(harvest.dataset.harvest);return}
   if(edit){const x=data.find(a=>a.id===edit.dataset.edit);if(x)openForm(x)}
-  if(del){const x=data.find(a=>a.id===del.dataset.del);if(x&&confirm(`Hapus catatan ${x.name}?`)){openPlants.delete(x.id);data=data.filter(a=>a.id!==x.id);save();showToast('Catatan dihapus')}}
+  if(del){const x=data.find(a=>a.id===del.dataset.del);if(x&&confirm(`Hapus catatan ${x.name}?`)){openPlants.delete(x.id);expandedTimelines.delete(x.id);data=data.filter(a=>a.id!==x.id);save();showToast('Catatan dihapus')}}
 };
 $('items').onkeydown=e=>{if((e.key==='Enter'||e.key===' ')&&e.target.closest('.plant-summary-v5')&&!e.target.closest('button')){e.preventDefault();e.target.closest('.plant-summary-v5').click();}};
 $('harvestItems').onclick=e=>{const hdel=e.target.closest('[data-hdel]');if(hdel){const h=harvests.find(a=>a.id===hdel.dataset.hdel);if(h&&confirm('Hapus catatan panen ini?')){harvests=harvests.filter(a=>a.id!==h.id);save();showToast('Catatan panen dihapus')}}};
