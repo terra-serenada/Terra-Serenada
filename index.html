@@ -92,6 +92,16 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 .plant-detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px}
 .plant-detail-title{font-size:16px;font-weight:800}.plant-detail-sub{font-size:12px;color:var(--muted);margin-top:3px}
 
+
+/* Terra Serenada — dashboard, journey photos, and garden lessons */
+.dashboard-life{display:grid;gap:10px;margin-bottom:14px}
+.dashboard-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.dashboard-tile{background:var(--surface2);border-radius:14px;padding:11px}.dashboard-tile b{display:block;font-size:17px}.dashboard-tile span{display:block;color:var(--muted);font-size:10px;margin-top:3px}
+.dashboard-list{display:grid;gap:7px;margin-top:9px}.dashboard-row{display:flex;justify-content:space-between;gap:10px;padding:9px 10px;background:var(--surface2);border-radius:11px}.dashboard-row-main{min-width:0}.dashboard-row-title{font-size:12px;font-weight:750}.dashboard-row-detail{font-size:10px;color:var(--muted);margin-top:2px}.dashboard-row-date{font-size:10px;color:var(--muted);white-space:nowrap}
+.journey-actions{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0}.journey-photo{width:100%;max-height:220px;object-fit:cover;border-radius:13px;margin-top:7px;border:1px solid var(--border)}
+.lesson-box{margin:12px 0 10px;padding:12px;border:1px solid var(--border);border-radius:14px;background:var(--surface2)}.lesson-title{font-size:13px;font-weight:800}.lesson-list{display:grid;gap:7px;margin-top:8px}.lesson-item{padding:9px 10px;background:var(--surface);border-radius:11px}.lesson-date{font-size:10px;color:var(--muted);font-weight:700}.lesson-text{font-size:12px;margin-top:3px;line-height:1.4}
+@media(max-width:520px){.dashboard-grid{grid-template-columns:repeat(2,1fr)}}
+
 </style>
 </head>
 <body>
@@ -112,6 +122,17 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
     <div class="stat"><b id="statRecent">0</b><span>Ditanam ≤ 7 hari</span></div>
     <div class="stat"><b id="statHarvest">0</b><span>Estimasi siap panen</span></div>
     <div class="stat"><b id="statBeds">0</b><span>Lokasi/bed</span></div>
+  </section>
+
+  <section class="card dashboard-life" id="todayDashboard" style="padding:12px">
+    <div><b>🌿 Kondisi kebun hari ini</b><div class="meta">Ringkasan dari aktivitas dan perjalanan tanaman.</div></div>
+    <div class="dashboard-grid">
+      <div class="dashboard-tile"><b id="dashWater">-</b><span>Asupan air terakhir</span></div>
+      <div class="dashboard-tile"><b id="dashFlower">0</b><span>Berbunga 14 hari</span></div>
+      <div class="dashboard-tile"><b id="dashHarvest">0</b><span>Panen bulan ini</span></div>
+      <div class="dashboard-tile"><b id="dashAttention">0</b><span>Perlu perhatian</span></div>
+    </div>
+    <div class="dashboard-list" id="dashRecentList"></div>
   </section>
 
   <section class="card" style="padding:12px;margin-bottom:14px">
@@ -186,6 +207,19 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   <div id="flowerList" class="flower-list"></div>
   <div class="actions"><button class="secondary" id="flowerCancel">Batal</button><button id="flowerSave">Simpan</button></div>
 </div></div>
+<div class="modal" id="journeyModal"><div class="card modalbox form"><h2 id="journeyTitle">📸 Tambah perjalanan</h2>
+  <div class="grid">
+    <div class="field"><label>Tanggal</label><input id="jDate" type="date"></div>
+    <div class="field"><label>Jenis</label><select id="jType"><option value="photo">📸 Foto perjalanan</option><option value="note">🌿 Perkembangan</option></select></div>
+    <div class="field full"><label>Foto</label><input id="jPhoto" type="file" accept="image/*" capture="environment"></div>
+    <div class="field full"><label>Keterangan</label><textarea id="jNote" rows="3" placeholder="Apa yang terlihat atau terjadi pada tanaman ini?"></textarea></div>
+  </div>
+  <div class="actions"><button class="secondary" id="journeyCancel">Batal</button><button id="journeySave">Simpan perjalanan</button></div>
+</div></div>
+<div class="modal" id="lessonModal"><div class="card modalbox form"><h2>🧠 Pelajaran dari kebun</h2>
+  <div class="field"><label>Pelajaran</label><textarea id="lessonText" rows="4" placeholder="Apa yang kamu pelajari dari tanaman ini?"></textarea></div>
+  <div class="actions"><button class="secondary" id="lessonCancel">Batal</button><button id="lessonSave">Simpan pelajaran</button></div>
+</div></div>
 <div class="modal" id="restoreModal"><div class="card modalbox form"><h2>Restore backup JSON</h2><p style="color:var(--muted);font-size:13px">Pilih file backup JSON dari aplikasi ini.</p><input id="restoreFile" type="file" accept="application/json,.json"><div class="actions"><button class="secondary" id="restoreCancel">Batal</button><button id="restoreGo">Restore</button></div></div></div>
 <div class="toast" id="toast"></div>
 </div>
@@ -198,6 +232,8 @@ let data=JSON.parse(localStorage.getItem(KEY)||'[]');
 let harvests=JSON.parse(localStorage.getItem(HARVEST_KEY)||'[]');
 let editingId=null;
 let harvestPlantId=null;
+let journeyPlantId=null;
+let lessonPlantId=null;
 const openPlants=new Set();
 const $=id=>document.getElementById(id);
 function save(){localStorage.setItem(KEY,JSON.stringify(data));localStorage.setItem(HARVEST_KEY,JSON.stringify(harvests));localStorage.setItem(GARDEN_EVENTS_KEY,JSON.stringify(gardenEvents));render();}
@@ -242,13 +278,24 @@ function saveFlowering(){
   save();closeFlowerModal();showToast(`🌼 ${ids.length} tanaman ditandai berbunga`);
 }
 
+function latestGardenWater(){return [...gardenEvents].filter(e=>e.type==='water'||e.type==='rain').sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')))[0]||null;}
+function dashboardAttention(){return data.filter(x=>{const age=daysBetween(x.date);const harvestDue=x.harvestDays!==''&&x.harvestDays!=null&&Number(x.harvestDays)-age<=3;let waterDue=false;if(x.waterEvery&&x.waterEvery>0){const last=x.lastWater?daysBetween(x.lastWater):age;waterDue=last>=Number(x.waterEvery);}return harvestDue||waterDue;});}
+function dashboardRecent(){const rows=[];data.forEach(x=>{(Array.isArray(x.events)?x.events:[]).forEach(e=>rows.push({date:e.date,sort:e.date+'T'+(e.createdAt||'12:00:00'),title:`${e.label||'Aktivitas'} · ${x.name}`,detail:e.note||e.label||''}));});harvests.forEach(h=>rows.push({date:h.date,sort:h.date+'T'+(h.createdAt||'12:00:00'),title:`Panen · ${plantName(h.plantId)}`,detail:`${h.qty} ${h.unit||'kg'}`}));gardenEvents.forEach(e=>rows.push({date:e.date,sort:e.date+'T'+(e.createdAt||'12:00:00'),title:e.label==='Hujan'?'🌧️ Hujan kebun':'💧 Kebun disiram',detail:'Seluruh kebun'}));return rows.sort((a,b)=>b.sort.localeCompare(a.sort)).slice(0,5);}
+function renderDashboard(){const w=latestGardenWater();$('dashWater').textContent=w?(w.date===today()?'Hari ini':fmt(w.date)):'Belum ada';const flowerIds=new Set();data.forEach(x=>(Array.isArray(x.events)?x.events:[]).filter(e=>e.type==='flowering'&&daysBetween(e.date)<=14).forEach(()=>flowerIds.add(x.id)));$('dashFlower').textContent=flowerIds.size;const now=new Date();const ym=today().slice(0,7);$('dashHarvest').textContent=harvests.filter(h=>h.date.slice(0,7)===ym).length;const attention=dashboardAttention();$('dashAttention').textContent=attention.length;const rows=dashboardRecent();$('dashRecentList').innerHTML='<div class="meta" style="margin-top:3px">📖 Aktivitas terbaru</div>'+ (rows.length?rows.map(r=>`<div class="dashboard-row"><div class="dashboard-row-main"><div class="dashboard-row-title">${esc(r.title)}</div><div class="dashboard-row-detail">${esc(r.detail)}</div></div><div class="dashboard-row-date">${fmt(r.date)}</div></div>`).join(''):'<div class="empty" style="padding:12px">Belum ada aktivitas.</div>');}
+function openJourneyModal(plantId){journeyPlantId=plantId;$('jDate').value=today();$('jType').value='photo';$('jPhoto').value='';$('jNote').value='';$('journeyModal').classList.add('show');}
+function closeJourneyModal(){$('journeyModal').classList.remove('show');journeyPlantId=null;}
+function saveJourney(){const x=data.find(a=>a.id===journeyPlantId);const date=$('jDate').value||today();const note=$('jNote').value.trim();const pf=$('jPhoto').files[0];if(!x||!date){showToast('Tanaman dan tanggal wajib diisi');return}const finish=photo=>{const events=Array.isArray(x.events)?x.events:[];const type=$('jType').value;const label=type==='photo'?'Foto perjalanan':'Perkembangan';const ev={id:crypto.randomUUID(),date,type,label,note,photo:photo||'',createdAt:new Date().toISOString()};data=data.map(a=>a.id===x.id?{...a,events:[...events,ev]}:a);save();closeJourneyModal();showToast('📸 Perjalanan tanaman disimpan');};if(pf){const r=new FileReader();r.onload=()=>finish(r.result);r.readAsDataURL(pf)}else if(note){finish('')}else showToast('Tambahkan foto atau keterangan');}
+function openLessonModal(plantId){lessonPlantId=plantId;$('lessonText').value='';$('lessonModal').classList.add('show');$('lessonText').focus();}
+function closeLessonModal(){$('lessonModal').classList.remove('show');lessonPlantId=null;}
+function saveLesson(){const x=data.find(a=>a.id===lessonPlantId);const text=$('lessonText').value.trim();if(!x||!text){showToast('Tulis pelajarannya dulu');return}const lessons=Array.isArray(x.lessons)?x.lessons:[];data=data.map(a=>a.id===x.id?{...a,lessons:[...lessons,{id:crypto.randomUUID(),date:today(),text,createdAt:new Date().toISOString()}]}:a);save();closeLessonModal();showToast('🧠 Pelajaran disimpan');}
+function plantLessons(item){const lessons=Array.isArray(item.lessons)?item.lessons:[];return `<div class="lesson-box"><div class="lesson-title">🧠 Pelajaran dari kebun</div><div class="lesson-list">${lessons.length?lessons.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(l=>`<div class="lesson-item"><div class="lesson-date">${fmt(l.date)}</div><div class="lesson-text">${esc(l.text)}</div></div>`).join(''):'<div class="meta">Belum ada pelajaran yang dicatat.</div>'}</div><div class="journey-actions"><button class="secondary" data-lesson="${esc(item.id)}">＋ Tambah pelajaran</button></div></div>`;}
 function plantTimeline(item){
   const events=[{date:item.date,sort:item.date+'T00:00:00',icon:'🌱',label:'Ditanam',detail:item.qty?`${item.qty} tanaman`:'Tanaman mulai dicatat'}];
   if(item.lastWater) events.push({date:item.lastWater,sort:item.lastWater+'T23:59:59',icon:item.lastWaterSource==='Hujan'?'🌧️':'💧',label:'Terakhir mendapat air',detail:item.lastWaterSource||'Dicatat sebagai perawatan terbaru'});
-  (Array.isArray(item.events)?item.events:[]).filter(e=>e.type==='flowering').forEach(e=>events.push({date:e.date,sort:e.date+'T12:00:00',icon:'🌼',label:'Berbunga',detail:'Tanaman ditandai sedang berbunga'}));
-  harvests.filter(h=>h.plantId===item.id).forEach(h=>events.push({date:h.date,sort:h.date+'T12:00:00',icon:'🧺',label:'Panen',detail:`${String(h.qty)} ${h.unit||'kg'}${h.quality?` · kualitas ${h.quality.toLowerCase()}`:''}${h.note?` · ${h.note}`:''}`}));
+  (Array.isArray(item.events)?item.events:[]).forEach(e=>{let icon=e.type==='flowering'?'🌼':e.type==='photo'?'📸':'🌿';events.push({date:e.date,sort:e.date+'T'+(e.createdAt||'12:00:00'),icon,label:e.label||'Perkembangan',detail:e.note||'',photo:e.photo||''});});
+  harvests.filter(h=>h.plantId===item.id).forEach(h=>events.push({date:h.date,sort:h.date+'T'+(h.createdAt||'12:00:00'),icon:'🧺',label:'Panen',detail:`${String(h.qty)} ${h.unit||'kg'}${h.quality?` · kualitas ${h.quality.toLowerCase()}`:''}${h.note?` · ${h.note}`:''}`}));
   events.sort((a,b)=>a.sort.localeCompare(b.sort));
-  return `<div class="plant-timeline"><div class="timeline-title">📖 Perjalanan tanaman</div><div class="timeline">${events.map(e=>`<div class="timeline-event"><div class="timeline-dot">${e.icon}</div><div class="timeline-content"><div class="timeline-date">${fmt(e.date)}</div><div class="timeline-label">${esc(e.label)}</div>${e.detail?`<div class="timeline-detail">${esc(e.detail)}</div>`:''}</div></div>`).join('')}</div></div>`;
+  return `<div class="plant-timeline"><div class="timeline-title">📖 Perjalanan tanaman</div><div class="timeline">${events.map(e=>`<div class="timeline-event"><div class="timeline-dot">${e.icon}</div><div class="timeline-content"><div class="timeline-date">${fmt(e.date)}</div><div class="timeline-label">${esc(e.label)}</div>${e.detail?`<div class="timeline-detail">${esc(e.detail)}</div>`:''}${e.photo?`<img class="journey-photo" src="${e.photo}" alt="Foto perjalanan ${esc(item.name)}">`:''}</div></div>`).join('')}</div></div>`;
 }
 function render(){
   const now=new Date();
@@ -287,6 +334,8 @@ function render(){
         ${x.photo?`<img src="${x.photo}" alt="${esc(x.name)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin:4px 0 10px">`:''}
         ${x.note?`<div class="meta" style="margin-bottom:10px">📝 ${esc(x.note)}</div>`:''}
         ${plantTimeline(x)}
+        <div class="journey-actions"><button class="secondary" data-journey="${x.id}">📸 Tambah perjalanan</button><button class="secondary" data-lesson="${x.id}">🧠 Tambah pelajaran</button></div>
+        ${plantLessons(x)}
         <div class="item-actions">
           <button class="secondary" data-harvest="${x.id}">🧺 Catat Panen</button>
           <button class="secondary" data-edit="${x.id}">Edit</button>
@@ -302,6 +351,7 @@ function render(){
     }).join('')+'</div>';
   }
   renderHarvests();
+  renderDashboard();
 }
 $('addTop').onclick=()=>openForm();$('cancelBtn').onclick=closeForm;
 $('saveBtn').onclick=()=>{const name=$('fName').value.trim(),date=$('fDate').value;if(!name||!date){showToast('Nama tanaman dan tanggal tanam wajib diisi');return}const finish=(photo)=>{const prev=editingId?data.find(x=>x.id===editingId):null;const obj={id:editingId||crypto.randomUUID(),name,variety:$('fVar').value.trim(),date,bed:$('fBed').value.trim(),harvestDays:$('fDays').value===''?'':Number($('fDays').value),qty:Math.max(1,Number($('fQty').value||1)),waterEvery:$('fWater').value===''?'':Number($('fWater').value),waterTime:$('fWaterTime').value||'07:00',lastWater:prev?.lastWater||'',lastWaterSource:prev?.lastWaterSource||'',events:Array.isArray(prev?.events)?prev.events:[],photo:photo||prev?.photo||'',note:$('fNote').value.trim()};if(editingId){data=data.map(x=>x.id===editingId?obj:x);showToast('Catatan diperbarui')}else{data.push(obj);showToast('Tanaman ditambahkan')}save();closeForm();scheduleNotifications();};const pf=$('fPhoto').files[0];if(pf){const r=new FileReader();r.onload=()=>finish(r.result);r.readAsDataURL(pf)}else finish();};
@@ -323,17 +373,20 @@ $('items').onclick=e=>{
     if(card){const open=openPlants.has(id);card.classList.toggle('is-open',open);card.querySelectorAll('[data-toggle-plant]').forEach(el=>el.setAttribute('aria-expanded',String(open)));const btn=card.querySelector('.plant-toggle-v5');if(btn){btn.textContent=open?'⌃':'›';btn.setAttribute('aria-label',`${open?'Tutup':'Buka'} detail ${card.querySelector('.plant-name-v5')?.textContent||'tanaman'}`)}}
     return;
   }
-  const edit=e.target.closest('[data-edit]'),del=e.target.closest('[data-del]'),harvest=e.target.closest('[data-harvest]');
+  const edit=e.target.closest('[data-edit]'),del=e.target.closest('[data-del]'),harvest=e.target.closest('[data-harvest]'),journey=e.target.closest('[data-journey]'),lesson=e.target.closest('[data-lesson]');
+  if(journey){openJourneyModal(journey.dataset.journey);return}
+  if(lesson){openLessonModal(lesson.dataset.lesson);return}
   if(harvest){openHarvestModal(harvest.dataset.harvest);return}
   if(edit){const x=data.find(a=>a.id===edit.dataset.edit);if(x)openForm(x)}
   if(del){const x=data.find(a=>a.id===del.dataset.del);if(x&&confirm(`Hapus catatan ${x.name}?`)){openPlants.delete(x.id);data=data.filter(a=>a.id!==x.id);save();showToast('Catatan dihapus')}}
 };
 $('items').onkeydown=e=>{if((e.key==='Enter'||e.key===' ')&&e.target.closest('.plant-summary-v5')&&!e.target.closest('button')){e.preventDefault();e.target.closest('.plant-summary-v5').click();}};
 $('harvestItems').onclick=e=>{const hdel=e.target.closest('[data-hdel]');if(hdel){const h=harvests.find(a=>a.id===hdel.dataset.hdel);if(h&&confirm('Hapus catatan panen ini?')){harvests=harvests.filter(a=>a.id!==h.id);save();showToast('Catatan panen dihapus')}}};
+$('journeyCancel').onclick=closeJourneyModal;$('journeyModal').onclick=e=>{if(e.target.id==='journeyModal')closeJourneyModal()};$('journeySave').onclick=saveJourney;$('lessonCancel').onclick=closeLessonModal;$('lessonModal').onclick=e=>{if(e.target.id==='lessonModal')closeLessonModal()};$('lessonSave').onclick=saveLesson;
 $('search').oninput=render;$('filter').onchange=render;
 $('exportBtn').onclick=()=>{const head=['Nama','Varietas','Tanggal Tanam','Lokasi/Bed','Estimasi Panen (hari)','Jumlah','Catatan'];const rows=data.map(x=>[x.name,x.variety,x.date,x.bed,x.harvestDays,x.qty,x.note]);const csv=[head,...rows].map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='catatan-kebun.csv';a.click();URL.revokeObjectURL(a.href)};
 function exportHarvests(){const head=['Tanggal Panen','Tanaman','Jumlah','Satuan','Kualitas','Catatan'];const rows=harvests.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(h=>[h.date,plantName(h.plantId),h.qty,h.unit,h.quality,h.note]);const csv=[head,...rows].map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='catatan-panen.csv';a.click();URL.revokeObjectURL(a.href)}
-$('backupBtn').onclick=()=>{const blob=new Blob([JSON.stringify({version:3,plants:data,harvests,gardenEvents},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='backup-terra-serenada.json';a.click();URL.revokeObjectURL(a.href)};
+$('backupBtn').onclick=()=>{const blob=new Blob([JSON.stringify({version:4,plants:data,harvests,gardenEvents},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='backup-terra-serenada.json';a.click();URL.revokeObjectURL(a.href)};
 $('restoreModal').onclick=e=>{if(e.target.id==='restoreModal')$('restoreModal').classList.remove('show')};
 $('restoreCancel').onclick=()=>$('restoreModal').classList.remove('show');
 // Long-press backup button opens restore dialog for a mobile-friendly backup workflow.
@@ -341,7 +394,7 @@ let pressTimer;$('backupBtn').addEventListener('pointerdown',()=>{pressTimer=set
 $('restoreGo').onclick=()=>{const f=$('restoreFile').files[0];if(!f){showToast('Pilih file JSON dulu');return}const r=new FileReader();r.onload=()=>{try{const incoming=JSON.parse(r.result);if(Array.isArray(incoming)){data=incoming;harvests=[];gardenEvents=[];}else if(incoming&&Array.isArray(incoming.plants)){data=incoming.plants;harvests=Array.isArray(incoming.harvests)?incoming.harvests:[];gardenEvents=Array.isArray(incoming.gardenEvents)?incoming.gardenEvents:[];}else throw new Error();save();$('restoreModal').classList.remove('show');showToast('Backup berhasil dipulihkan')}catch{showToast('File backup tidak valid')}};r.readAsText(f)};
 
 async function requestNotifications(){if(!('Notification' in window)){showToast('Browser ini tidak mendukung notifikasi');return false}const p=await Notification.requestPermission();if(p==='granted'){showToast('Notifikasi diaktifkan');scheduleNotifications();return true}showToast('Izin notifikasi belum diberikan');return false}
-function scheduleNotifications(){const reminders=[];const now=new Date();data.forEach(x=>{if(x.harvestDays!==''&&x.harvestDays!=null){const harvestDate=new Date(x.date+'T00:00:00');harvestDate.setDate(harvestDate.getDate()+Number(x.harvestDays));const diff=Math.ceil((harvestDate-now)/86400000);if(diff<=3)reminders.push(`🧺 ${x.name}: ${diff<=0?'cek panen hari ini':`panen sekitar ${diff} hari lagi`}`)}if(x.waterEvery&&x.waterEvery>0){const last=x.lastWater?new Date(x.lastWater+'T00:00:00'):new Date(x.date+'T00:00:00');const due=Math.ceil((now-last)/86400000);if(due>=Number(x.waterEvery))reminders.push(`💧 ${x.name}: waktunya menyiram`);}});$('reminderSummary').textContent=reminders.length?reminders.slice(0,3).join(' · '):'Tidak ada pengingat mendesak.';if('Notification' in window&&Notification.permission==='granted'&&reminders.length){const key='garden-last-notify';const stamp=today();if(localStorage.getItem(key)!==stamp){new Notification('Terra Serenada',{body:reminders.slice(0,2).join('\n'),icon:'icon.svg'});localStorage.setItem(key,stamp)}}}
+function scheduleNotifications(){const reminders=[];const now=new Date();data.forEach(x=>{if(x.harvestDays!==''&&x.harvestDays!=null){const harvestDate=new Date(x.date+'T00:00:00');harvestDate.setDate(harvestDate.getDate()+Number(x.harvestDays));const diff=Math.ceil((harvestDate-now)/86400000);if(diff<=3)reminders.push(`🧺 ${x.name}: ${diff<=0?'cek panen hari ini':`panen sekitar ${diff} hari lagi`}`)}if(x.waterEvery&&x.waterEvery>0){const last=x.lastWater?new Date(x.lastWater+'T00:00:00'):new Date(x.date+'T00:00:00');const due=Math.ceil((now-last)/86400000);if(due>=Number(x.waterEvery))reminders.push(`💧 ${x.name}: waktunya menyiram`);}});$('reminderSummary').textContent=reminders.length?reminders.slice(0,3).join(' · '):'Tidak ada pengingat mendesak.';if('Notification' in window&&Notification.permission==='granted'&&reminders.length){const key='garden-last-notify';const stamp=today();if(localStorage.getItem(key)!==stamp){new Notification('Terra Serenada',{body:reminders.slice(0,2).join('\n'),icon:'icon.png'});localStorage.setItem(key,stamp)}}}
 $('notifyBtn').onclick=requestNotifications;
 if('serviceWorker' in navigator && location.protocol!=='file:') navigator.serviceWorker.register('./sw.js').catch(()=>{});
 function setTodayLabel(){const d=new Date();$('todayLabel').textContent=d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});}
