@@ -56,6 +56,19 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 @media(min-width:721px){#app{padding-bottom:30px}.bottom-nav,.fab{display:none}.appbar{position:sticky}.hero-row .primary{display:block}}
 @media(max-width:420px){main{padding-left:12px;padding-right:12px}.appbar{padding-left:12px;padding-right:12px}.item-mid{grid-template-columns:1fr 1fr}.item-mid .mini:last-child{grid-column:1/-1}.hero{padding:16px}}
 
+/* Terra Serenada — plant life timeline */
+.plant-timeline{margin:14px 0 12px;padding:12px 0 2px;border-top:1px solid var(--border)}
+.timeline-title{font-size:13px;font-weight:800;margin-bottom:10px}
+.timeline{display:grid;gap:8px}
+.timeline-event{display:grid;grid-template-columns:28px 1fr;gap:9px;position:relative}
+.timeline-dot{width:28px;height:28px;border-radius:10px;background:var(--accent2);display:grid;place-items:center;font-size:14px;position:relative;z-index:1}
+.timeline-content{padding:2px 0 8px;border-bottom:1px dashed var(--border)}
+.timeline-event:last-child .timeline-content{border-bottom:0;padding-bottom:2px}
+.timeline-date{font-size:10px;color:var(--muted);font-weight:700}
+.timeline-label{font-size:12px;font-weight:750;margin-top:2px}
+.timeline-detail{font-size:11px;color:var(--muted);margin-top:2px}
+.timeline-harvest{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+
 /* Terra Serenada — collapsible plant list */
 .plant-list-v5 { display:flex; flex-direction:column; gap:10px; }
 .plant-card-v5 { border:1px solid rgba(80,100,70,.22); border-radius:14px; overflow:hidden; background:var(--card-bg,#fff); }
@@ -140,7 +153,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
     <div class="field full"><label>Tanaman *</label><select id="hPlant"></select></div>
     <div class="field"><label>Tanggal panen *</label><input id="hDate" type="date"></div>
     <div class="field"><label>Jumlah *</label><input id="hQty" type="number" min="0" step="0.01" placeholder="Contoh: 1,5"></div>
-    <div class="field"><label>Satuan</label><select id="hUnit"><option>kg</option><option>gram</option><option>buah</option><option>ikat</option><option>butir</option><option>liter</option><option>lainnya</option></select></div>
+    <div class="field"><label>Satuan</label><select id="hUnit"><option>kg</option><option>gram</option><option>buah</option><option>ikat</option><option>butir</option><option>liter</option><option>helai</option><option>lainnya</option></select></div>
     <div class="field"><label>Kualitas</label><select id="hQuality"><option>Baik</option><option>Sangat baik</option><option>Cukup</option><option>Kurang</option></select></div>
     <div class="field full"><label>Catatan panen</label><textarea id="hNote" rows="3" placeholder="Ukuran, kondisi, pemakaian, atau hal penting lainnya…"></textarea></div>
   </div>
@@ -171,11 +184,18 @@ function openForm(item=null){editingId=item?.id||null;$('formTitle').textContent
 function closeForm(){editingId=null;$('formCard').style.display='none'}
 function status(item){const age=daysBetween(item.date);if(item.harvestDays!==''&&item.harvestDays!=null){const left=Number(item.harvestDays)-age;if(left<=0)return {text:'Siap panen',cls:'ready'};if(left<=7)return {text:`Panen ± ${left} hari`,cls:'near'};}return {text:`Hari ke-${age}`,cls:'age'};}
 function filtered(){const q=$('search').value.trim().toLowerCase();const f=$('filter').value;return data.filter(x=>{const hay=[x.name,x.variety,x.bed,x.note].join(' ').toLowerCase();if(q&&!hay.includes(q))return false;const age=daysBetween(x.date);const left=x.harvestDays===''||x.harvestDays==null?99999:Number(x.harvestDays)-age;if(f==='recent'&&age>7)return false;if(f==='harvest'&&left>7)return false;return true}).sort((a,b)=>b.date.localeCompare(a.date));}
+function plantTimeline(item){
+  const events=[{date:item.date,sort:item.date+'T00:00:00',icon:'🌱',label:'Ditanam',detail:item.qty?`${item.qty} tanaman`:'Tanaman mulai dicatat'}];
+  if(item.lastWater) events.push({date:item.lastWater,sort:item.lastWater+'T23:59:59',icon:'💧',label:'Penyiraman terakhir',detail:'Dicatat sebagai perawatan terbaru'});
+  harvests.filter(h=>h.plantId===item.id).forEach(h=>events.push({date:h.date,sort:h.date+'T12:00:00',icon:'🧺',label:'Panen',detail:`${String(h.qty)} ${h.unit||'kg'}${h.quality?` · kualitas ${h.quality.toLowerCase()}`:''}${h.note?` · ${h.note}`:''}`}));
+  events.sort((a,b)=>a.sort.localeCompare(b.sort));
+  return `<div class="plant-timeline"><div class="timeline-title">📖 Perjalanan tanaman</div><div class="timeline">${events.map(e=>`<div class="timeline-event"><div class="timeline-dot">${e.icon}</div><div class="timeline-content"><div class="timeline-date">${fmt(e.date)}</div><div class="timeline-label">${esc(e.label)}</div>${e.detail?`<div class="timeline-detail">${esc(e.detail)}</div>`:''}</div></div>`).join('')}</div></div>`;
+}
 function render(){
   const now=new Date(); const recent=data.filter(x=>daysBetween(x.date,now)<=7).length; const harvest=data.filter(x=>{if(x.harvestDays===''||x.harvestDays==null)return false;return Number(x.harvestDays)-daysBetween(x.date,now)<=7}).length; const beds=new Set(data.map(x=>x.bed).filter(Boolean)).size;
   $('statTotal').textContent=data.length;$('statRecent').textContent=recent;$('statHarvest').textContent=harvest;$('statBeds').textContent=beds;
   const arr=filtered();$('listCount').textContent=`${arr.length} catatan`;
-  if(!arr.length){$('items').innerHTML='<div class="card empty">Belum ada catatan yang cocok.<br><span style="font-size:12px">Tekan “＋ Tanam Baru” untuk mulai.</span></div>';} else { $('items').innerHTML=arr.map(x=>{const age=daysBetween(x.date);let harvest='-';if(x.harvestDays!==''&&x.harvestDays!=null) harvest=fmt(new Date(new Date(x.date+'T00:00:00').getTime()+Number(x.harvestDays)*86400000).toISOString().slice(0,10));const s=status(x);return `<article class="card item"><div class="item-top"><div><div class="plant">${esc(x.name)}${x.variety?` <span style="font-weight:500;color:var(--muted)">· ${esc(x.variety)}</span>`:''}</div><div class="meta">${x.bed?`📍 ${esc(x.bed)} · `:''}ditanam ${fmt(x.date)}</div></div><span class="badge">${s.text}</span></div><div class="item-mid"><div class="mini"><span>Umur</span><b>${age} hari</b></div><div class="mini"><span>Jumlah</span><b>${x.qty||1}</b></div><div class="mini"><span>Estimasi panen</span><b>${harvest}</b></div></div>${x.photo?`<img src="${x.photo}" alt="${esc(x.name)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-bottom:10px">`:''}${x.waterEvery?`<div class="meta" style="margin-bottom:7px">💧 Siram tiap ${x.waterEvery} hari${x.lastWater?` · terakhir ${fmt(x.lastWater)}`:''}</div>`:''}${x.note?`<div class="meta" style="margin-bottom:10px">📝 ${esc(x.note)}</div>`:''}<div class="item-actions"><button class="secondary" data-harvest="${x.id}">🧺 Catat Panen</button><button class="secondary" data-water="${x.id}">💧 Siram</button><button class="secondary" data-edit="${x.id}">Edit</button><button class="danger" data-del="${x.id}">Hapus</button></div></article>`}).join(''); }
+  if(!arr.length){$('items').innerHTML='<div class="card empty">Belum ada catatan yang cocok.<br><span style="font-size:12px">Tekan “＋ Tanam Baru” untuk mulai.</span></div>';} else { $('items').innerHTML=arr.map(x=>{const age=daysBetween(x.date);let harvest='-';if(x.harvestDays!==''&&x.harvestDays!=null) harvest=fmt(new Date(new Date(x.date+'T00:00:00').getTime()+Number(x.harvestDays)*86400000).toISOString().slice(0,10));const s=status(x);return `<article class="card item"><div class="item-top"><div><div class="plant">${esc(x.name)}${x.variety?` <span style="font-weight:500;color:var(--muted)">· ${esc(x.variety)}</span>`:''}</div><div class="meta">${x.bed?`📍 ${esc(x.bed)} · `:''}ditanam ${fmt(x.date)}</div></div><span class="badge">${s.text}</span></div><div class="item-mid"><div class="mini"><span>Umur</span><b>${age} hari</b></div><div class="mini"><span>Jumlah</span><b>${x.qty||1}</b></div><div class="mini"><span>Estimasi panen</span><b>${harvest}</b></div></div>${x.photo?`<img src="${x.photo}" alt="${esc(x.name)}" style="width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-bottom:10px">`:''}${x.waterEvery?`<div class="meta" style="margin-bottom:7px">💧 Siram tiap ${x.waterEvery} hari${x.lastWater?` · terakhir ${fmt(x.lastWater)}`:''}</div>`:''}${x.note?`<div class="meta" style="margin-bottom:10px">📝 ${esc(x.note)}</div>`:''}${plantTimeline(x)}<div class="item-actions"><button class="secondary" data-harvest="${x.id}">🧺 Catat Panen</button><button class="secondary" data-water="${x.id}">💧 Siram</button><button class="secondary" data-edit="${x.id}">Edit</button><button class="danger" data-del="${x.id}">Hapus</button></div></article>`}).join(''); }
   renderHarvests();
 }
 $('addTop').onclick=()=>openForm();$('cancelBtn').onclick=closeForm;
