@@ -1,0 +1,327 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "index.html"
+      - "manifest.webmanifest"
+      - "icon.png"
+      - ".github/workflows/build-apk.yml"
+      - "android/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Ensure Android SDK 36
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Create Android wrapper project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p android/app/src/main/java/com/terra/serenada
+          mkdir -p android/app/src/main/res/drawable
+          mkdir -p android/app/src/main/res/values
+
+          cat > android/settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "TerraSerenadaAndroid"
+          include(":app")
+          EOF
+
+          cat > android/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.13.0" apply false
+          }
+          EOF
+
+          cat > android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+
+          cat > android/app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+          }
+
+          android {
+              namespace = "com.terra.serenada"
+              compileSdk = 36
+
+              defaultConfig {
+                  applicationId = "com.terra.serenada"
+                  minSdk = 24
+                  targetSdk = 36
+                  versionCode = 1
+                  versionName = "1.0.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+
+              sourceSets["main"].assets.srcDir("src/main/assets")
+
+              tasks.register("syncTerraWebAssets") {
+                  doLast {
+                      val repoRoot = project.rootDir.parentFile
+                      val assetsDir = project.file("src/main/assets")
+                      assetsDir.mkdirs()
+
+                      listOf("index.html", "manifest.webmanifest", "icon.png").forEach { name ->
+                          val src = repoRoot.resolve(name)
+                          if (src.exists()) {
+                              src.copyTo(assetsDir.resolve(name), overwrite = true)
+                          }
+                      }
+
+                      val index = assetsDir.resolve("index.html")
+                      if (index.exists()) {
+                          var html = index.readText()
+                          if (!html.contains("__TERRA_LOCAL_APP__=true")) {
+                              html = html.replaceFirst(
+                                  "<body>",
+                                  "<body><script>window.__TERRA_LOCAL_APP__=true;</script>"
+                              )
+                          }
+                          html = html.replace(
+                              "if('serviceWorker' in navigator && location.protocol!=='file:')",
+                              "if(!window.__TERRA_LOCAL_APP__ && 'serviceWorker' in navigator && location.protocol!=='file:')"
+                          )
+                          index.writeText(html)
+                      }
+                  }
+              }
+
+              tasks.named("preBuild").configure {
+                  dependsOn("syncTerraWebAssets")
+              }
+          }
+
+          dependencies {
+              implementation("androidx.webkit:webkit:1.14.0")
+          }
+          EOF
+
+          cat > android/app/proguard-rules.pro <<'EOF'
+          # Terra Serenada v1.0.0
+          EOF
+
+          cat > android/app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:allowBackup="true"
+                  android:icon="@drawable/icon"
+                  android:label="@string/app_name"
+                  android:roundIcon="@drawable/icon"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.TerraSerenada">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > android/app/src/main/res/values/strings.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Terra Serenada</string>
+          </resources>
+          EOF
+
+          cat > android/app/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.TerraSerenada" parent="android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+              </style>
+          </resources>
+          EOF
+
+          cp icon.png android/app/src/main/res/drawable/icon.png
+
+          cat > android/app/src/main/java/com/terra/serenada/MainActivity.java <<'EOF'
+          package com.terra.serenada;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.view.Window;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          import androidx.webkit.WebViewAssetLoader;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+              private ValueCallback<Uri[]> filePathCallback;
+              private static final int FILE_CHOOSER_REQUEST = 1001;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+                  webView = new WebView(this);
+                  setContentView(webView);
+
+                  WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
+                          .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                          .build();
+
+                  webView.getSettings().setJavaScriptEnabled(true);
+                  webView.getSettings().setDomStorageEnabled(true);
+                  webView.getSettings().setDatabaseEnabled(true);
+                  webView.getSettings().setAllowFileAccess(false);
+                  webView.getSettings().setAllowContentAccess(true);
+                  webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(
+                              WebView view,
+                              WebResourceRequest request) {
+                          return assetLoader.shouldInterceptRequest(request.getUrl());
+                      }
+                  });
+
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public boolean onShowFileChooser(
+                              WebView view,
+                              ValueCallback<Uri[]> callback,
+                              FileChooserParams params) {
+                          if (filePathCallback != null) {
+                              filePathCallback.onReceiveValue(null);
+                          }
+                          filePathCallback = callback;
+
+                          try {
+                              Intent intent = params.createIntent();
+                              startActivityForResult(intent, FILE_CHOOSER_REQUEST);
+                              return true;
+                          } catch (Exception e) {
+                              filePathCallback = null;
+                              return false;
+                          }
+                      }
+                  });
+
+                  webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  if (requestCode == FILE_CHOOSER_REQUEST) {
+                      Uri[] results = null;
+                      if (resultCode == RESULT_OK && data != null) {
+                          results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                      }
+                      if (filePathCallback != null) {
+                          filePathCallback.onReceiveValue(results);
+                          filePathCallback = null;
+                      }
+                  }
+                  super.onActivityResult(requestCode, resultCode, data);
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+
+              @Override
+              protected void onDestroy() {
+                  if (webView != null) {
+                      webView.destroy();
+                  }
+                  super.onDestroy();
+              }
+          }
+          EOF
+
+          cp -r android/app/src/main/assets/. /tmp/terra-assets-backup/ 2>/dev/null || true
+          mkdir -p android/app/src/main/assets
+          cp index.html android/app/src/main/assets/index.html
+          cp manifest.webmanifest android/app/src/main/assets/manifest.webmanifest
+          cp icon.png android/app/src/main/assets/icon.png
+
+      - name: Build debug APK
+        run: gradle -p android assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Terra-Serenada-v1.0.0-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
