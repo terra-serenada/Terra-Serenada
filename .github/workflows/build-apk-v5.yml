@@ -136,7 +136,16 @@ jobs:
 
           cat > android/app/src/main/res/values/styles.xml <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
-          <resources><style name="Theme.TerraSerenada" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:fontFamily">sans</item></style></resources>
+          <resources>
+              <style name="Theme.TerraSerenada" parent="android:style/Theme.Material.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:statusBarColor">#101712</item>
+                  <item name="android:navigationBarColor">#101712</item>
+                  <item name="android:windowLightNavigationBar">false</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+              </style>
+          </resources>
           XML
 
           cp icon.png android/app/src/main/res/drawable/icon.png
