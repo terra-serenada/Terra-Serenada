@@ -9,7 +9,7 @@ on:
       - "index.html"
       - "manifest.webmanifest"
       - "icon.png"
-      - ".github/workflows/build-apk-v5.yml"
+      - ".github/workflows/build-apk-v6.yml"
 
 permissions:
   contents: read
