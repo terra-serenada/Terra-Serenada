@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Terra Serenada</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#4f823d">
+<meta name="theme-color" content="#0d120d">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
 :root{
   color-scheme: dark;
@@ -119,8 +119,6 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 /* Terra Serenada — Inhabitants */
 .page{display:none}.page.active{display:block}.inhabitant-list{display:flex;flex-direction:column;gap:9px}.inhabitant-card{border:1px solid var(--border);border-radius:17px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}.inhabitant-summary{display:flex;align-items:center;gap:10px;padding:10px 12px;min-height:66px}.inhabitant-thumb{width:54px;height:54px;border-radius:14px;overflow:hidden;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);display:grid;place-items:center}.inhabitant-thumb img{width:100%;height:100%;object-fit:cover}.inhabitant-copy{min-width:0;flex:1}.inhabitant-name{font-size:15px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.inhabitant-meta{font-size:12px;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.inhabitant-open{width:36px;height:36px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);color:var(--accent);font-size:22px;display:grid;place-items:center}.inhabitant-detail{display:none;padding:14px 15px 16px;border-top:1px solid var(--border)}.inhabitant-card.is-open .inhabitant-detail{display:block}.inhabitant-detail-head{display:flex;gap:12px;align-items:flex-start}.inhabitant-detail-photo{width:88px;height:88px;border-radius:16px;object-fit:cover;border:1px solid var(--border);background:var(--surface2)}.inhabitant-detail-title{font-size:18px;font-weight:800}.inhabitant-detail-sub{font-size:12px;color:var(--muted);margin-top:4px}.inhabitant-section{margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}.inhabitant-section-title{font-size:13px;font-weight:800}.observation-list{display:grid;gap:8px;margin-top:9px}.observation-item{padding:9px 10px;background:var(--surface2);border-radius:11px}.observation-date{font-size:10px;color:var(--muted);font-weight:700}.observation-title{font-size:12px;font-weight:750;margin-top:2px}.observation-detail{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4}.tag-list{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.tag-chip{background:var(--accent2);color:var(--accent);border-radius:999px;padding:5px 8px;font-size:10px;font-weight:750}.inhabitant-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.inhabitant-actions button{font-size:12px}.tag-picker{display:grid;gap:7px;margin-top:8px}.tag-option{display:flex;align-items:center;gap:9px;padding:9px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:11px}.tag-option input{width:19px;height:19px;flex:0 0 auto;accent-color:var(--accent)}
 
-
-@media (prefers-color-scheme: light){:root{color-scheme:light;--bg:#f2f6ef;--surface:#ffffff;--surface2:#edf3e9;--text:#1d261d;--muted:#687366;--border:#d7e0d3;--accent:#4f823d;--accent-dark:#37632c;--accent2:#e4efdf;--danger:#b84b42;--shadow:0 8px 28px rgba(24,40,18,.08);--nav:rgba(255,255,255,.94)}}
 
 /* v1.0.3 final visual concept */
 .garden-cover-card{padding:0!important;overflow:hidden;position:relative}.garden-cover{aspect-ratio:16/8.8;margin:0;border:0;border-radius:0;position:relative;overflow:hidden;background:linear-gradient(135deg,var(--accent2),var(--surface2));cursor:pointer}.garden-cover::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.02) 25%,rgba(0,0,0,.75) 100%);pointer-events:none}.garden-cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.garden-cover-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:42px}.garden-cover-overlay{position:absolute;z-index:2;left:16px;right:16px;bottom:16px;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.55)}.garden-cover-overlay .hero-title{font-size:24px}.garden-cover-overlay .hero-sub{color:rgba(255,255,255,.9);font-size:12px}.garden-cover-overlay .hero-date{color:rgba(255,255,255,.8);font-size:11px;margin-top:6px}.garden-cover-menu{position:absolute;z-index:5;right:10px;top:10px;width:155px;display:none;flex-direction:column;gap:5px}.garden-cover-menu.show{display:flex}.garden-cover-menu button{width:100%;text-align:left;background:rgba(15,20,15,.92);color:#fff;border-color:rgba(255,255,255,.18);backdrop-filter:blur(10px)}.garden-cover-card .dashboard-grid{padding:10px 12px 12px}.garden-cover-card>.section-title,.garden-cover-card>.attention-list,.garden-cover-card>.dashboard-list{margin-left:12px;margin-right:12px}.garden-cover-card>.section-title{margin-top:8px}.garden-cover-card>.dashboard-list{margin-bottom:12px}
@@ -242,7 +240,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
     <button class="secondary" id="exportOpen">📊 Ekspor data CSV</button>
     <button class="secondary" id="exportHarvestOpen">🧺 Ekspor catatan panen</button>
     <button class="secondary" id="backupOpen">💾 Backup semua data</button>
-    <button class="secondary" id="themeBtn" type="button">🌗 Tema mengikuti HP</button>
+    <div class="secondary" aria-label="Tema aplikasi">🌙 Mode gelap · default</div>
     <button class="secondary" id="installHelp">📱 Cara pasang di layar utama</button>
   </div><div class="actions"><button class="secondary" id="settingsClose">Tutup</button></div></div></div>
 <div class="modal" id="groupModal"><div class="card modalbox form"><h2 id="groupFormTitle">🌱 Tanam Susulan</h2>
@@ -936,7 +934,6 @@ $('restoreOpen').onclick=()=>{ $('settingsModal').classList.remove('show'); $('r
 $('backupOpen').onclick=()=>{$('backupBtn').click();showToast('Backup JSON dibuat');};
 $('exportOpen').onclick=()=>{$('exportBtn').click();showToast('CSV dibuat');};
 $('exportHarvestOpen').onclick=()=>{exportHarvests();showToast('CSV panen dibuat')};
-$('themeBtn').onclick=()=>showToast('🌗 Tema mengikuti pengaturan tampilan HP');
 $('installHelp').onclick=()=>{showToast('Di Chrome: menu ⋮ → Tambahkan ke layar utama');};
 function showPage(n){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));const map={home:'pageHome',plants:'pagePlants',inhabitants:'pageInhabitants'};$(map[n]||'pageHome').classList.add('active');document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.nav===n));window.scrollTo({top:0,behavior:'smooth'});$('fabAdd').style.display=n==='inhabitants'?'block':(n==='plants'?'block':'none');$('fabAdd').setAttribute('aria-label',n==='inhabitants'?'Tambah Inhabitant':'Tambah tanaman');$('fabAdd').onclick=()=>n==='inhabitants'?openInhabitantModal():openForm();}
 
