@@ -875,12 +875,49 @@ $('attentionCancel').onclick=closeAttentionModal;$('attentionModal').onclick=e=>
 $('search').oninput=render;$('filter').onchange=render;
 $('exportBtn').onclick=()=>{const head=['Nama','Varietas','Pola Siklus','Estimasi Panen (hari)','Kelompok Tanam','Catatan'];const rows=data.map(x=>{const gs=Array.isArray(x.plantingGroups)?x.plantingGroups:[];const summary=gs.map(g=>`${g.date} · ${g.qty} tanaman · ${(groupLocations(g).join(' / ')||'Lokasi belum diatur')} · ${groupStatusLabel(g.status)}`).join(' | ');return [x.name,x.variety,cycleLabel(x.cycleType),x.harvestDays,summary,x.note]});const csv=[head,...rows].map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='catatan-kebun.csv';a.click();URL.revokeObjectURL(a.href)};
 function exportHarvests(){const head=['Tanggal Panen','Tanaman','Jumlah','Satuan','Kualitas','Catatan'];const rows=harvests.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(h=>[h.date,plantName(h.plantId),h.qty,h.unit,h.quality,h.note]);const csv=[head,...rows].map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='catatan-panen.csv';a.click();URL.revokeObjectURL(a.href)}
-$('backupBtn').onclick=()=>{const blob=new Blob([JSON.stringify({version:12,plants:data,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='backup-terra-serenada.json';a.click();URL.revokeObjectURL(a.href)};
+async function buildBackupJson(){
+  const payload={version:13,plants:data,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings,savedAt:new Date().toISOString()};
+  return JSON.stringify(payload,null,2);
+}
+window.__terraBackupSaved=(ok)=>{showToast(ok?'💾 Backup tersimpan':'⚠️ Backup dibatalkan')};
+$('backupBtn').onclick=async()=>{
+  try{
+    const json=await buildBackupJson();
+    if(window.AndroidBridge&&typeof window.AndroidBridge.saveBackup==='function'){
+      window.AndroidBridge.saveBackup('backup-terra-serenada.json',json);
+      return;
+    }
+    const blob=new Blob([json],{type:'application/json;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='backup-terra-serenada.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    showToast('💾 Backup JSON dibuat');
+  }catch(err){console.error(err);showToast('⚠️ Backup gagal dibuat')}
+};
 $('restoreModal').onclick=e=>{if(e.target.id==='restoreModal')$('restoreModal').classList.remove('show')};
 $('restoreCancel').onclick=()=>$('restoreModal').classList.remove('show');
 // Long-press backup button opens restore dialog for a mobile-friendly backup workflow.
 let pressTimer;$('backupBtn').addEventListener('pointerdown',()=>{pressTimer=setTimeout(()=>$('restoreModal').classList.add('show'),700)});['pointerup','pointerleave','pointercancel'].forEach(ev=>$('backupBtn').addEventListener(ev,()=>clearTimeout(pressTimer)));
-$('restoreGo').onclick=()=>{const f=$('restoreFile').files[0];if(!f){showToast('Pilih file JSON dulu');return}const r=new FileReader();r.onload=()=>{try{const incoming=JSON.parse(r.result);if(Array.isArray(incoming)){data=incoming;harvests=[];gardenEvents=[];attentions=[];inhabitants=[];beds=[];}else if(incoming&&Array.isArray(incoming.plants)){data=incoming.plants;harvests=Array.isArray(incoming.harvests)?incoming.harvests:[];gardenEvents=Array.isArray(incoming.gardenEvents)?incoming.gardenEvents:[];attentions=Array.isArray(incoming.attentions)?incoming.attentions:[];inhabitants=Array.isArray(incoming.inhabitants)?incoming.inhabitants:[];beds=Array.isArray(incoming.beds)?incoming.beds:[];gardenSettings=incoming.gardenSettings&&Number(incoming.gardenSettings.waterDefaultEvery)>0?{waterDefaultEvery:Number(incoming.gardenSettings.waterDefaultEvery)}:{waterDefaultEvery:3};}else throw new Error();normalizeBedsState();if(save()){$('restoreModal').classList.remove('show');showToast('Backup berhasil dipulihkan')}}catch{showToast('File backup tidak valid')}};r.readAsText(f)};
+function markBackupPhotosDirty(list){
+  for(const item of (Array.isArray(list)?list:[])){
+    if(item.photo){item.photoRef='';item._photoDirty=true}
+    for(const e of (Array.isArray(item.events)?item.events:[])){if(e.photo){e.photoRef='';e._photoDirty=true}}
+  }
+}
+$('restoreGo').onclick=async()=>{
+  const f=$('restoreFile').files[0];
+  if(!f){showToast('Pilih file JSON dulu');return}
+  try{
+    const incoming=JSON.parse(await f.text());
+    if(Array.isArray(incoming)){
+      data=incoming;harvests=[];gardenEvents=[];attentions=[];inhabitants=[];beds=[];
+    }else if(incoming&&Array.isArray(incoming.plants)){
+      data=incoming.plants;harvests=Array.isArray(incoming.harvests)?incoming.harvests:[];gardenEvents=Array.isArray(incoming.gardenEvents)?incoming.gardenEvents:[];attentions=Array.isArray(incoming.attentions)?incoming.attentions:[];inhabitants=Array.isArray(incoming.inhabitants)?incoming.inhabitants:[];beds=Array.isArray(incoming.beds)?incoming.beds:[];gardenSettings=incoming.gardenSettings&&Number(incoming.gardenSettings.waterDefaultEvery)>0?{waterDefaultEvery:Number(incoming.gardenSettings.waterDefaultEvery)}:{waterDefaultEvery:3};
+    }else throw new Error();
+    markBackupPhotosDirty(data);markBackupPhotosDirty(inhabitants);normalizeBedsState();
+    render();
+    if(storageReady&&db){await persistToIDB();await loadFromIDB();}else if(!save())throw new Error();
+    $('restoreModal').classList.remove('show');showToast('💾 Backup berhasil dipulihkan');
+  }catch(err){console.error(err);showToast('⚠️ File backup tidak valid atau gagal dipulihkan')}
+};
 
 async function requestNotifications(){if(!('Notification' in window)){showToast('Browser ini tidak mendukung notifikasi');return false}const p=await Notification.requestPermission();if(p==='granted'){showToast('Notifikasi diaktifkan');scheduleNotifications();return true}showToast('Izin notifikasi belum diberikan');return false}
 function scheduleNotifications(){const reminders=[];const now=new Date();data.forEach(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(g=>(g.status||'active')==='active');gs.forEach(g=>{const hd=groupHarvestDate(x,g);if(hd){const diff=Math.ceil((new Date(hd+'T00:00:00')-now)/86400000);if(diff<=3)reminders.push(`🧺 ${x.name}: ${diff<=0?'cek panen hari ini':`panen sekitar ${diff} hari lagi`}`)}});if(x.lastWater){const due=daysBetween(x.lastWater,now);if(due>=waterInterval(x))reminders.push(`💧 ${x.name}: waktunya menyiram`);}});$('reminderSummary').textContent=reminders.length?reminders.slice(0,3).join(' · '):'Tidak ada pengingat mendesak.';if('Notification' in window&&Notification.permission==='granted'&&reminders.length){const key='garden-last-notify';const stamp=today();if(localStorage.getItem(key)!==stamp){new Notification('Terra Serenada',{body:reminders.slice(0,2).join('\n'),icon:'icon.png'});localStorage.setItem(key,stamp)}}}
