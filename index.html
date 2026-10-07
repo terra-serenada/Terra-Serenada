@@ -842,10 +842,10 @@ function plantThumbnail(item){
 function growthStoryEvents(item){
   const events=[];
   const groups=(Array.isArray(item.plantingGroups)?item.plantingGroups:[]).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)));
-  groups.forEach((g,i)=>events.push({date:g.date,sort:`${g.date}T00:00:00`,icon:'🌱',label:i===0?'Penanaman':'Tanam susulan',detail:`${Number(g.qty||0)} tanaman${groupLocations(g).length?' · '+groupLocations(g).join(' · '):''}`}));
-  if(!groups.length) events.push({date:item.date,sort:`${item.date}T00:00:00`,icon:'🌱',label:'Penanaman',detail:item.qty?`${item.qty} tanaman`:'Tanaman mulai dicatat'});
+  groups.forEach((g,i)=>events.push({date:g.date,sort:`${g.date}T00:00:00`,icon:'🌱',label:i===0?'Penanaman':'Tanam susulan',detail:`${Number(g.qty||0)} tanaman${groupLocations(g).length?' · '+groupLocations(g).join(' · '):''}`,photos:[],inhabitantTags:[]}));
+  if(!groups.length) events.push({date:item.date,sort:`${item.date}T00:00:00`,icon:'🌱',label:'Penanaman',detail:item.qty?`${item.qty} tanaman`:'Tanaman mulai dicatat',photos:[],inhabitantTags:[]});
   (Array.isArray(item.events)?item.events:[]).forEach(e=>{const photos=Array.isArray(e.photos)&&e.photos.length?e.photos:(e.photo?[e.photo]:[]);let icon=e.type==='flowering'?'🌼':e.type==='photo'?'📷':e.type==='pest'?'🐛':'🌿';events.push({date:e.date,sort:`${e.date}T${e.createdAt||'12:00:00'}`,icon,label:e.label||'Perkembangan',detail:e.note||'',photos,inhabitantTags:e.inhabitantTags||[]})});
-  harvests.filter(h=>h.plantId===item.id).forEach(h=>events.push({date:h.date,sort:`${h.date}T${h.createdAt||'12:00:00'}`,icon:'🧺',label:'Panen',detail:`${String(h.qty)} ${h.unit||'kg'}${h.quality?` · kualitas ${h.quality.toLowerCase()}`:''}${h.note?` · ${h.note}`:''}`}));
+  harvests.filter(h=>h.plantId===item.id).forEach(h=>events.push({date:h.date,sort:`${h.date}T${h.createdAt||'12:00:00'}`,icon:'🧺',label:'Panen',detail:`${String(h.qty)} ${h.unit||'kg'}${h.quality?` · kualitas ${h.quality.toLowerCase()}`:''}${h.note?` · ${h.note}`:''}`,photos:Array.isArray(h.photos)?h.photos:(h.photo?[h.photo]:[]),inhabitantTags:[]}));
   events.sort((a,b)=>a.sort.localeCompare(b.sort));return events;
 }
 function growthStoryStatus(item){const groups=(Array.isArray(item.plantingGroups)?item.plantingGroups:[]);if(item.cycleType==='permanent')return ['🌳 Perjalanan masih berlanjut','Tanaman permanen tetap menjadi bagian dari kebun.'];if(item.cycleType==='once'&&groups.length&&groups.every(g=>['completed','failed'].includes(g.status||'active'))){return ['🌾 Siklus tanaman selesai','Kelompok tanam yang tercatat sudah berakhir.'];}return ['🌿 Perjalanan masih berlanjut','Tanaman ini masih aktif dan terus dipantau.'];}
@@ -863,7 +863,7 @@ function openGrowthStory(id){
   try{
     const groups=Array.isArray(x.plantingGroups)?x.plantingGroups:[];
     const age=groups.length?Math.max(...groups.map(groupAge)):daysBetween(x.date);
-    const events=growthStoryEvents(x);
+    const events=growthStoryEvents(x).map(e=>({...e,photos:Array.isArray(e.photos)?e.photos:[],inhabitantTags:Array.isArray(e.inhabitantTags)?e.inhabitantTags:[]}));
     const status=growthStoryStatus(x);
     body.innerHTML=`<div class="growth-story-head"><div class="growth-story-name">${esc(x.name||'Tanaman')}</div><div class="growth-story-meta">${x.variety?`${esc(x.variety)} · `:''}${age} hari</div></div><div class="growth-story-section-title">PERJALANAN TANAMAN</div>${events.length?`<div class="growth-story-timeline">${events.map((e,i)=>`<div class="growth-story-event"><div class="growth-story-dot">${e.icon}</div><div class="growth-story-card"><div class="growth-story-date">${fmt(e.date)}</div><div class="growth-story-label">${esc(e.label)}</div>${e.detail?`<div class="growth-story-detail">${esc(e.detail)}</div>`:''}${e.inhabitantTags?.length?`<div class="tag-list">${inhabitantNames(e.inhabitantTags).map(n=>`<span class="tag-chip">${esc(n)}</span>`).join('')}</div>`:''}${e.photos?.length?`<div class="growth-story-photo-grid">${e.photos.map((p,j)=>`<img class="growth-story-photo" src="${p}" alt="${esc(e.label)} ${j+1}" data-story-event="${i}" data-story-index="${j}">`).join('')}</div>`:''}</div></div>`).join('')}</div>`:'<div class="growth-story-empty">Belum ada perjalanan yang tercatat.</div>'}<div class="growth-story-end"><b>${status[0]}</b><div>${status[1]}</div></div>`;
     body.querySelectorAll('[data-story-event]').forEach(img=>img.onclick=()=>openStoryLightbox(events,Number(img.dataset.storyEvent),Number(img.dataset.storyIndex)));
