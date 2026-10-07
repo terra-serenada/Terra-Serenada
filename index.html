@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Terra Serenada</title>
+<!-- v1.0.6 photo journey persistence fix -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d120d">
 <meta name="mobile-web-app-capable" content="yes">
@@ -537,7 +538,30 @@ async function prepareStateForDB(){
       for(let j=0;j<p.events.length;j++){
         const e=p.events[j],eq=q.events[j];
         if(!eq)continue;
-        await takePhoto(e,eq,'photo','plant-event');
+        // Journey events can contain multiple photos. Keep the photo blobs in IndexedDB
+        // and store only their stable references in the state object.
+        const livePhotos=Array.isArray(e.photos)&&e.photos.length?e.photos.filter(Boolean):(e.photo?[e.photo]:[]);
+        const oldRefs=Array.isArray(e.photoRefs)?e.photoRefs.filter(Boolean):[];
+        const dirty=e._photoDirty===true;
+        const refs=oldRefs.slice(0,livePhotos.length);
+        for(let k=0;k<livePhotos.length;k++){
+          if(!refs[k])refs[k]=`photo-${makeId('photo')}`;
+          if(dirty||!oldRefs[k]){
+            let blob=null;
+            const src=String(livePhotos[k]||'');
+            if(src.startsWith('data:image/'))blob=dataUrlToBlob(src);
+            else if(src.startsWith('blob:')||src.startsWith('http')){try{const r=await fetch(src);blob=await r.blob();}catch{}}
+            if(blob)photos.push({ref:refs[k],blob,kind:'plant-event'});
+          }
+        }
+        e.photoRefs=refs;
+        e.photoRef=refs[0]||'';
+        e.photo=livePhotos[0]||'';
+        e._photoDirty=false;
+        eq.photoRefs=refs;
+        eq.photoRef=refs[0]||'';
+        eq.photo='';
+        eq.photos=[];
         eq._photoDirty=undefined;
       }
     }
@@ -567,8 +591,29 @@ async function persistToIDB(){
   return true;
 }
 async function hydratePhotoObjects(){
-  const load=async(obj)=>{if(!obj)return;if(obj.photoRef&&!obj.photo){try{const blob=await idbGet(DB_PHOTOS,obj.photoRef);if(blob)obj.photo=await blobToDataUrl(blob);}catch{}}
-    if(Array.isArray(obj.events))for(const e of obj.events)await load(e);};
+  const load=async(obj)=>{
+    if(!obj)return;
+    // New journey-photo storage: restore the complete photos[] array from photoRefs[].
+    if(Array.isArray(obj.photoRefs)&&obj.photoRefs.length){
+      const restored=[];
+      for(const ref of obj.photoRefs){
+        try{const blob=await idbGet(DB_PHOTOS,ref);if(blob)restored.push(await blobToDataUrl(blob));}catch{}
+      }
+      if(restored.length){
+        obj.photos=restored;
+        obj.photo=restored[0]||''; // backwards-compatible first-photo field
+      }
+    }else if(obj.photoRef&&!obj.photo){
+      // Legacy single-photo records.
+      try{const blob=await idbGet(DB_PHOTOS,obj.photoRef);if(blob)obj.photo=await blobToDataUrl(blob);}catch{}
+    }else if(Array.isArray(obj.photos)&&obj.photos.length&&!obj.photo){
+      // Older v1.0.6 records may already contain journey photos[] directly in state.
+      // Keep the first one visible; the next save migrates it into photoRefs[]/IndexedDB.
+      obj.photo=obj.photos[0]||'';
+      obj._photoDirty=true;
+    }
+    if(Array.isArray(obj.events))for(const e of obj.events)await load(e);
+  };
   for(const p of data)await load(p);for(const x of inhabitants)await load(x);
 }
 async function migrateLegacyToIDB(){
@@ -828,7 +873,7 @@ function plantTimeline(item){
   const events=groups.map((g,i)=>({date:g.date,sort:g.date+'T00:00:00',icon:'🌱',label:i===0?'Ditanam':'Tanam susulan',detail:`${Number(g.qty||0)} tanaman${groupLocations(g).length?' · '+groupLocations(g).join(' · '):''}`}));
   if(!events.length) events.push({date:item.date,sort:item.date+'T00:00:00',icon:'🌱',label:'Ditanam',detail:item.qty?`${item.qty} tanaman`:'Tanaman mulai dicatat'});
   if(item.lastWater) events.push({date:item.lastWater,sort:item.lastWater+'T23:59:59',icon:item.lastWaterSource==='Hujan'?'🌧️':'💧',label:'Terakhir mendapat air',detail:item.lastWaterSource||'Dicatat sebagai perawatan terbaru'});
-  (Array.isArray(item.events)?item.events:[]).forEach(e=>{let icon=e.type==='flowering'?'🌼':e.type==='photo'?'📸':e.type==='inhabitant'?'🐾':e.type==='pest'?'🐛':'🌿';events.push({date:e.date,sort:e.date+'T'+(e.createdAt||'12:00:00'),icon,label:e.label||'Perkembangan',detail:e.note||'',photo:e.photo||'',inhabitantTags:e.inhabitantTags||[]});});
+  (Array.isArray(item.events)?item.events:[]).forEach(e=>{let icon=e.type==='flowering'?'🌼':e.type==='photo'?'📸':e.type==='inhabitant'?'🐾':e.type==='pest'?'🐛':'🌿';const photo=e.photo||(Array.isArray(e.photos)&&e.photos[0]||'');events.push({date:e.date,sort:e.date+'T'+(e.createdAt||'12:00:00'),icon,label:e.label||'Perkembangan',detail:e.note||'',photo,inhabitantTags:e.inhabitantTags||[]});});
   harvests.filter(h=>h.plantId===item.id).forEach(h=>events.push({date:h.date,sort:h.date+'T'+(h.createdAt||'12:00:00'),icon:'🧺',label:'Panen',detail:`${String(h.qty)} ${h.unit||'kg'}${h.quality?` · kualitas ${h.quality.toLowerCase()}`:''}${h.note?` · ${h.note}`:''}`}));
   events.sort((a,b)=>a.sort.localeCompare(b.sort));
   const expanded=expandedTimelines.has(item.id);
@@ -1002,7 +1047,10 @@ let pressTimer;$('backupBtn').addEventListener('pointerdown',()=>{pressTimer=set
 function markBackupPhotosDirty(list){
   for(const item of (Array.isArray(list)?list:[])){
     if(item.photo){item.photoRef='';item._photoDirty=true}
-    for(const e of (Array.isArray(item.events)?item.events:[])){if(e.photo){e.photoRef='';e._photoDirty=true}}
+    for(const e of (Array.isArray(item.events)?item.events:[])){
+      if(Array.isArray(e.photos)&&e.photos.length){e.photoRefs=[];e.photoRef='';e._photoDirty=true}
+      else if(e.photo){e.photoRef='';e._photoDirty=true}
+    }
   }
 }
 $('restoreGo').onclick=async()=>{
