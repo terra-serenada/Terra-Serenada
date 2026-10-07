@@ -1032,10 +1032,26 @@ $('exportHarvestOpen').onclick=()=>{exportHarvests();showToast('CSV panen dibuat
 $('installHelp').onclick=()=>{showToast('Di Chrome: menu ⋮ → Tambahkan ke layar utama');};
 function showPage(n){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));const map={home:'pageHome',plants:'pagePlants',inhabitants:'pageInhabitants'};$(map[n]||'pageHome').classList.add('active');document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.nav===n));window.scrollTo({top:0,behavior:'smooth'});$('fabAdd').style.display=n==='inhabitants'?'block':(n==='plants'?'block':'none');$('fabAdd').setAttribute('aria-label',n==='inhabitants'?'Tambah Inhabitant':'Tambah tanaman');$('fabAdd').onclick=()=>n==='inhabitants'?openInhabitantModal():openForm();}
 
-// v1.0.6 FIX — capture the Cerita Pertumbuhan tap before any parent handler.
+// v1.0.6 FIX — detail tanaman lives outside #items, so its delegated handlers must be captured here.
 document.addEventListener('click',e=>{
   const story=e.target.closest?.('#detailStoryBtn[data-story-plant]');
   if(story){e.preventDefault();e.stopPropagation();try{openGrowthStory(story.dataset.storyPlant)}catch(err){console.error(err);showToast('⚠️ Cerita Pertumbuhan gagal dibuka');}return;}
+  const toggle=e.target.closest?.('[data-timeline-toggle]');
+  if(toggle){e.preventDefault();e.stopPropagation();const id=toggle.dataset.timelineToggle;if(expandedTimelines.has(id)) expandedTimelines.delete(id); else expandedTimelines.add(id);openPlantDetail(id);return;}
+  const groupAdd=e.target.closest?.('[data-group-add]');
+  if(groupAdd){e.preventDefault();e.stopPropagation();openGroupModal(groupAdd.dataset.groupAdd);return;}
+  const groupEdit=e.target.closest?.('[data-group-edit]');
+  if(groupEdit){e.preventDefault();e.stopPropagation();openGroupModal(groupEdit.dataset.groupEdit,groupEdit.dataset.groupId);return;}
+  const groupDel=e.target.closest?.('[data-group-del]');
+  if(groupDel){e.preventDefault();e.stopPropagation();deleteGroup(groupDel.dataset.groupDel,groupDel.dataset.groupId);return;}
+  const journey=e.target.closest?.('[data-journey]');
+  if(journey){e.preventDefault();e.stopPropagation();openJourneyModal(journey.dataset.journey);return;}
+  const lesson=e.target.closest?.('[data-lesson]');
+  if(lesson){e.preventDefault();e.stopPropagation();openLessonModal(lesson.dataset.lesson);return;}
+  const attention=e.target.closest?.('[data-attention]');
+  if(attention){e.preventDefault();e.stopPropagation();openAttentionModal(attention.dataset.attention);return;}
+  const harvest=e.target.closest?.('[data-harvest]');
+  if(harvest){e.preventDefault();e.stopPropagation();openHarvestModal(harvest.dataset.harvest);return;}
 }, true);
 
 // Safety fallback: keeps core navigation usable even if a later optional binding fails.
