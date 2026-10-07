@@ -155,6 +155,17 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
     <div class="garden-cover" id="gardenCover"><div class="garden-cover-empty">🌿</div><div class="garden-cover-overlay"><div class="hero-title">Kebun hari ini 🌿</div><div class="hero-sub">Pantau tanaman, umur tanaman, dan perkiraan panen.</div><div class="hero-date" id="gardenCoverDate"></div></div></div>
   </section>
   <section class="card" style="padding:14px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div><b>🔔 Pengingat</b><div class="meta" id="reminderSummary">Belum ada pengingat aktif.</div></div><button class="secondary" id="notifyBtn">Aktifkan notifikasi</button></div></section>
+  <section class="card garden-status-card" id="gardenStatusCard">
+    <div class="garden-status-head"><div><b>🌿 Kondisi Kebun</b><div class="meta">Ringkasan kondisi kebun hari ini.</div></div><div class="garden-status-badge" id="gardenStatusBadge">Terpantau</div></div>
+    <div class="garden-status-grid">
+      <div class="garden-status-item"><b id="statusPlants">0</b><span>Tanaman aktif</span></div>
+      <div class="garden-status-item"><b id="statusWater">0</b><span>Mendapat air ≤ 3 hari</span></div>
+      <div class="garden-status-item"><b id="statusFlower">0</b><span>Sedang berbunga</span></div>
+      <div class="garden-status-item"><b id="statusHarvest">0</b><span>Mendekati panen</span></div>
+      <div class="garden-status-item status-wide"><b id="statusAttention">0</b><span>Perlu perhatian</span></div>
+    </div>
+    <div class="garden-status-insight" id="gardenStatusInsight">Kebun sedang dipantau.</div>
+  </section>
   <section class="stats">
     <div class="stat"><b id="statTotal">0</b><span>Total tanaman</span></div>
     <div class="stat"><b id="statRecent">0</b><span>Ditanam ≤ 7 hari</span></div>
@@ -171,17 +182,6 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
     <div class="section-title" style="margin:12px 0 0"><h2>⚠️ Perlu perhatian</h2><span class="count" id="attentionCount">0</span></div><div class="attention-list" id="attentionList"></div><div class="dashboard-list" id="dashRecentList"></div>
   </section>
 
-  <section class="card garden-status-card" id="gardenStatusCard">
-    <div class="garden-status-head"><div><b>🌿 Kondisi Kebun</b><div class="meta">Ringkasan kondisi kebun hari ini.</div></div><div class="garden-status-badge" id="gardenStatusBadge">Terpantau</div></div>
-    <div class="garden-status-grid">
-      <div class="garden-status-item"><b id="statusPlants">0</b><span>Tanaman aktif</span></div>
-      <div class="garden-status-item"><b id="statusWater">0</b><span>Mendapat air ≤ 3 hari</span></div>
-      <div class="garden-status-item"><b id="statusFlower">0</b><span>Sedang berbunga</span></div>
-      <div class="garden-status-item"><b id="statusHarvest">0</b><span>Mendekati panen</span></div>
-      <div class="garden-status-item status-wide"><b id="statusAttention">0</b><span>Perlu perhatian</span></div>
-    </div>
-    <div class="garden-status-insight" id="gardenStatusInsight">Kebun sedang dipantau.</div>
-  </section>
 
   <section class="card" style="padding:12px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
