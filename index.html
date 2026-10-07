@@ -541,28 +541,19 @@ async function prepareStateForDB(){
         // Journey events can contain multiple photos. Keep the photo blobs in IndexedDB
         // and store only their stable references in the state object.
         const livePhotos=Array.isArray(e.photos)&&e.photos.length?e.photos.filter(Boolean):(e.photo?[e.photo]:[]);
-        const oldRefs=Array.isArray(e.photoRefs)?e.photoRefs.filter(Boolean):[];
-        const dirty=e._photoDirty===true;
-        const refs=oldRefs.slice(0,livePhotos.length);
-        for(let k=0;k<livePhotos.length;k++){
-          if(!refs[k])refs[k]=`photo-${makeId('photo')}`;
-          if(dirty||!oldRefs[k]){
-            let blob=null;
-            const src=String(livePhotos[k]||'');
-            if(src.startsWith('data:image/'))blob=dataUrlToBlob(src);
-            else if(src.startsWith('blob:')||src.startsWith('http')){try{const r=await fetch(src);blob=await r.blob();}catch{}}
-            if(blob)photos.push({ref:refs[k],blob,kind:'plant-event'});
-          }
-        }
-        e.photoRefs=refs;
-        e.photoRef=refs[0]||'';
-        e.photo=livePhotos[0]||'';
-        e._photoDirty=false;
-        eq.photoRefs=refs;
-        eq.photoRef=refs[0]||'';
-        eq.photo='';
-        eq.photos=[];
+        // Journey photos are intentionally kept as compressed Data URLs in the IndexedDB state.
+        // This avoids the Android WebView Blob -> DataURL hydration failure seen in APK v1.0.6.
+        // Catalog photos and inhabitant photos keep the existing Blob/photoRef storage path.
+        eq.photoRefs=[];
+        eq.photoRef='';
+        eq.photos=livePhotos.slice();
+        eq.photo=livePhotos[0]||'';
         eq._photoDirty=undefined;
+        e.photoRefs=[];
+        e.photoRef='';
+        e.photo=livePhotos[0]||'';
+        e.photos=livePhotos.slice();
+        e._photoDirty=false;
       }
     }
   }
@@ -579,7 +570,7 @@ async function prepareStateForDB(){
       }
     }
   }
-  return {state:{version:12,plants,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings,savedAt:new Date().toISOString()},photos};
+  return {state:{version:13,plants,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings,savedAt:new Date().toISOString()},photos};
 }
 async function persistToIDB(){
   if(!db)return false;
@@ -593,7 +584,7 @@ async function persistToIDB(){
 async function hydratePhotoObjects(){
   const load=async(obj)=>{
     if(!obj)return;
-    // New journey-photo storage: restore the complete photos[] array from photoRefs[].
+    // Legacy journey-photo storage: restore photoRefs[] if an older APK still has them. New records keep photos[] directly in state.
     if(Array.isArray(obj.photoRefs)&&obj.photoRefs.length){
       const restored=[];
       for(const ref of obj.photoRefs){
