@@ -129,14 +129,17 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 /* Terra Serenada v1.0.5 — Kondisi Kebun */
 .garden-status-card{padding:14px;margin-bottom:14px}
 .garden-status-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
-.garden-status-badge{font-size:10px;font-weight:800;color:var(--accent);background:var(--accent2);padding:6px 9px;border-radius:999px;white-space:nowrap}
-.garden-status-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:12px}
-.garden-status-item{background:var(--surface2);border-radius:13px;padding:10px}
-.garden-status-item b{display:block;font-size:18px}
-.garden-status-item span{display:block;color:var(--muted);font-size:10px;margin-top:2px}
-.garden-status-insight{margin-top:9px;padding:10px 11px;border-radius:12px;background:var(--accent2);font-size:11px;line-height:1.45}
-.status-wide{grid-column:1/-1}
-@media(min-width:521px){.garden-status-grid{grid-template-columns:repeat(5,1fr)}.status-wide{grid-column:auto}}
+.garden-status-badge{font-size:9px;font-weight:800;color:var(--accent);background:var(--accent2);padding:5px 8px;border-radius:999px;white-space:nowrap;letter-spacing:.25px}
+.garden-status-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:12px;border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.garden-status-item{background:var(--surface2);padding:10px 6px;text-align:center;min-width:0}
+.garden-status-item+.garden-status-item{border-left:1px solid var(--border)}
+.garden-status-item b{display:block;font-size:20px;line-height:1.05}
+.garden-status-item span{display:block;color:var(--muted);font-size:9px;line-height:1.2;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.garden-status-item .status-icon{display:block;font-size:14px;line-height:1;margin-bottom:4px}
+.garden-status-insight{margin-top:10px;padding:9px 10px;border-top:1px solid var(--border);font-size:11px;line-height:1.4;color:var(--muted)}
+.garden-status-insight.good{color:var(--accent)}
+.garden-status-insight.attention{color:#f3c86b}
+@media(max-width:360px){.garden-status-item{padding-left:3px;padding-right:3px}.garden-status-item span{font-size:8px}.garden-status-item b{font-size:18px}}
 
 </style>
 </head>
@@ -156,15 +159,14 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   </section>
   <section class="card" style="padding:14px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div><b>🔔 Pengingat</b><div class="meta" id="reminderSummary">Belum ada pengingat aktif.</div></div><button class="secondary" id="notifyBtn">Aktifkan notifikasi</button></div></section>
   <section class="card garden-status-card" id="gardenStatusCard">
-    <div class="garden-status-head"><div><b>🌿 Kondisi Kebun</b><div class="meta">Ringkasan kondisi kebun hari ini.</div></div><div class="garden-status-badge" id="gardenStatusBadge">Terpantau</div></div>
+    <div class="garden-status-head"><div><b>🌿 Kondisi Kebun</b><div class="meta">Ringkasan kondisi kebun hari ini.</div></div><div class="garden-status-badge" id="gardenStatusBadge">● TERPANTAU</div></div>
     <div class="garden-status-grid">
-      <div class="garden-status-item"><b id="statusPlants">0</b><span>Tanaman aktif</span></div>
-      <div class="garden-status-item"><b id="statusWater">0</b><span>Mendapat air ≤ 3 hari</span></div>
-      <div class="garden-status-item"><b id="statusFlower">0</b><span>Sedang berbunga</span></div>
-      <div class="garden-status-item"><b id="statusHarvest">0</b><span>Mendekati panen</span></div>
-      <div class="garden-status-item status-wide"><b id="statusAttention">0</b><span>Perlu perhatian</span></div>
+      <div class="garden-status-item"><span class="status-icon">🌱</span><b id="statusPlants">0</b><span>Tanaman</span></div>
+      <div class="garden-status-item"><span class="status-icon">🌱</span><b id="statusRecent">0</b><span>Baru ditanam</span></div>
+      <div class="garden-status-item"><span class="status-icon">🧺</span><b id="statusHarvest">0</b><span>Siap panen</span></div>
+      <div class="garden-status-item"><span class="status-icon">📍</span><b id="statusBeds">0</b><span>Lokasi / bed</span></div>
     </div>
-    <div class="garden-status-insight" id="gardenStatusInsight">Kebun sedang dipantau.</div>
+    <div class="garden-status-insight good" id="gardenStatusInsight">✓ Kebun terpantau baik hari ini.</div>
   </section>
   <section class="stats">
     <div class="stat"><b id="statTotal">0</b><span>Total tanaman</span></div>
@@ -818,16 +820,25 @@ function closePlantDetail(){$('plantDetailPage').classList.remove('show');docume
 function renderGardenStatus(){
   const now=new Date();
   const active=data.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(g=>(g.status||'active')==='active'));
-  const watered=active.filter(x=>x.lastWater&&daysBetween(x.lastWater,now)<=3).length;
-  const flowering=active.filter(x=>(Array.isArray(x.events)?x.events:[]).some(e=>e.type==='flower'&&daysBetween(e.date,now)<=14)).length;
-  const nearHarvest=active.filter(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(g=>(g.status||'active')==='active');return gs.some(g=>{const hd=groupHarvestDate(x,g);if(!hd)return false;return Math.ceil((new Date(hd+'T00:00:00')-now)/86400000)<=7})}).length;
+  const recent=active.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(g=>g.date&&daysBetween(g.date,now)<=7)).length;
+  const nearHarvest=active.filter(x=>{
+    const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(g=>(g.status||'active')==='active');
+    return gs.some(g=>{const hd=groupHarvestDate(x,g);if(!hd)return false;return Math.ceil((new Date(hd+'T00:00:00')-now)/86400000)<=7});
+  }).length;
   const attention=getAutomaticAttentions().length+attentions.filter(a=>a.status!=='done').length;
-  $('statusPlants').textContent=active.length; $('statusWater').textContent=watered; $('statusFlower').textContent=flowering; $('statusHarvest').textContent=nearHarvest; $('statusAttention').textContent=attention;
-  const badge=$('gardenStatusBadge'), insight=$('gardenStatusInsight');
-  if(attention>0){badge.textContent='Perlu perhatian';insight.textContent=`Ada ${attention} hal yang perlu diperiksa hari ini.`}
-  else if(nearHarvest>0||flowering>0){badge.textContent='Aktif';insight.textContent=`Kebun aktif: ${flowering} tanaman berbunga${nearHarvest?` dan ${nearHarvest} mendekati panen`:''}.`}
-  else if(active.length){badge.textContent='Terpantau';insight.textContent='Kebun terpantau baik hari ini.'}
-  else{badge.textContent='Belum ada data';insight.textContent='Tambahkan tanaman untuk mulai memantau kondisi kebun.'}
+  const flowering=active.filter(x=>(Array.isArray(x.events)?x.events:[]).some(e=>e.type==='flower'&&daysBetween(e.date,now)<=14)).length;
+  $('statusPlants').textContent=active.length;
+  $('statusRecent').textContent=recent;
+  $('statusHarvest').textContent=nearHarvest;
+  $('statusBeds').textContent=beds.length;
+  const badge=$('gardenStatusBadge'),insight=$('gardenStatusInsight');
+  badge.textContent=attention>0?'● PERLU PERHATIAN':'● TERPANTAU';
+  insight.className='garden-status-insight '+(attention>0?'attention':'good');
+  if(attention>0) insight.textContent=`⚠️ ${attention} hal perlu diperhatikan.`;
+  else if(flowering>0&&nearHarvest>0) insight.textContent=`🌼 ${flowering} tanaman berbunga · 🧺 ${nearHarvest} mendekati panen`;
+  else if(flowering>0) insight.textContent=`🌼 ${flowering} tanaman sedang berbunga.`;
+  else if(nearHarvest>0) insight.textContent=`🧺 ${nearHarvest} tanaman mendekati panen.`;
+  else insight.textContent='✓ Kebun terpantau baik hari ini.';
 }
 
 function render(){
