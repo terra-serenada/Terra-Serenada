@@ -671,12 +671,19 @@ function compressImageDataUrl(dataUrl,maxDim=PHOTO_MAX_DIM,quality=PHOTO_QUALITY
   });
 }
 function compressFile(file){
-  return new Promise(resolve=>{
-    if(!file){resolve('');return}
+  return new Promise((resolve,reject)=>{
+    if(!file){reject(new Error('File foto tidak tersedia'));return}
     const r=new FileReader();
-    r.onload=async()=>resolve(await compressImageDataUrl(r.result));
-    r.onerror=()=>resolve('');
-    r.readAsDataURL(file);
+    r.onload=async()=>{
+      try{
+        const result=await compressImageDataUrl(r.result);
+        if(!result)throw new Error('Foto kosong');
+        resolve(result);
+      }catch(err){reject(err)}
+    };
+    r.onerror=()=>reject(new Error('WebView tidak dapat membaca foto yang dipilih'));
+    r.onabort=()=>reject(new Error('Pembacaan foto dibatalkan'));
+    try{r.readAsDataURL(file)}catch(err){reject(err)}
   });
 }
 async function optimizeStoredPhotos(){
@@ -853,7 +860,7 @@ function closeInhabitantDetail(){$('inhabitantDetailPage').classList.remove('sho
 
 function openJourneyModal(plantId){journeyPlantId=plantId;$('jDate').value=today();$('jType').value='photo';$('jPhoto').value='';$('jNote').value='';$('journeyTags').innerHTML=inhabitants.length?inhabitants.map(i=>`<label class="tag-option"><input type="checkbox" value="${esc(i.id)}"><span>${esc(i.name)}</span></label>`).join(''):'<div class="meta">Belum ada Inhabitant. Tambahkan dulu di halaman Inhabitants.</div>';$('journeyModal').classList.add('show');}
 function closeJourneyModal(){$('journeyModal').classList.remove('show');journeyPlantId=null;}
-function saveJourney(){const x=data.find(a=>a.id===journeyPlantId);const date=$('jDate').value||today();const note=$('jNote').value.trim();const files=[...$('jPhoto').files];if(!x||!date){showToast('Tanaman dan tanggal wajib diisi');return}const tags=[...$('journeyTags').querySelectorAll('input:checked')].map(i=>i.value);const finish=photos=>{const events=Array.isArray(x.events)?x.events:[];const type=$('jType').value;const label=type==='photo'?'Foto perjalanan':type==='pest'?'Hama/Penyakit':'Perkembangan';const makeId=()=>globalThis.crypto&&typeof globalThis.crypto.randomUUID==='function'?globalThis.crypto.randomUUID():`journey-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;const first=photos[0]||'';const ev={id:makeId(),date,type,label,note,photo:first,photos:photos.filter(Boolean),photoRef:first?null:'',_photoDirty:!!first,inhabitantTags:tags,createdAt:new Date().toISOString()};data=data.map(a=>a.id===x.id?{...a,events:[...events,ev]}:a);if(save()){closeJourneyModal();showToast(tags.length?`📖 Perjalanan disimpan · ${tags.length} Inhabitant ditag`:'📖 Perjalanan tanaman disimpan')}};if(files.length){Promise.all(files.map(f=>compressFile(f))).then(finish).catch(()=>showToast('Foto gagal diproses'))}else if(note||tags.length){finish([])}else showToast('Tambahkan foto, keterangan, atau tag Inhabitant')}
+function saveJourney(){const x=data.find(a=>a.id===journeyPlantId);const date=$('jDate').value||today();const note=$('jNote').value.trim();const files=[...$('jPhoto').files];if(!x||!date){showToast('Tanaman dan tanggal wajib diisi');return}const tags=[...$('journeyTags').querySelectorAll('input:checked')].map(i=>i.value);const finish=photos=>{const events=Array.isArray(x.events)?x.events:[];const type=$('jType').value;const label=type==='photo'?'Foto perjalanan':type==='pest'?'Hama/Penyakit':'Perkembangan';const makeId=()=>globalThis.crypto&&typeof globalThis.crypto.randomUUID==='function'?globalThis.crypto.randomUUID():`journey-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;const first=photos[0]||'';const ev={id:makeId(),date,type,label,note,photo:first,photos:photos.filter(Boolean),photoRef:first?null:'',_photoDirty:!!first,inhabitantTags:tags,createdAt:new Date().toISOString()};data=data.map(a=>a.id===x.id?{...a,events:[...events,ev]}:a);if(save()){closeJourneyModal();showToast(tags.length?`📖 Perjalanan disimpan · ${tags.length} Inhabitant ditag`:'📖 Perjalanan tanaman disimpan')}};if(files.length){Promise.all(files.map(f=>compressFile(f))).then(finish).catch(err=>{console.error('Journey photo read error:',err);showToast(err?.message||'Foto gagal dibaca oleh aplikasi')})}else if(note||tags.length){finish([])}else showToast('Tambahkan foto, keterangan, atau tag Inhabitant')}
 
 function openLessonModal(plantId){lessonPlantId=plantId;$('lessonText').value='';$('lessonModal').classList.add('show');$('lessonText').focus();}
 function closeLessonModal(){$('lessonModal').classList.remove('show');lessonPlantId=null;}
