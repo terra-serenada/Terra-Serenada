@@ -837,9 +837,8 @@ function plantTimeline(item){
   return `<div class="plant-timeline"><div class="timeline-title">📖 Perjalanan tanaman</div><div class="timeline">${visible.map(e=>`<div class="timeline-event"><div class="timeline-dot">${e.icon}</div><div class="timeline-content"><div class="timeline-date">${fmt(e.date)}</div><div class="timeline-label">${esc(e.label)}</div>${e.detail?`<div class="timeline-detail">${esc(e.detail)}</div>`:''}${e.inhabitantTags?.length?`<div class="tag-list">${inhabitantNames(e.inhabitantTags).map(n=>`<span class="tag-chip">${esc(n)}</span>`).join('')}</div>`:''}${e.photo?`<img class="journey-photo" src="${e.photo}" alt="Foto perjalanan ${esc(item.name)}">`:''}</div></div>`).join('')}</div>${hiddenCount?`<div class="timeline-more"><button type="button" class="secondary" data-timeline-toggle="${esc(item.id)}">${expanded?'Sembunyikan riwayat lama':`Lihat semua riwayat (${events.length})`}</button></div>`:''}</div>`;
 }
 function plantThumbnail(item){
-  const events=Array.isArray(item.events)?item.events:[];
-  const photos=events.filter(e=>e&&e.photo).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
-  return photos[0]?.photo||item.photo||'';
+  // Foto katalog berdiri sendiri. Foto perjalanan tidak pernah menjadi fallback katalog.
+  return item?.photo||'';
 }
 function growthStoryEvents(item){
   const events=[];
