@@ -125,6 +125,19 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 .plant-list-v5,.inhabitant-list{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}.plant-card-v5,.inhabitant-card{aspect-ratio:1/1!important;border-radius:11px!important;position:relative;overflow:hidden;box-shadow:none!important;border:1px solid var(--border);padding:0!important}.plant-card-v5:not(.is-open) .plant-summary-v5,.inhabitant-card:not(.is-open) .inhabitant-summary{position:absolute;inset:0;width:100%;height:100%;padding:0!important;display:block!important}.plant-card-v5:not(.is-open) .plant-summary-main-v6{position:absolute;inset:0;width:100%;height:100%;display:block!important;padding:0!important}.plant-card-v5:not(.is-open) .plant-thumb-v6,.inhabitant-card:not(.is-open) .inhabitant-thumb{position:absolute;inset:0;width:100%!important;height:100%!important;border:0;border-radius:0}.plant-card-v5:not(.is-open) .plant-thumb-v6 img,.inhabitant-card:not(.is-open) .inhabitant-thumb img{position:absolute;inset:0;width:100%!important;height:100%!important;object-fit:cover;display:block}.plant-card-v5:not(.is-open) .plant-thumb-placeholder-v6,.inhabitant-card:not(.is-open) .inhabitant-thumb span{position:absolute;inset:0;width:100%;height:100%;display:grid;place-items:center;font-size:32px;background:linear-gradient(135deg,var(--surface2),var(--accent2))}.plant-card-v5:not(.is-open) .plant-summary-copy,.inhabitant-card:not(.is-open) .inhabitant-copy{position:absolute;z-index:2;inset:auto 0 0;width:100%;padding:22px 6px 6px;background:linear-gradient(transparent,rgba(0,0,0,.8));color:#fff}.plant-card-v5:not(.is-open) .plant-name-v5,.inhabitant-card:not(.is-open) .inhabitant-name{font-size:10px;line-height:1.15;color:#fff;text-shadow:0 1px 4px #000}.plant-card-v5:not(.is-open) .plant-variety-v5{display:block;font-size:8px;color:rgba(255,255,255,.82);margin-top:2px}.plant-card-v5:not(.is-open) .plant-toggle-v5,.inhabitant-card:not(.is-open) .inhabitant-meta,.inhabitant-card:not(.is-open) .inhabitant-open{display:none}.gallery-add-card{aspect-ratio:1/1;border:1px dashed var(--border);border-radius:11px;background:var(--surface2);color:var(--muted);display:grid;place-items:center;text-align:center;font-size:10px}.gallery-add-card b{display:block;font-size:24px;color:var(--accent)}
 .full-detail-page{position:fixed;inset:0;z-index:40;background:var(--bg);display:none;overflow:auto;padding-bottom:24px}.full-detail-page.show{display:block}.full-detail-top{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--nav);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}.full-detail-top h2{font-size:16px;margin:0;flex:1}.full-detail-back{width:40px;height:40px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);color:var(--text);font-size:22px}.full-detail-body{max-width:900px;margin:auto;padding:14px}.full-detail-photo{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:18px;background:var(--surface2);border:1px solid var(--border)}
 @media(max-width:720px){.plant-list-v5,.inhabitant-list{grid-template-columns:repeat(4,minmax(0,1fr));gap:3px}.garden-cover-overlay .hero-title{font-size:21px}}
+
+/* Terra Serenada v1.0.5 — Kondisi Kebun */
+.garden-status-card{padding:14px;margin-bottom:14px}
+.garden-status-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.garden-status-badge{font-size:10px;font-weight:800;color:var(--accent);background:var(--accent2);padding:6px 9px;border-radius:999px;white-space:nowrap}
+.garden-status-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:12px}
+.garden-status-item{background:var(--surface2);border-radius:13px;padding:10px}
+.garden-status-item b{display:block;font-size:18px}
+.garden-status-item span{display:block;color:var(--muted);font-size:10px;margin-top:2px}
+.garden-status-insight{margin-top:9px;padding:10px 11px;border-radius:12px;background:var(--accent2);font-size:11px;line-height:1.45}
+.status-wide{grid-column:1/-1}
+@media(min-width:521px){.garden-status-grid{grid-template-columns:repeat(5,1fr)}.status-wide{grid-column:auto}}
+
 </style>
 </head>
 <body>
@@ -164,6 +177,18 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
       <div class="dashboard-tile"><b id="dashAttention">0</b><span>Perlu perhatian</span></div>
     </div>
     <div class="section-title" style="margin:12px 0 0"><h2>⚠️ Perlu perhatian</h2><span class="count" id="attentionCount">0</span></div><div class="attention-list" id="attentionList"></div><div class="dashboard-list" id="dashRecentList"></div>
+  </section>
+
+  <section class="card garden-status-card" id="gardenStatusCard">
+    <div class="garden-status-head"><div><b>🌿 Kondisi Kebun</b><div class="meta">Ringkasan kondisi kebun hari ini.</div></div><div class="garden-status-badge" id="gardenStatusBadge">Terpantau</div></div>
+    <div class="garden-status-grid">
+      <div class="garden-status-item"><b id="statusPlants">0</b><span>Tanaman aktif</span></div>
+      <div class="garden-status-item"><b id="statusWater">0</b><span>Mendapat air ≤ 3 hari</span></div>
+      <div class="garden-status-item"><b id="statusFlower">0</b><span>Sedang berbunga</span></div>
+      <div class="garden-status-item"><b id="statusHarvest">0</b><span>Mendekati panen</span></div>
+      <div class="garden-status-item status-wide"><b id="statusAttention">0</b><span>Perlu perhatian</span></div>
+    </div>
+    <div class="garden-status-insight" id="gardenStatusInsight">Kebun sedang dipantau.</div>
   </section>
 
   <section class="card" style="padding:12px;margin-bottom:14px">
@@ -789,6 +814,22 @@ function plantThumbnail(item){
 function openPlantDetail(id){const x=data.find(a=>a.id===id);if(!x)return;const groups=Array.isArray(x.plantingGroups)?x.plantingGroups:[],age=groups.length?Math.max(...groups.map(groupAge)):daysBetween(x.date),totalQty=groups.length?groups.reduce((n,g)=>n+Number(g.qty||0),0):(x.qty||1),hs=groups.filter(g=>(g.status||'active')==='active').map(g=>groupHarvestDate(x,g)).filter(Boolean).sort(),harvest=hs.length?fmt(hs[0]):'-',thumb=plantThumbnail(x);$('plantDetailTitle').textContent=x.name||'Tanaman';$('plantDetailBody').innerHTML=`${thumb?`<img class="full-detail-photo" src="${thumb}" alt="Foto ${esc(x.name)}">`:'<div class="full-detail-photo" style="display:grid;place-items:center;font-size:72px">🌱</div>'}<div class="card form" style="margin-top:12px"><div class="plant-detail-title">${esc(x.name)}${x.variety?` · ${esc(x.variety)}`:''}</div><div class="plant-detail-sub">Pola siklus · ${cycleLabel(x.cycleType)}</div><div class="item-mid"><div class="mini"><span>Umur</span><b>${age} hari</b></div><div class="mini"><span>Jumlah tanaman</span><b>${totalQty}</b></div><div class="mini"><span>Estimasi panen</span><b>${harvest}</b></div></div>${plantingGroupsView(x)}<div class="meta" style="margin-bottom:7px">💧 Air: tiap ${waterInterval(x)} hari${x.waterEvery?' · aturan khusus':' · aturan kebun'}${x.lastWater?` · terakhir ${fmt(x.lastWater)} · ${esc(x.lastWaterSource||'Disiram')}`:' · belum dicatat'}</div>${x.note?`<div class="meta" style="margin-bottom:10px">📝 ${esc(x.note)}</div>`:''}${plantTimeline(x)}${plantLessons(x)}<div class="journey-actions"><button type="button" class="secondary" id="detailWaterBtn">💧 Siram</button><button type="button" class="secondary" id="detailJourneyBtn">📸 Tambah perjalanan</button><button type="button" class="secondary" id="detailLessonBtn">🧠 Tambah pelajaran</button><button type="button" class="secondary" id="detailAttentionBtn">⚠️ Perlu perhatian</button><button type="button" class="secondary" id="detailHarvestBtn">🧺 Catat Panen</button><button type="button" class="danger" id="detailDeleteBtn">Hapus</button></div></div>`;$('plantDetailPage').classList.add('show');document.body.style.overflow='hidden';$('plantDetailEdit').onclick=(e)=>{e.preventDefault();e.stopPropagation();$('plantDetailPage').classList.remove('show');$('plantDetailPage').style.display='none';document.body.style.overflow='';showPage('plants');requestAnimationFrame(()=>{$('plantDetailPage').style.display='';openForm(x)});};$('detailWaterBtn').onclick=()=>{recordPlantWater(id);openPlantDetail(id);render()};$('detailJourneyBtn').onclick=()=>openJourneyModal(id);$('detailLessonBtn').onclick=()=>openLessonModal(id);$('detailAttentionBtn').onclick=()=>openAttentionModal(id);$('detailHarvestBtn').onclick=()=>openHarvestModal(id);$('detailDeleteBtn').onclick=()=>{if(confirm(`Hapus tanaman ${x.name}?`)){data=data.filter(a=>a.id!==id);if(save()){closePlantDetail();render()}}}}
 function closePlantDetail(){$('plantDetailPage').classList.remove('show');document.body.style.overflow=''}
 
+
+function renderGardenStatus(){
+  const now=new Date();
+  const active=data.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(g=>(g.status||'active')==='active'));
+  const watered=active.filter(x=>x.lastWater&&daysBetween(x.lastWater,now)<=3).length;
+  const flowering=active.filter(x=>(Array.isArray(x.events)?x.events:[]).some(e=>e.type==='flower'&&daysBetween(e.date,now)<=14)).length;
+  const nearHarvest=active.filter(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(g=>(g.status||'active')==='active');return gs.some(g=>{const hd=groupHarvestDate(x,g);if(!hd)return false;return Math.ceil((new Date(hd+'T00:00:00')-now)/86400000)<=7})}).length;
+  const attention=getAutomaticAttentions().length+attentions.filter(a=>a.status!=='done').length;
+  $('statusPlants').textContent=active.length; $('statusWater').textContent=watered; $('statusFlower').textContent=flowering; $('statusHarvest').textContent=nearHarvest; $('statusAttention').textContent=attention;
+  const badge=$('gardenStatusBadge'), insight=$('gardenStatusInsight');
+  if(attention>0){badge.textContent='Perlu perhatian';insight.textContent=`Ada ${attention} hal yang perlu diperiksa hari ini.`}
+  else if(nearHarvest>0||flowering>0){badge.textContent='Aktif';insight.textContent=`Kebun aktif: ${flowering} tanaman berbunga${nearHarvest?` dan ${nearHarvest} mendekati panen`:''}.`}
+  else if(active.length){badge.textContent='Terpantau';insight.textContent='Kebun terpantau baik hari ini.'}
+  else{badge.textContent='Belum ada data';insight.textContent='Tambahkan tanaman untuk mulai memantau kondisi kebun.'}
+}
+
 function render(){
   const now=new Date();
   const recent=data.filter(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(g=>(g.status||'active')==='active');return gs.length?Math.min(...gs.map(g=>daysBetween(g.date,now)))<=7:false}).length;
@@ -799,6 +840,7 @@ function render(){
   $('statHarvest').textContent=harvest;
   $('statBeds').textContent=bedCount;
   renderGardenCover();
+  renderGardenStatus();
 
   const arr=filtered();
   $('listCount').textContent=`${arr.length} tanaman`;
