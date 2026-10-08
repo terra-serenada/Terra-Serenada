@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Terra Serenada</title>
-<!-- v1.0.7 Cerita Kehidupan inhabitant -->
+<!-- v1.0.8 Cerita Kehidupan dari Jejak Kehadiran -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d120d">
 <meta name="mobile-web-app-capable" content="yes">
@@ -948,13 +948,17 @@ function growthStoryEvents(item){
 }
 function growthStoryStatus(item){const groups=(Array.isArray(item.plantingGroups)?item.plantingGroups:[]);if(item.cycleType==='permanent')return ['🌳 Perjalanan masih berlanjut','Tanaman permanen tetap menjadi bagian dari kebun.'];if(item.cycleType==='once'&&groups.length&&groups.every(g=>['completed','failed'].includes(g.status||'active'))){return ['🌾 Siklus tanaman selesai','Kelompok tanam yang tercatat sudah berakhir.'];}return ['🌿 Perjalanan masih berlanjut','Tanaman ini masih aktif dan terus dipantau.'];}
 
-function lifeStoryIcon(type){return ({seen:'👀',nesting:'🏠',egg:'🥚',predating:'🍽️',visiting:'🌼',first:'✨',note:'📝'})[type]||'👣';}
+function lifeStoryIcon(type){return ({seen:'👀',nesting:'🏠',egg:'🥚',predating:'🍽️',visiting:'🌼',first:'✨',note:'📝','plant-tag':'🌿'})[type]||'👣';}
+function lifeStoryLabel(e){return e?.type==='plant-tag'?'Terlihat di tanaman':observationLabel(e?.type);}
 function lifeStoryEvents(item){
-  const rows=(Array.isArray(item?.events)?item.events:[]).map(e=>({
+  // Cerita Kehidupan memakai sumber tampilan yang sama persis dengan
+  // "Jejak Kehadiran" pada detail Inhabitant.
+  const rows=inhabitantDerivedEvents(item?.id).map(e=>({
     ...e,
     photos:Array.isArray(e.photos)&&e.photos.length?e.photos:(e.photo?[e.photo]:[]),
-    plantNames:plantNames(e.plantIds)
+    plantNames:Array.isArray(e.plantNames)?e.plantNames:(e.plantId?[plantName(e.plantId)]:[])
   }));
+  // Sama seperti Cerita Pertumbuhan: dibaca sebagai sebuah cerita kronologis.
   rows.sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
   return rows;
 }
@@ -970,7 +974,7 @@ function openLifeStory(id){
   body.innerHTML='<div class="life-story-empty">Memuat cerita kehidupan…</div>';
   try{
     const events=lifeStoryEvents(x);
-    body.innerHTML=`<div class="life-story-head"><div class="life-story-name">📖 ${esc(x.name||'Inhabitant')}</div><div class="life-story-meta">${x.faction?`${esc(x.faction)} · `:''}Status · ${inhabitantStatusLabel(x.status)}</div></div><div class="life-story-section-title">JEJAK KEHADIRAN</div>${events.length?`<div class="life-story-timeline">${events.map((e,i)=>`<div class="life-story-event"><div class="life-story-dot">${lifeStoryIcon(e.type)}</div><div class="life-story-card"><div class="life-story-date">${fmt(e.date)}</div><div class="life-story-label">${esc(observationLabel(e.type))}</div>${e.plantNames?.length?`<div class="tag-list">${e.plantNames.map(n=>`<span class="tag-chip">🌱 ${esc(n)}</span>`).join('')}</div>`:''}${e.note?`<div class="life-story-detail">${esc(e.note)}</div>`:''}${e.photos?.length?`<div class="life-story-photo-grid">${e.photos.map((p,j)=>`<img class="life-story-photo" src="${p}" alt="Jejak ${esc(x.name)} ${j+1}" data-life-event="${i}" data-life-index="${j}">`).join('')}</div>`:''}</div></div>`).join('')}</div>`:'<div class="life-story-empty">Belum ada jejak kehadiran yang tercatat.</div>'}<div class="life-story-end"><b>🌿 Perjalanan masih berlanjut</b><div>Inhabitant ini masih aktif dan terus dipantau.</div></div>`;
+    body.innerHTML=`<div class="life-story-head"><div class="life-story-name">${esc(x.name||'Inhabitant')}</div><div class="life-story-meta">${x.faction?`${esc(x.faction)} · `:''}Status · ${inhabitantStatusLabel(x.status)}</div></div><div class="life-story-section-title">JEJAK KEHADIRAN</div>${events.length?`<div class="life-story-timeline">${events.map((e,i)=>`<div class="life-story-event"><div class="life-story-dot">${lifeStoryIcon(e.type)}</div><div class="life-story-card"><div class="life-story-date">${fmt(e.date)}</div><div class="life-story-label">${esc(lifeStoryLabel(e))}</div>${e.plantNames?.length?`<div class="tag-list">${e.plantNames.map(n=>`<span class="tag-chip">🌱 ${esc(n)}</span>`).join('')}</div>`:''}${e.note?`<div class="life-story-detail">${esc(e.note)}</div>`:''}${e.photos?.length?`<div class="life-story-photo-grid">${e.photos.map((p,j)=>`<img class="life-story-photo" src="${p}" alt="Jejak ${esc(x.name)} ${j+1}" data-life-event="${i}" data-life-index="${j}">`).join('')}</div>`:''}</div></div>`).join('')}</div>`:'<div class="life-story-empty">Belum ada jejak kehadiran yang tercatat.</div>'}<div class="life-story-end"><b>🌿 Perjalanan masih berlanjut</b><div>Inhabitant ini masih aktif dan terus dipantau.</div></div>`;
     body.querySelectorAll('[data-life-event]').forEach(img=>img.onclick=()=>{
       const e=events[Number(img.dataset.lifeEvent)];
       if(!e||!e.photos?.length)return;
