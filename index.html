@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Terra Serenada</title>
-<!-- v3.2 Statistik Kebun + status individu kelompok + unit panen + riwayat kelompok + v1.0.10 Cerita Kehidupan -->
+<!-- Terra Serenada v4.0 — Terra Insight data foundation: Bed profile + water scope + care/problem capture -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d120d">
 <meta name="mobile-web-app-capable" content="yes">
@@ -319,6 +319,31 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 }
 </style>
 
+
+<style id="terra-insight-foundation-4">
+/* Terra Insight Foundation 4.0 — Bed profile, water scope, journey care fields */
+.bed-profile-list{display:grid;gap:10px;margin-top:12px}
+.bed-profile-card{padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:14px}
+.bed-profile-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.bed-profile-name{font-size:14px;font-weight:800}.bed-profile-meta{font-size:10px;color:var(--muted);margin-top:3px}
+.bed-profile-actions{display:flex;gap:6px;flex:0 0 auto}.bed-profile-actions button{padding:7px 9px;font-size:11px}
+.profile-section{margin-top:13px;padding-top:12px;border-top:1px solid var(--border)}
+.profile-section-title{font-size:12px;font-weight:800;margin-bottom:8px}
+.profile-zone-list{display:grid;gap:8px}.profile-zone-card{padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:12px}
+.profile-zone-grid{display:grid;grid-template-columns:1.2fr .8fr .8fr 1fr auto;gap:7px;align-items:end}
+.profile-zone-grid label{display:block;font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:650}
+.profile-zone-grid .zone-field{min-width:0}.profile-zone-remove{width:34px;height:36px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--danger);font-size:16px}
+.profile-hint{font-size:10px;color:var(--muted);line-height:1.4;margin-top:7px}
+.profile-chip-list{display:flex;gap:6px;flex-wrap:wrap}.profile-chip{padding:6px 9px;border-radius:999px;background:var(--accent2);color:var(--accent);font-size:10px;font-weight:750}
+.bed-form-scroll{max-height:62vh;overflow:auto;padding-right:2px}
+.single-select-note{font-size:10px;color:var(--muted);margin-top:6px}
+.journey-extra{display:none}.journey-extra.show{display:block}
+.journey-bed-summary{padding:10px;background:var(--surface2);border-radius:12px;border:1px solid var(--border);font-size:11px;color:var(--muted)}
+.water-scope-list{display:grid;gap:7px;max-height:52vh;overflow:auto}.water-scope-option{display:flex;align-items:center;gap:9px;padding:10px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:11px}.water-scope-option input{width:19px;height:19px;flex:0 0 auto;accent-color:var(--accent)}.water-scope-option span{font-size:12px;font-weight:700}
+.water-scope-summary{margin:8px 0 0;color:var(--muted);font-size:10px;line-height:1.4}
+.attention-scroll{max-height:64vh;overflow:auto;padding-right:2px}
+@media(max-width:720px){.profile-zone-grid{grid-template-columns:1fr 1fr}.profile-zone-grid .zone-name{grid-column:1/-1}.profile-zone-grid .zone-remove-wrap{grid-column:1/-1}.bed-form-scroll{max-height:67vh}}
+</style>
 </head>
 <body>
 <div id="app">
@@ -375,7 +400,10 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
       <div><b>🌿 Aktivitas kebun</b><div class="meta">Catat aktivitas yang berlaku untuk beberapa tanaman sekaligus.</div></div>
     </div>
     <div class="garden-actions">
-      <button class="secondary" id="waterGardenBtn">💧 Siram Kebun</button>
+      <div style="display:flex;gap:6px">
+        <button class="secondary" id="waterGardenBtn" style="flex:1">💧 Siram Kebun</button>
+        <button class="secondary" id="waterScopeBtn" aria-label="Pengaturan Siram Kebun" title="Pengaturan Siram Kebun" style="width:46px;padding:0">⚙️</button>
+      </div>
       <button class="secondary" id="rainGardenBtn">🌧️ Hujan</button>
       <button class="secondary" id="flowerGardenBtn">🌼 Tandai Berbunga</button>
     </div>
@@ -399,7 +427,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
       <div class="field"><label>Estimasi panen (hari)</label><input id="fDays" type="number" min="0" placeholder="Contoh: 75"></div>
       <div class="field full group-first-field" id="initialGroupDateField"><label>🌱 Kelompok tanam pertama · Tanggal *</label><input id="fDate" type="date"></div>
       <div class="field group-first-field" id="initialGroupQtyField"><label>🌱 Kelompok tanam pertama · Jumlah</label><input id="fQty" type="number" min="1" placeholder="Contoh: 8"></div>
-      <div class="field full group-first-field" id="initialGroupBedField"><label>🌱 Kelompok tanam pertama · Lokasi / bed</label><div id="bedChecklist" class="bed-checklist"></div><div class="meta" style="margin-top:6px">Lokasi ini menjadi milik kelompok tanam, bukan tanaman secara umum.</div></div>
+      <div class="field full group-first-field" id="initialGroupBedField"><label>🌱 Kelompok tanam pertama · Lokasi / bed</label><div id="bedChecklist"></div><div id="bedZoneField" style="margin-top:10px;display:none"><label>Zona cahaya</label><select id="fZone"><option value="">Pilih zona cahaya…</option></select><div class="single-select-note">Dipilih hanya bila Bed memiliki lebih dari satu zona cahaya.</div></div><div class="meta" style="margin-top:6px">Satu kelompok tanam hanya berada pada satu Bed.</div></div>
       <div class="field"><label>Aturan air khusus · Siram setiap (hari)</label><input id="fWater" type="number" min="1" max="365" placeholder="Kosong = ikut aturan kebun"></div>
       <div class="field"><label>Jam pengingat</label><input id="fWaterTime" type="time" value="07:00"></div>
       <div class="field full"><label>Foto tanaman</label><input id="fPhoto" type="file" accept="image/*" capture="environment"><div id="photoPreview" style="margin-top:8px"></div></div>
@@ -484,9 +512,16 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 <section class="growth-story-page" id="growthStoryPage"><div class="growth-story-top"><button class="full-detail-back" id="growthStoryBack">‹</button><h2>📖 Cerita Pertumbuhan</h2><div style="width:40px"></div></div><div class="growth-story-body" id="growthStoryBody"></div></section>
 <section class="life-story-page" id="lifeStoryPage"><div class="life-story-top"><button class="full-detail-back" id="lifeStoryBack">‹</button><h2>📖 Cerita Kehidupan</h2><div style="width:40px"></div></div><div class="life-story-body" id="lifeStoryBody"></div></section>
 <div class="photo-lightbox" id="photoLightbox"><button class="photo-lightbox-close" id="photoLightboxClose">✕</button><img id="photoLightboxImg" alt="Foto tanaman"><div class="photo-lightbox-nav"><button id="photoPrev">‹</button><button id="photoNext">›</button></div><div class="photo-lightbox-count" id="photoLightboxCount"></div></div>
-<div class="modal" id="bedsModal"><div class="card modalbox form"><h2>📍 Lokasi / Bed</h2><p class="meta">Daftar bed yang tersedia untuk seluruh tanaman.</p><div id="bedMasterList" class="bed-master-list"></div><div class="actions" style="margin-top:12px"><button type="button" class="secondary" id="addBedBtn">＋ Tambah Bed</button><button type="button" class="secondary" id="bedsClose">Tutup</button></div></div></div>
-<div class="modal" id="bedActionModal"><div class="card modalbox form"><h2 id="bedActionTitle">Kelola Bed</h2><div class="settings-list"><button type="button" class="secondary" id="bedActionEdit">✏️ Ubah nama</button><button type="button" class="danger" id="bedActionDelete">🗑️ Hapus</button></div><div class="actions"><button type="button" class="secondary" id="bedActionCancel">Batal</button></div></div></div>
-<div class="modal" id="bedEditModal"><div class="card modalbox form"><h2 id="bedEditTitle">Tambah Bed</h2><div class="field full"><label>Nama bed *</label><input id="bedNameInput" placeholder="Contoh: Bed Depan"></div><div class="actions"><button type="button" class="secondary" id="bedEditCancel">Batal</button><button type="button" class="primary" id="bedEditSave">Simpan</button></div></div></div>
+<div class="modal" id="bedsModal"><div class="card modalbox form"><h2>📍 Lokasi / Bed</h2><p class="meta">Daftar Bed dan profil lingkungan yang menjadi konteks tanaman.</p><div id="bedMasterList" class="bed-profile-list"></div><div class="actions" style="margin-top:12px"><button type="button" class="secondary" id="addBedBtn">＋ Tambah Bed</button><button type="button" class="secondary" id="bedsClose">Tutup</button></div></div></div>
+<div class="modal" id="bedActionModal"><div class="card modalbox form"><h2 id="bedActionTitle">Kelola Bed</h2><div class="settings-list"><button type="button" class="secondary" id="bedActionEdit">✏️ Profil Bed</button><button type="button" class="danger" id="bedActionDelete">🗑️ Hapus</button></div><div class="actions"><button type="button" class="secondary" id="bedActionCancel">Batal</button></div></div></div>
+<div class="modal" id="bedEditModal"><div class="card modalbox form"><h2 id="bedEditTitle">Profil Bed</h2><div class="bed-form-scroll">
+  <div class="field full"><label>Nama bed *</label><input id="bedNameInput" placeholder="Contoh: Bed Depan"></div>
+  <div class="profile-section"><div class="profile-section-title">☀️ Zona Cahaya</div><div id="bedZonesEditor" class="profile-zone-list"></div><button type="button" class="secondary" id="addBedZoneBtn" style="margin-top:8px">＋ Tambah Zona Cahaya</button><div class="profile-hint">Rentang jam tersedia 06.00–18.00. Satu Bed dapat memiliki beberapa zona bila kondisi cahayanya berbeda.</div></div>
+  <div class="profile-section"><div class="profile-section-title">💧 Indikator Kelembapan</div><div id="bedMoistureChecklist"></div><div class="field full" style="margin-top:9px"><label>Indikator lain</label><input id="bedMoistureOther" placeholder="Contoh: vegetasi tertentu yang dominan"></div><div class="profile-hint">Yang dicatat adalah indikator yang dapat diamati. Terra Insight yang menilai indikasi kelembapannya.</div></div>
+  <div class="profile-section"><div class="profile-section-title">💦 Drainase</div><select id="bedDrainage"><option value="">Belum diatur</option><option value="very-fast">⚡ Sangat cepat</option><option value="fast">💨 Cepat</option><option value="medium">🟢 Sedang</option><option value="slow">🐢 Lambat</option><option value="very-slow">🛑 Sangat lambat</option></select></div>
+  <div class="profile-section"><div class="profile-section-title">🪨 Kondisi Tanah</div><div id="bedSoilChecklist"></div></div>
+</div><div class="actions"><button type="button" class="secondary" id="bedEditCancel">Batal</button><button type="button" class="primary" id="bedEditSave">Simpan</button></div></div></div>
+<div class="modal" id="waterScopeModal"><div class="card modalbox form"><h2>⚙️ Pengaturan Siram Kebun</h2><p class="meta">Bed yang dicentang akan menerima air setiap kali tombol “Siram Kebun” ditekan.</p><div id="waterScopeList" class="water-scope-list" style="margin-top:12px"></div><div class="water-scope-summary">🌧️ Hujan tetap berlaku untuk semua Bed.</div><div class="actions"><button type="button" class="secondary" id="waterScopeCancel">Batal</button><button type="button" class="primary" id="waterScopeSave">Simpan</button></div></div></div>
 <div class="modal" id="settingsModal"><div class="card modalbox form"><h2>Pengaturan</h2>
   <div class="field full"><label>💧 Interval penyiraman default</label><div style="display:flex;align-items:center;gap:8px"><input id="gardenWaterDefault" type="number" min="1" max="365" inputmode="numeric"><span class="meta" style="white-space:nowrap">hari</span></div><div class="meta">Dipakai semua tanaman yang tidak memiliki aturan air khusus.</div></div>
   <div class="actions" style="margin-top:10px"><button class="primary" id="saveWaterSettings">Simpan aturan air</button></div>
@@ -502,7 +537,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   <div class="grid">
     <div class="field"><label>Tanggal tanam *</label><input id="gDate" type="date"></div>
     <div class="field"><label>Jumlah tanaman *</label><input id="gQty" type="number" min="1" placeholder="Contoh: 8"></div>
-    <div class="field full"><label>Lokasi / bed saat ini</label><div id="gBedChecklist" class="bed-checklist"></div></div>
+    <div class="field full"><label>Lokasi / bed saat ini</label><div id="gBedChecklist"></div><div id="gZoneField" style="margin-top:10px;display:none"><label>Zona cahaya</label><select id="gZoneSelect"><option value="">Pilih zona cahaya…</option></select><div class="single-select-note">Dipilih hanya bila Bed memiliki lebih dari satu zona cahaya.</div></div></div>
   </div>
   <div class="meta" id="groupEditStatusNote" style="margin-top:10px">Jumlah awal kelompok tetap. Status individu dicatat melalui tombol Selesai dan Gagal pada kartu kelompok.</div>
   <div class="actions"><button type="button" class="secondary" id="groupCancel">Batal</button><button type="button" class="primary" id="groupSave">Simpan</button></div>
@@ -529,25 +564,36 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   <div id="flowerList" class="flower-list"></div>
   <div class="actions"><button class="secondary" id="flowerCancel">Batal</button><button id="flowerSave">Simpan</button></div>
 </div></div>
-<div class="modal" id="journeyModal"><div class="card modalbox form"><h2 id="journeyTitle">📸 Tambah perjalanan</h2>
+<div class="modal" id="journeyModal"><div class="card modalbox form"><h2 id="journeyTitle">📖 Tambah perjalanan</h2>
   <div class="grid">
     <div class="field"><label>Tanggal</label><input id="jDate" type="date"></div>
-    <div class="field"><label>Jenis</label><select id="jType"><option value="photo">📸 Foto perjalanan</option><option value="note">🌿 Perkembangan</option><option value="pest">🐛 Hama/Penyakit</option></select></div>
+    <div class="field"><label>Jenis</label><select id="jType">
+      <option value="photo">📸 Foto perjalanan</option>
+      <option value="note">🌿 Perkembangan</option>
+      <option value="pruning">✂️ Pemangkasan</option>
+      <option value="support">🪢 Penyangga / Ajir</option>
+      <option value="weeding">🧹 Penyiangan</option>
+      <option value="thinning">🌱 Penjarangan</option>
+    </select></div>
     <div class="field full"><label>Foto</label><input id="jPhoto" type="file" accept="image/*" capture="environment" multiple></div>
+    <div class="field full"><div id="journeyCareFields"></div></div>
     <div class="field full"><label>Tag Inhabitants</label><div id="journeyTags" class="tag-picker"></div><div class="meta">Pilih Inhabitant yang terlibat. Pilihan ini otomatis masuk ke Jejak Kehadiran mereka.</div></div>
     <div class="field full"><label>Keterangan</label><textarea id="jNote" rows="3" placeholder="Apa yang terlihat atau terjadi pada tanaman ini?"></textarea></div>
   </div>
   <div class="actions"><button type="button" class="secondary" id="journeyCancel">Batal</button><button type="button" class="primary" id="journeySave">Simpan perjalanan</button></div>
 </div></div>
-<div class="modal" id="attentionModal"><div class="card modalbox form"><h2>⚠️ Tandai perlu perhatian</h2>
+<div class="modal" id="attentionModal"><div class="card modalbox form"><h2>⚠️ Tandai perlu perhatian</h2><div class="attention-scroll">
   <div class="grid">
     <div class="field full"><label>Tanaman</label><input id="aPlantName" readonly></div>
+    <div class="field"><label>Jenis masalah</label><select id="aProblemType"><option value="pest">🐛 Hama</option><option value="disease">🦠 Penyakit</option><option value="problem">⚠️ Permasalahan</option></select></div>
     <div class="field"><label>Tingkat</label><select id="aPriority"><option value="normal">🟡 Perlu diperiksa</option><option value="urgent">🔴 Mendesak</option></select></div>
+    <div class="field"><label>Bagian tanaman yang terkena</label><select id="aAffectedPart"><option value="leaf">🍃 Daun</option><option value="stem">🌿 Batang / Dahan / Sulur</option><option value="root">🌱 Akar</option><option value="flower">🌸 Bunga</option><option value="fruit">🍅 Buah / Polong</option><option value="shoot">🌱 Pucuk / Tunas</option><option value="whole">🌿 Seluruh tanaman</option><option value="other">📝 Lainnya</option></select></div>
+    <div class="field"><label>Tingkat keparahan</label><select id="aSeverity"><option value="mild">Ringan</option><option value="moderate">Sedang</option><option value="severe">Berat</option></select></div>
     <div class="field"><label>Tanggal</label><input id="aDate" type="date"></div>
-    <div class="field full"><label>Catatan</label><textarea id="aNote" rows="4" placeholder="Apa yang perlu diperiksa atau diperhatikan?"></textarea></div>
+    <div class="field full"><label>Tindakan yang dilakukan</label><textarea id="aAction" rows="3" placeholder="Contoh: dibersihkan manual, bagian rusak dipangkas, diamati kembali…"></textarea></div>
+    <div class="field full"><label>Catatan</label><textarea id="aNote" rows="4" placeholder="Apa yang terlihat atau terjadi pada tanaman ini?"></textarea></div>
   </div>
-  <div class="actions"><button type="button" class="secondary" id="attentionCancel">Batal</button><button type="button" class="primary" id="attentionSave">Simpan perhatian</button></div>
-</div></div>
+</div><div class="actions"><button type="button" class="secondary" id="attentionCancel">Batal</button><button type="button" class="primary" id="attentionSave">Simpan perhatian</button></div></div></div>
 <div class="modal" id="lessonModal"><div class="card modalbox form"><h2>🧠 Pelajaran dari kebun</h2>
   <div class="field"><label>Pelajaran</label><textarea id="lessonText" rows="4" placeholder="Apa yang kamu pelajari dari tanaman ini?"></textarea></div>
   <div class="actions"><button class="secondary" id="lessonCancel">Batal</button><button type="button" class="primary" id="lessonSave">Simpan pelajaran</button></div>
@@ -803,7 +849,7 @@ async function prepareStateForDB(){
       }
     }
   }
-  return {state:{version:13,plants,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings,savedAt:new Date().toISOString()},photos};
+  return {state:{version:15,plants,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings,savedAt:new Date().toISOString()},photos};
 }
 async function persistToIDB(){
   if(!db)return false;
@@ -856,7 +902,7 @@ async function loadFromIDB(){
   attentions=Array.isArray(state.attentions)?state.attentions:[];
   inhabitants=Array.isArray(state.inhabitants)?state.inhabitants:[];
   beds=Array.isArray(state.beds)?state.beds:[];
-  gardenSettings=state.gardenSettings&&Number(state.gardenSettings.waterDefaultEvery)>0?{waterDefaultEvery:Number(state.gardenSettings.waterDefaultEvery),coverPhoto:state.gardenSettings.coverPhoto||''}:{waterDefaultEvery:3,coverPhoto:''};
+  gardenSettings=state.gardenSettings&&Number(state.gardenSettings.waterDefaultEvery)>0?{waterDefaultEvery:Number(state.gardenSettings.waterDefaultEvery),coverPhoto:state.gardenSettings.coverPhoto||'',waterScopeBedIds:Array.isArray(state.gardenSettings.waterScopeBedIds)?state.gardenSettings.waterScopeBedIds:undefined}:{waterDefaultEvery:3,coverPhoto:'',waterScopeBedIds:undefined};
   normalizeBedsState();
   await hydratePhotoObjects();
   render();
@@ -867,7 +913,7 @@ async function initStorage(){
   storageInitPromise=(async()=>{try{normalizeBedsState();db=await openDB();const existing=await idbGet(DB_STATE,'current');if(!existing){await persistToIDB();}else{await loadFromIDB();}storageReady=true;showToast('💾 Penyimpanan perangkat aktif');}catch(err){storageReady=false;console.warn('IndexedDB tidak tersedia, memakai penyimpanan cadangan.',err);showToast('💾 Penyimpanan perangkat tidak tersedia; mode cadangan aktif');}return storageReady;})();
   return storageInitPromise;
 }
-function reloadStoredState(){gardenEvents=readStored(GARDEN_EVENTS_KEY,[]);attentions=readStored(ATTENTION_KEY,[]);data=readStored(KEY,[]);harvests=readStored(HARVEST_KEY,[]);inhabitants=readStored(INHABITANT_KEY,[]);beds=readStored(BED_KEY,[]);gardenSettings=readStored(GARDEN_SETTINGS_KEY,{waterDefaultEvery:3,coverPhoto:''});if(!gardenSettings||Number(gardenSettings.waterDefaultEvery)<1)gardenSettings={waterDefaultEvery:3,coverPhoto:''};normalizeBedsState();render();}
+function reloadStoredState(){gardenEvents=readStored(GARDEN_EVENTS_KEY,[]);attentions=readStored(ATTENTION_KEY,[]);data=readStored(KEY,[]);harvests=readStored(HARVEST_KEY,[]);inhabitants=readStored(INHABITANT_KEY,[]);beds=readStored(BED_KEY,[]);gardenSettings=readStored(GARDEN_SETTINGS_KEY,{waterDefaultEvery:3,coverPhoto:'',waterScopeBedIds:undefined});if(!gardenSettings||Number(gardenSettings.waterDefaultEvery)<1)gardenSettings={waterDefaultEvery:3,coverPhoto:'',waterScopeBedIds:undefined};normalizeBedsState();render();}
 function save(){
   render();
   if(storageReady&&db){
@@ -1392,7 +1438,7 @@ $('search').oninput=render;$('filter').onchange=render;
 $('exportBtn').onclick=()=>{const head=['Nama','Varietas','Pola Siklus','Estimasi Panen (hari)','Kelompok Tanam','Catatan'];const rows=data.map(x=>{const gs=Array.isArray(x.plantingGroups)?x.plantingGroups:[];const summary=gs.map(g=>`${g.date} · ${groupTotal(g)} tanaman · ${(groupLocations(g).join(' / ')||'Lokasi belum diatur')} · ${groupStatusLabel(groupDerivedStatus(g))}`).join(' | ');return [x.name,x.variety,cycleLabel(x.cycleType),x.harvestDays,summary,x.note]});const csv=[head,...rows].map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='catatan-kebun.csv';a.click();URL.revokeObjectURL(a.href)};
 function exportHarvests(){const head=['Tanggal Panen','Tanaman','Jumlah','Satuan','Kualitas','Catatan'];const rows=harvests.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(h=>[h.date,plantName(h.plantId),h.qty,h.unit,h.quality,h.note]);const csv=[head,...rows].map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='catatan-panen.csv';a.click();URL.revokeObjectURL(a.href)}
 async function buildBackupJson(){
-  const payload={version:14,plants:data,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings,savedAt:new Date().toISOString()};
+  const payload={version:15,plants:data,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings,savedAt:new Date().toISOString()};
   return JSON.stringify(payload,null,2);
 }
 window.__terraBackupSaved=(ok)=>{showToast(ok?'💾 Backup tersimpan':'⚠️ Backup dibatalkan')};
@@ -1429,7 +1475,7 @@ $('restoreGo').onclick=async()=>{
     if(Array.isArray(incoming)){
       data=incoming;harvests=[];gardenEvents=[];attentions=[];inhabitants=[];beds=[];
     }else if(incoming&&Array.isArray(incoming.plants)){
-      data=incoming.plants;harvests=Array.isArray(incoming.harvests)?incoming.harvests:[];gardenEvents=Array.isArray(incoming.gardenEvents)?incoming.gardenEvents:[];attentions=Array.isArray(incoming.attentions)?incoming.attentions:[];inhabitants=Array.isArray(incoming.inhabitants)?incoming.inhabitants:[];beds=Array.isArray(incoming.beds)?incoming.beds:[];gardenSettings=incoming.gardenSettings&&Number(incoming.gardenSettings.waterDefaultEvery)>0?{waterDefaultEvery:Number(incoming.gardenSettings.waterDefaultEvery),coverPhoto:incoming.gardenSettings.coverPhoto||''}:{waterDefaultEvery:3,coverPhoto:''};
+      data=incoming.plants;harvests=Array.isArray(incoming.harvests)?incoming.harvests:[];gardenEvents=Array.isArray(incoming.gardenEvents)?incoming.gardenEvents:[];attentions=Array.isArray(incoming.attentions)?incoming.attentions:[];inhabitants=Array.isArray(incoming.inhabitants)?incoming.inhabitants:[];beds=Array.isArray(incoming.beds)?incoming.beds:[];gardenSettings=incoming.gardenSettings&&Number(incoming.gardenSettings.waterDefaultEvery)>0?{waterDefaultEvery:Number(incoming.gardenSettings.waterDefaultEvery),coverPhoto:incoming.gardenSettings.coverPhoto||'',waterScopeBedIds:Array.isArray(incoming.gardenSettings.waterScopeBedIds)?incoming.gardenSettings.waterScopeBedIds:undefined}:{waterDefaultEvery:3,coverPhoto:'',waterScopeBedIds:undefined};
     }else throw new Error();
     markBackupPhotosDirty(data);markBackupPhotosDirty(inhabitants);normalizeBedsState();
     render();
@@ -1465,7 +1511,7 @@ $('bedActionModal').onclick=e=>{if(e.target.id==='bedActionModal')closeBedAction
 $('bedActionEdit').onclick=()=>{const id=selectedBedActionId;closeBedAction();if(id)openBedEdit(id)};
 $('bedActionDelete').onclick=()=>{const id=selectedBedActionId;closeBedAction();if(id)deleteBed(id)};
 $('plantDetailBack').onclick=closePlantDetail;$('inhabitantDetailBack').onclick=closeInhabitantDetail;$('growthStoryBack').onclick=closeGrowthStory;$('lifeStoryBack').onclick=closeLifeStory;$('photoLightboxClose').onclick=closeStoryLightbox;$('photoPrev').onclick=storyPrev;$('photoNext').onclick=storyNext;$('photoLightbox').onclick=e=>{if(e.target.id==='photoLightbox')closeStoryLightbox()};$('settingsBtn').onclick=()=>{$('gardenWaterDefault').value=waterInterval({});$('settingsModal').classList.add('show')};
-$('saveWaterSettings').onclick=()=>{const n=Math.max(1,Math.min(365,Number($('gardenWaterDefault').value||3)));gardenSettings={waterDefaultEvery:n};if(save()){$('settingsModal').classList.remove('show');scheduleNotifications();showToast(`💧 Aturan air default: ${n} hari`)}};
+$('saveWaterSettings').onclick=()=>{const n=Math.max(1,Math.min(365,Number($('gardenWaterDefault').value||3)));gardenSettings={...gardenSettings,waterDefaultEvery:n};if(save()){$('settingsModal').classList.remove('show');scheduleNotifications();showToast(`💧 Aturan air default: ${n} hari`)}};
 $('settingsClose').onclick=()=>$('settingsModal').classList.remove('show');
 $('settingsModal').onclick=e=>{if(e.target.id==='settingsModal')$('settingsModal').classList.remove('show')};
 $('restoreOpen').onclick=()=>{ $('settingsModal').classList.remove('show'); $('restoreModal').classList.add('show'); };
@@ -1575,7 +1621,145 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMultiSelect()})
 window.addEventListener('resize',()=>{if(openMultiSelectRoot)positionMultiSelect(openMultiSelectRoot)});
 window.addEventListener('scroll',()=>{if(openMultiSelectRoot)positionMultiSelect(openMultiSelectRoot)},true);
 
+
+/* Terra Insight Foundation 4.0 — locked data model and UI bindings */
+const TI4_DEFAULT_WATER_BEDS=['Veggie','Solanum','Rhizo','Spiral','Sanctuary'];
+const TI4_MOISTURE_OPTIONS=[['fern','🌿 Paku'],['moss','🍃 Lumut'],['fungus','🍄 Jamur'],['dense-understory','🌱 Vegetasi bawah lebat'],['sparse-understory','🌱 Vegetasi bawah tipis']];
+const TI4_SOIL_OPTIONS=[['native','🌱 Tanah asli'],['fill','🚜 Tanah timbunan'],['hard','🪨 Tanah keras/padat'],['sandy','🏖️ Tanah berpasir'],['loose','🟤 Tanah gembur'],['organic','🌿 Kaya bahan organik'],['unknown','❓ Tidak diketahui']];
+const TI4_INTENSITIES=[['very-bright','☀️ Terik'],['bright','🌤️ Terang'],['medium','⛅ Sedang'],['dim','🌥️ Redup']];
+function ti4EnsureBedProfile(b){
+  const p=b.profile&&typeof b.profile==='object'?b.profile:{};
+  return {...b,profile:{zones:Array.isArray(p.zones)?p.zones.filter(Boolean).map(z=>({id:z.id||makeId('zone'),name:z.name||'Zona cahaya',start:z.start||'06:00',end:z.end||'18:00',intensity:z.intensity||'bright'})):[],moistureIndicators:Array.isArray(p.moistureIndicators)?[...new Set(p.moistureIndicators.filter(Boolean))]:[],moistureOther:p.moistureOther||'',drainage:p.drainage||'',soilConditions:Array.isArray(p.soilConditions)?[...new Set(p.soilConditions.filter(Boolean))]:[]}};
+}
+function ti4Bed(id){return beds.find(b=>b.id===id)||null;}
+function ti4BedByName(name){return beds.find(b=>b.name===name)||null;}
+function ti4ZonesForBed(b){return Array.isArray(b?.profile?.zones)?b.profile.zones:[];}
+function ti4GroupBedId(g){if(g?.bedId&&beds.some(b=>b.id===g.bedId))return g.bedId;const loc=Array.isArray(g?.locations)?g.locations.filter(Boolean):[];if(loc.length){const b=ti4BedByName(loc[0]);return b?.id||''}return '';}
+function ti4GroupBedName(g){const b=ti4Bed(ti4GroupBedId(g));return b?.name||(Array.isArray(g?.locations)&&g.locations[0])||'';}
+function ti4GroupZoneId(g){return g?.zoneId||'';}
+function ti4GroupZone(g){const b=ti4Bed(ti4GroupBedId(g));return ti4ZonesForBed(b).find(z=>z.id===ti4GroupZoneId(g))||null;}
+function groupLocations(g){const name=ti4GroupBedName(g);return name?[name]:[];}
+function ti4NormalizeGroup(g){const bedId=ti4GroupBedId(g),zoneId=bedId&&g?.zoneId&&ti4ZonesForBed(ti4Bed(bedId)).some(z=>z.id===g.zoneId)?g.zoneId:'';return {...g,bedId:bedId||'',zoneId,locations:bedId?[ti4Bed(bedId)?.name].filter(Boolean):Array.isArray(g?.locations)?g.locations.filter(Boolean):[]};}
+function ti4NormalizeState(){
+  beds=(Array.isArray(beds)?beds:[]).map(ti4EnsureBedProfile);
+  data=(Array.isArray(data)?data:[]).map(x=>({...x,plantingGroups:(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).map(ti4NormalizeGroup)}));
+  if(!gardenSettings||typeof gardenSettings!=='object')gardenSettings={waterDefaultEvery:3,coverPhoto:''};
+  gardenSettings={waterDefaultEvery:Number(gardenSettings.waterDefaultEvery||3),coverPhoto:gardenSettings.coverPhoto||'',waterScopeBedIds:Array.isArray(gardenSettings.waterScopeBedIds)?gardenSettings.waterScopeBedIds.filter(id=>beds.some(b=>b.id===id)):null};
+  if(gardenSettings.waterScopeBedIds===null){
+    const preferred=beds.filter(b=>TI4_DEFAULT_WATER_BEDS.includes(b.name)).map(b=>b.id);
+    gardenSettings.waterScopeBedIds=preferred.length?preferred:beds.map(b=>b.id);
+  }
+}
+function normalizeBedsState(){ti4NormalizeState();}
+function ti4ZoneOptionsHtml(zones,selected=''){return `<option value="">${zones.length>1?'Pilih zona cahaya…':'Otomatis: satu zona'}</option>`+zones.map(z=>`<option value="${esc(z.id)}" ${z.id===selected?'selected':''}>${esc(z.name)} · ${esc(z.start)}–${esc(z.end)}</option>`).join('')}
+function ti4RenderZoneField(bedSelectId,zoneFieldId,zoneSelectId,selectedZone=''){
+  const bedId=$(bedSelectId)?.value||'';const b=ti4Bed(bedId);const zones=ti4ZonesForBed(b);const f=$(zoneFieldId);const sel=$(zoneSelectId);if(!f||!sel)return;sel.innerHTML=ti4ZoneOptionsHtml(zones,selectedZone);if(zones.length>1){f.style.display='block';sel.value=zones.some(z=>z.id===selectedZone)?selectedZone:''}else f.style.display='none';}
+function ti4BedSelectHtml(id,selected=''){
+  const names=bedNames();return `<select id="${id}"><option value="">Pilih lokasi / bed…</option>${beds.map(b=>`<option value="${esc(b.id)}" ${b.id===selected?'selected':''}>${esc(b.name)}</option>`).join('')}</select>`;
+}
+function renderBedChecklist(selected=[]){
+  const selectedName=selected[0]||'';const b=ti4BedByName(selectedName);$('bedChecklist').innerHTML=ti4BedSelectHtml('fBedSelect',b?.id||'');
+  $('fBedSelect').onchange=()=>ti4RenderZoneField('fBedSelect','bedZoneField','fZone','');
+  ti4RenderZoneField('fBedSelect','bedZoneField','fZone','');
+}
+function selectedBedsFromForm(){const bId=$('fBedSelect')?.value||'';const b=ti4Bed(bId);return b?.name?[b.name]:[];}
+function ti4SelectedInitialBedId(){return $('fBedSelect')?.value||'';}
+function bedPlantCount(name){return data.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(g=>ti4GroupBedName(g)===name)).length;}
+function renderBedChecklistForGroup(selectedBedId='',selectedZoneId=''){
+  $('gBedChecklist').innerHTML=ti4BedSelectHtml('gBedSelect',selectedBedId);
+  $('gBedSelect').onchange=()=>ti4RenderZoneField('gBedSelect','gZoneField','gZoneSelect','');
+  ti4RenderZoneField('gBedSelect','gZoneField','gZoneSelect',selectedZoneId);
+}
+function renderGroupChecklist(selected=[]){const b=ti4BedByName(selected[0]||'');renderBedChecklistForGroup(b?.id||'', '');}
+function selectedGroupBeds(){const b=ti4Bed($('gBedSelect')?.value||'');return b?.name?[b.name]:[];}
+function ti4SelectedGroupZoneId(){const b=ti4Bed($('gBedSelect')?.value||'');const zones=ti4ZonesForBed(b);if(zones.length===1)return zones[0].id;return $('gZoneSelect')?.value||'';}
+function openForm(item=null){
+  editingId=item?.id||null;$('formTitle').textContent=item?'Edit tanaman':'Tambah tanaman';$('fName').value=item?.name||'';$('fVar').value=item?.variety||'';const groups=Array.isArray(item?.plantingGroups)?item.plantingGroups:[];const first=groups.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)))[0];$('fDate').value=item?(first?.date||item?.date||today()):today();renderBedChecklist(first?groupLocations(first):[]);if(first){const bId=ti4GroupBedId(first);$('fBedSelect').value=bId;ti4RenderZoneField('fBedSelect','bedZoneField','fZone',ti4GroupZoneId(first));}$('fCycle').value=item?.cycleType||'repeat';$('fDays').value=item?.harvestDays??'';$('fQty').value=item?(first?.qty??item?.qty??1):1;$('fWater').value=item?.waterEvery??'';$('fWaterTime').value=item?.waterTime||'07:00';$('fNote').value=item?.note||'';$('initialGroupDateField').classList.toggle('hidden-field',!!item);$('initialGroupQtyField').classList.toggle('hidden-field',!!item);$('initialGroupBedField').classList.toggle('hidden-field',!!item);$('editGroupHint').classList.toggle('hidden-field',!item);$('photoPreview').innerHTML=item?.photo?`<img src="${item.photo}" style="width:100%;max-height:180px;object-fit:cover;border-radius:14px">`:'';$('formCard').style.display='block';$('fName').focus();window.scrollTo({top:$('formCard').offsetTop-8,behavior:'smooth'});
+}
+function openGroupModal(plantId,groupId=null){const x=data.find(a=>a.id===plantId);if(!x)return;groupPlantId=plantId;editingGroupId=groupId;const g=groupId?(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).find(a=>a.id===groupId):null;if(g&&!groupHasActive(g)){showToast('Kelompok ini sudah masuk Riwayat Kelompok Tanam');return}$('groupFormTitle').textContent=g?'✏️ Edit Kelompok Tanam':'🌱 Tanam Susulan';$('gDate').value=g?.date||today();$('gQty').value=g?groupTotal(g):1;$('gQty').readOnly=!!g;renderBedChecklistForGroup(ti4GroupBedId(g),ti4GroupZoneId(g));$('groupEditStatusNote').textContent=g?'Jumlah awal kelompok tetap dan tidak dapat diubah. Status individu dapat dikoreksi melalui tombol Selesai/Gagal.':'Jumlah awal kelompok akan tetap setelah kelompok dibuat.';$('groupModal').classList.add('show');}
+function saveGroup(){const isEdit=!!editingGroupId;const x=data.find(a=>a.id===groupPlantId);const date=$('gDate').value;const qty=isEdit?Number($('gQty').value):Math.max(1,Number($('gQty').value||0));const bedId=$('gBedSelect')?.value||'';const b=ti4Bed(bedId);if(!x||!date||!(qty>0)||!b){showToast('Tanggal, jumlah, dan Bed wajib diisi');return}const zones=ti4ZonesForBed(b);const zoneId=zones.length>1?($('gZoneSelect')?.value||''):zones.length===1?zones[0].id:'';if(zones.length>1&&!zoneId){showToast('Pilih zona cahaya untuk Bed ini');return}let groups=Array.isArray(x.plantingGroups)?[...x.plantingGroups]:[];if(editingGroupId)groups=groups.map(g=>g.id===editingGroupId?{...g,date,bedId,zoneId,locations:[b.name]}:g);else groups.push({id:makeId('group'),date,totalQty:qty,qty,activeQty:qty,completedQty:0,failedQty:0,bedId,zoneId,locations:[b.name],createdAt:new Date().toISOString()});groups.sort((a,b)=>String(a.date).localeCompare(String(b.date)));const total=groups.reduce((n,g)=>n+groupTotal(g),0);data=data.map(a=>a.id===x.id?{...a,plantingGroups:groups,date:groups[0]?.date||date,qty:total||1,locations:[],bed:''}:a);if(save()){closeGroupModal();showToast(isEdit?'Kelompok tanam diperbarui':'🌱 Tanam susulan ditambahkan');}}
+function plantingGroupsView(item){const all=(Array.isArray(item.plantingGroups)?item.plantingGroups:[]).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)));const activeGroups=all.filter(groupHasActive),historyGroups=all.filter(g=>!groupHasActive(g));const renderGroup=g=>{const hd=groupHarvestDate(item,g),t=groupTotal(g),a=groupActiveQty(g),c=groupCompletedQty(g),f=groupFailedQty(g),bedName=ti4GroupBedName(g),zone=ti4GroupZone(g);return `<div class="planting-group"><div class="planting-group-main"><div class="planting-group-date">${fmt(g.date)} · ${t} tanaman</div><div class="planting-group-meta">📍 ${bedName?esc(bedName):'Lokasi belum diatur'}${zone?` · ☀️ ${esc(zone.name)}`:''} · ${groupStatusLabel(groupDerivedStatus(g))}</div>${groupStatusChips(g)}${hd?`<div class="planting-group-meta">🧺 Perkiraan panen: ${fmt(hd)}</div>`:''}</div><div class="planting-group-age">${groupAge(g)} hari</div><div class="planting-group-actions"><button type="button" class="secondary" data-group-edit="${esc(item.id)}" data-group-id="${esc(g.id)}">Edit</button><button type="button" class="secondary" data-group-status="completed" data-group-plant="${esc(item.id)}" data-group-id="${esc(g.id)}">＋ Selesai</button><button type="button" class="secondary" data-group-status="failed" data-group-plant="${esc(item.id)}" data-group-id="${esc(g.id)}">＋ Gagal</button><button type="button" class="danger" data-group-del="${esc(item.id)}" data-group-id="${esc(g.id)}">×</button></div></div>`};return `<div class="planting-groups"><div class="planting-groups-title">🌱 Kelompok Tanam</div>${activeGroups.length?`<div class="planting-group-list">${activeGroups.map(renderGroup).join('')}</div><div class="journey-actions"><button type="button" class="secondary" data-group-add="${esc(item.id)}">＋ Tanam Susulan</button></div>`:'<div class="meta">Tidak ada kelompok tanam yang masih aktif.</div>'}${historyGroups.length?`<div class="planting-groups-history"><div class="planting-groups-title" style="margin-top:14px">📚 Riwayat Kelompok Tanam · ${historyGroups.length}</div><div class="planting-group-list planting-group-history-list">${historyGroups.map(g=>{const t=groupTotal(g),c=groupCompletedQty(g),f=groupFailedQty(g);return `<div class="planting-group planting-group-history"><div class="planting-group-main"><div class="planting-group-date">${fmt(g.date)} · ${t} tanaman</div><div class="planting-group-meta">${groupStatusLabel(groupDerivedStatus(g))} · ✅ ${c} selesai · ❌ ${f} gagal${ti4GroupBedName(g)?` · 📍 ${esc(ti4GroupBedName(g))}`:''}</div></div></div>`}).join('')}</div></div>`:''}</div>`;}
+function ti4RenderBedProfileList(){const list=$('bedMasterList');if(!beds.length){list.innerHTML='<div class="bed-empty">Belum ada bed. Tambahkan bed pertama untuk mulai mengatur profil kebun.</div>';return}list.innerHTML=beds.map(b=>{const p=b.profile||{},zones=Array.isArray(p.zones)?p.zones:[],moist=Array.isArray(p.moistureIndicators)?p.moistureIndicators:[],soil=Array.isArray(p.soilConditions)?p.soilConditions:[];const drainage=({'very-fast':'Sangat cepat','fast':'Cepat','medium':'Sedang','slow':'Lambat','very-slow':'Sangat lambat'})[p.drainage]||'Belum diatur';return `<div class="bed-profile-card"><div class="bed-profile-head"><div><div class="bed-profile-name">🌱 ${esc(b.name)}</div><div class="bed-profile-meta">${bedPlantCount(b.name)} tanaman · ☀️ ${zones.length?zones.length+' zona':'zona belum diatur'} · 💦 ${esc(drainage)}</div></div><div class="bed-profile-actions"><button type="button" class="secondary" data-bed-menu="${esc(b.id)}">⚙️</button></div></div><div class="profile-chip-list" style="margin-top:8px">${[...moist.map(v=>TI4_MOISTURE_OPTIONS.find(o=>o[0]===v)?.[1]||v),...soil.map(v=>TI4_SOIL_OPTIONS.find(o=>o[0]===v)?.[1]||v)].slice(0,5).map(v=>`<span class="profile-chip">${esc(v)}</span>`).join('')}</div></div>`}).join('')}
+function ti4RenderChecklist(containerId,options,selected=[]){const el=$(containerId);el.innerHTML=`<div class="water-scope-list">${options.map(([v,label])=>`<label class="water-scope-option"><input type="checkbox" value="${esc(v)}" ${selected.includes(v)?'checked':''}><span>${label}</span></label>`).join('')}</div>`;}
+function ti4ZoneTimes(){return Array.from({length:13},(_,i)=>`${String(i+6).padStart(2,'0')}:00`);}
+function ti4RenderZoneEditor(zones){const el=$('bedZonesEditor');if(!zones.length){el.innerHTML='<div class="profile-hint">Belum ada zona cahaya. Tambahkan zona bila Bed sudah memiliki kondisi cahaya yang ingin dibedakan.</div>';return}const times=ti4ZoneTimes();el.innerHTML=zones.map((z,i)=>`<div class="profile-zone-card" data-zone-id="${esc(z.id)}"><div class="profile-zone-grid"><div class="zone-field zone-name"><label>Nama zona</label><input data-zone-name="${i}" value="${esc(z.name)}" placeholder="Contoh: Bawah Naungan"></div><div class="zone-field"><label>Mulai</label><select data-zone-start="${i}">${times.map(t=>`<option value="${t}" ${t===z.start?'selected':''}>${t}</option>`).join('')}</select></div><div class="zone-field"><label>Selesai</label><select data-zone-end="${i}">${times.map(t=>`<option value="${t}" ${t===z.end?'selected':''}>${t}</option>`).join('')}</select></div><div class="zone-field"><label>Intensitas</label><select data-zone-intensity="${i}">${TI4_INTENSITIES.map(([v,l])=>`<option value="${v}" ${v===z.intensity?'selected':''}>${l}</option>`).join('')}</select></div><div class="zone-remove-wrap"><button type="button" class="profile-zone-remove" data-zone-remove="${i}" aria-label="Hapus zona cahaya">×</button></div></div></div>`).join('')}
+function ti4ReadZoneEditor(){return [...$('bedZonesEditor').querySelectorAll('.profile-zone-card')].map((card,i)=>({id:card.dataset.zoneId||makeId('zone'),name:card.querySelector(`[data-zone-name="${i}"]`)?.value.trim()||`Zona cahaya ${i+1}`,start:card.querySelector(`[data-zone-start="${i}"]`)?.value||'06:00',end:card.querySelector(`[data-zone-end="${i}"]`)?.value||'18:00',intensity:card.querySelector(`[data-zone-intensity="${i}"]`)?.value||'bright'}));}
+let ti4EditingBedId=null,ti4DraftZones=[];
+function openBedEdit(id=null){ti4EditingBedId=id;const b=id?ti4Bed(id):null;$('bedEditTitle').textContent=b?'✏️ Profil Bed':'📍 Tambah Bed';$('bedNameInput').value=b?.name||'';ti4DraftZones=(b?.profile?.zones||[]).map(z=>({...z}));ti4RenderZoneEditor(ti4DraftZones);ti4RenderChecklist('bedMoistureChecklist',TI4_MOISTURE_OPTIONS,b?.profile?.moistureIndicators||[]);ti4RenderChecklist('bedSoilChecklist',TI4_SOIL_OPTIONS,b?.profile?.soilConditions||[]);$('bedMoistureOther').value=b?.profile?.moistureOther||'';$('bedDrainage').value=b?.profile?.drainage||'';$('bedEditModal').classList.add('show');$('bedNameInput').focus();}
+function closeBedEdit(){$('bedEditModal').classList.remove('show');ti4EditingBedId=null;ti4DraftZones=[];}
+function ti4ReadChecked(containerId){return [...$(containerId).querySelectorAll('input[type="checkbox"]:checked')].map(i=>i.value)}
+function saveBed(){const name=$('bedNameInput').value.trim();if(!name){showToast('Nama bed wajib diisi');return}const duplicate=beds.some(b=>b.name.toLowerCase()===name.toLowerCase()&&b.id!==ti4EditingBedId);if(duplicate){showToast('Nama bed sudah ada');return}const zones=ti4ReadZoneEditor().map(z=>({...z}));for(const z of zones){if(!z.name){showToast('Nama zona cahaya wajib diisi');return}if(z.end<=z.start){showToast('Jam selesai harus setelah jam mulai');return}}const old=ti4EditingBedId?ti4Bed(ti4EditingBedId):null;const profile={zones,moistureIndicators:ti4ReadChecked('bedMoistureChecklist'),moistureOther:$('bedMoistureOther').value.trim(),drainage:$('bedDrainage').value,soilConditions:ti4ReadChecked('bedSoilChecklist')};if(old){beds=beds.map(b=>b.id===ti4EditingBedId?{...b,name,profile}:b);if(old.name!==name){data=data.map(x=>({...x,plantingGroups:(x.plantingGroups||[]).map(g=>g.locations?.map(v=>v===old.name?name:v) || g.locations),locations:[],bed:''}));}}else beds.push({id:makeId('bed'),name,profile});ti4NormalizeState();if(save()){closeBedEdit();renderBedMaster();showToast(old?'Profil Bed diperbarui':'Bed ditambahkan');}}
+function renderBedMaster(){ti4RenderBedProfileList();}
+function openBedsModal(){ti4NormalizeState();renderBedMaster();$('bedsModal').classList.add('show');}
+function openBedAction(id){selectedBedActionId=id;const b=ti4Bed(id);if(!b)return;$('bedActionTitle').textContent=`Kelola ${b.name}`;$('bedActionModal').classList.add('show');}
+function deleteBed(id){const b=ti4Bed(id);if(!b)return;const used=bedPlantCount(b.name);const msg=used>0?`Bed “${b.name}” digunakan oleh ${used} tanaman. Hapus bed ini? Tanaman tetap disimpan dan lokasi Bed tersebut akan dikosongkan.`:`Hapus “${b.name}”?`;if(!confirm(msg))return;data=data.map(x=>({...x,plantingGroups:(x.plantingGroups||[]).map(g=>ti4GroupBedId(g)===id?{...g,bedId:'',zoneId:'',locations:[]}:g),locations:[],bed:''}));beds=beds.filter(b=>b.id!==id);gardenSettings={...gardenSettings,waterScopeBedIds:(gardenSettings.waterScopeBedIds||[]).filter(v=>v!==id)};if(save()){renderBedMaster();showToast(used?'Bed dihapus · lokasi tanaman dikosongkan':'Bed dihapus');}}
+function ti4RenderWaterScope(){const selected=gardenSettings.waterScopeBedIds||[];$('waterScopeList').innerHTML=beds.length?beds.map(b=>`<label class="water-scope-option"><input type="checkbox" value="${esc(b.id)}" ${selected.includes(b.id)?'checked':''}><span>${esc(b.name)}</span></label>`).join(''):'<div class="bed-empty">Belum ada Bed.</div>';}
+function openWaterScopeModal(){ti4NormalizeState();ti4RenderWaterScope();$('waterScopeModal').classList.add('show');}
+function closeWaterScopeModal(){$('waterScopeModal').classList.remove('show');}
+function saveWaterScope(){const ids=[...$('waterScopeList').querySelectorAll('input[type="checkbox"]:checked')].map(i=>i.value);gardenSettings={...gardenSettings,waterScopeBedIds:ids};if(save()){closeWaterScopeModal();showToast('⚙️ Cakupan Siram Kebun diperbarui')}}
+function ti4ActualWaterBedIds(type){if(type==='rain')return beds.map(b=>b.id);return (gardenSettings.waterScopeBedIds||[]).filter(id=>beds.some(b=>b.id===id));}
+function ti4PlantCoveredByBeds(x,bedIds){if(!bedIds.length)return false;return (Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(g=>bedIds.includes(ti4GroupBedId(g)));}
+function recordGardenWater(type){const date=today(),ids=ti4ActualWaterBedIds(type),names=ids.map(id=>ti4Bed(id)?.name).filter(Boolean),label=type==='rain'?'Hujan':'Disiram';if(type==='water'&&!ids.length){showToast('⚠️ Pilih minimal satu Bed di ⚙️ Pengaturan Siram Kebun');return}gardenEvents.push({id:makeId('water'),date,type,label,bedIds:ids.slice(),bedNames:names.slice(),scope:type==='rain'?'all-beds':'configured',createdAt:new Date().toISOString()});data=data.map(x=>ti4PlantCoveredByBeds(x,ids)?{...x,lastWater:date,lastWaterSource:label}:x);if(save()){showToast(type==='rain'?'🌧️ Hujan dicatat untuk seluruh Bed':`💧 ${names.length} Bed disiram`);}scheduleNotifications();}
+function latestGardenWater(){return [...gardenEvents].filter(e=>e.type==='water'||e.type==='rain').sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')))[0]||null;}
+function ti4WaterEventDetail(e){const names=Array.isArray(e.bedNames)?e.bedNames:[];return e.type==='rain'?'Seluruh Bed':names.length?names.join(' · '):'Cakupan tidak tercatat';}
+function dashboardRecent(){const rows=[];data.forEach(x=>{(Array.isArray(x.events)?x.events:[]).forEach(e=>rows.push({date:e.date,sort:e.date+'T'+(e.createdAt||'12:00:00'),title:`${e.label||'Aktivitas'} · ${x.name}`,detail:e.note||e.label||''}));});harvests.forEach(h=>rows.push({date:h.date,sort:h.date+'T'+(h.createdAt||'12:00:00'),title:`Panen · ${plantName(h.plantId)}`,detail:`${h.qty} ${h.unit||'kg'}`}));gardenEvents.forEach(e=>rows.push({date:e.date,sort:e.date+'T'+(e.createdAt||'12:00:00'),title:e.type==='rain'?'🌧️ Hujan kebun':'💧 Kebun disiram',detail:ti4WaterEventDetail(e)}));return rows.sort((a,b)=>b.sort.localeCompare(a.sort)).slice(0,5);}
+function ti4JourneyBedContext(plantId){const x=data.find(a=>a.id===plantId);const groups=(Array.isArray(x?.plantingGroups)?x.plantingGroups:[]).filter(groupHasActive);const options=[];groups.forEach(g=>{const bId=ti4GroupBedId(g);const b=ti4Bed(bId);if(b&&!options.some(o=>o.id===b.id))options.push({id:b.id,name:b.name,groupId:g.id,zoneId:ti4GroupZoneId(g)});});return options;}
+function ti4RenderJourneyCareFields(plantId){const type=$('jType').value,host=$('journeyCareFields');if(!host)return;let html='';if(type==='pruning'){html=`<div class="journey-extra show"><div class="field"><label>Bagian yang dipangkas</label><select id="jPrunePart"><option value="branch">Dahan</option><option value="main-vine">Sulur utama</option><option value="side-vine">Sulur samping</option><option value="leaf">Daun</option><option value="other">Bagian lain</option></select></div><div class="field" style="margin-top:9px"><label>Jumlah yang dipangkas</label><input id="jPruneQty" type="number" min="1" step="1" placeholder="Contoh: 3"></div><div class="field" style="margin-top:9px"><label>Alasan pemangkasan</label><select id="jPruneReason"><option value="overgrown">🌿 Terlalu rimbun</option><option value="too-long">📏 Terlalu panjang</option><option value="interfering">🪴 Mengganggu tanaman lain</option><option value="problem">🐛 Terkena masalah</option><option value="shaping">✂️ Pembentukan tanaman</option><option value="other">📝 Lainnya</option></select></div></div>`}else if(type==='support'){html=`<div class="journey-extra show"><div class="field"><label>Jumlah tanaman yang diberi penyangga</label><input id="jSupportQty" type="number" min="1" step="1" placeholder="Contoh: 4"></div></div>`}else if(type==='weeding'){const opts=ti4JourneyBedContext(plantId);html=`<div class="journey-extra show"><div class="field"><label>Bed yang disiangi</label><select id="jWeedingBed"><option value="">Pilih Bed…</option>${opts.map(o=>`<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select><div class="single-select-note">Penyiangan dicatat sebagai aktivitas Bed. Semua kelompok tanam yang berada di Bed tersebut pada tanggal ini mendapat konteks penyiangan.</div></div></div>`;if(opts.length===1)setTimeout(()=>{if($('jWeedingBed'))$('jWeedingBed').value=opts[0].id},0)}else if(type==='thinning'){html='<div class="journey-extra show"><div class="journey-bed-summary">🌱 Penjarangan akan dicatat sebagai kejadian pada tanaman ini tanpa jumlah tambahan.</div></div>'}host.innerHTML=html;}
+function openJourneyModal(plantId){journeyPlantId=plantId;$('jDate').value=today();$('jType').value='photo';$('jPhoto').value='';$('jNote').value='';const list=inhabitants.length?inhabitants.map(i=>`<label class="tag-option"><input type="checkbox" value="${esc(i.id)}"><span>${esc(i.name)}</span></label>`).join(''):'<div class="multi-select-empty">Belum ada Inhabitant. Tambahkan dulu di halaman Inhabitants.</div>';$('journeyTags').innerHTML=`<div class="multi-select" data-ms-root><button type="button" class="multi-select-trigger" data-ms-trigger><span class="multi-select-summary" data-ms-summary>Pilih Inhabitant terkait…</span><span class="multi-select-chevron">⌄</span></button><div class="multi-select-panel" data-ms-panel><div class="multi-select-list">${list}</div><div class="multi-select-footer"><span class="multi-select-count" data-ms-count>0 dipilih</span><button type="button" class="multi-select-done" data-ms-close>Selesai</button></div></div></div>`;ti4RenderJourneyCareFields(plantId);$('journeyModal').classList.add('show');}
+function closeJourneyModal(){$('journeyModal').classList.remove('show');journeyPlantId=null;}
+function ti4SaveGardenBedEvent(type,plantId,date,extra){const bedId=extra?.bedId||'';if(!bedId)return false;const names=[ti4Bed(bedId)?.name].filter(Boolean);gardenEvents.push({id:makeId(type),date,type,label:type==='weeding'?'Penyiangan':'Aktivitas Bed',bedIds:[bedId],bedNames:names,plantId,createdAt:new Date().toISOString()});return true;}
+function saveJourney(){const x=data.find(a=>a.id===journeyPlantId);const date=$('jDate').value||today();const note=$('jNote').value.trim();const files=[...$('jPhoto').files];if(!x||!date){showToast('Tanaman dan tanggal wajib diisi');return}const tags=[...$('journeyTags').querySelectorAll('input:checked')].map(i=>i.value);const type=$('jType').value;
+  const persistEvent=(ev)=>{data=data.map(a=>a.id===x.id?{...a,events:[...(Array.isArray(a.events)?a.events:[]),ev]}:a);if(save()){closeJourneyModal();showToast(tags.length?`📖 Perjalanan disimpan · ${tags.length} Inhabitant ditag`:'📖 Perjalanan tanaman disimpan');}}
+  if(type==='weeding'){const bedId=$('jWeedingBed')?.value||'';if(!bedId){showToast('Pilih Bed yang disiangi');return}gardenEvents.push({id:makeId('weeding'),date,type:'weeding',label:'Penyiangan',bedIds:[bedId],bedNames:[ti4Bed(bedId)?.name].filter(Boolean),sourcePlantId:x.id,createdAt:new Date().toISOString()});if(save()){closeJourneyModal();showToast('🧹 Penyiangan dicatat untuk Bed');}return}
+  let detail=note;
+  let extra={};
+  if(type==='pruning'){const q=Number($('jPruneQty')?.value||0);if(!(q>0)){showToast('Jumlah yang dipangkas wajib diisi');return}const part=$('jPrunePart').value,reason=$('jPruneReason').value;detail=[`${q} ${({'branch':'dahan','main-vine':'sulur utama','side-vine':'sulur samping','leaf':'daun','other':'bagian'}[part]||'bagian')}` ,`alasan ${({'overgrown':'terlalu rimbun','too-long':'terlalu panjang','interfering':'mengganggu tanaman lain','problem':'terkena masalah','shaping':'pembentukan tanaman','other':'lainnya'}[reason]||reason)}`,note].filter(Boolean).join(' · ');extra={prunedPart:part,prunedQty:q,reason};}
+  if(type==='support'){const q=Number($('jSupportQty')?.value||0);if(!(q>0)){showToast('Jumlah tanaman yang diberi penyangga wajib diisi');return}detail=[`${q} tanaman diberi penyangga`,note].filter(Boolean).join(' · ');extra={supportedQty:q};}
+  if(type==='thinning'){detail=note;extra={};}
+  if(type==='photo'&&!files.length&&!note&&!tags.length){showToast('Tambahkan foto, keterangan, atau tag Inhabitant');return}
+  const finish=photos=>{const ev={id:makeId('event'),date,type,label:type==='photo'?'Foto perjalanan':type==='note'?'Perkembangan':type==='pruning'?'Pemangkasan':type==='support'?'Penyangga / Ajir':'Penjarangan',note:detail,photo:photos[0]||'',photos:photos.filter(Boolean),photoRef:photos[0]?null:'',_photoDirty:!!photos[0],inhabitantTags:tags,createdAt:new Date().toISOString(),...extra};persistEvent(ev)};
+  if(files.length){Promise.all(files.map(f=>compressFile(f))).then(finish).catch(err=>{console.error('Journey photo read error:',err);showToast(err?.message||'Foto gagal dibaca oleh aplikasi')})}else finish([]);
+}
+const ti4ProblemLabels={pest:'Hama',disease:'Penyakit',problem:'Permasalahan'};const ti4SeverityLabels={mild:'Ringan',moderate:'Sedang',severe:'Berat'};const ti4PartLabels={leaf:'Daun',stem:'Batang / Dahan / Sulur',root:'Akar',flower:'Bunga',fruit:'Buah / Polong',shoot:'Pucuk / Tunas',whole:'Seluruh tanaman',other:'Lainnya'};
+function openAttentionModal(plantId){const x=data.find(a=>a.id===plantId);if(!x)return;$('aPlantName').value=x.name;$('aDate').value=today();$('aPriority').value='normal';$('aProblemType').value='pest';$('aAffectedPart').value='leaf';$('aSeverity').value='mild';$('aAction').value='';$('aNote').value='';$('attentionModal').dataset.plantId=plantId;$('attentionModal').classList.add('show');$('aNote').focus();}
+function saveAttention(){const m=$('attentionModal'),plantId=m.dataset.plantId,date=$('aDate').value||today(),type=$('aProblemType').value,part=$('aAffectedPart').value,severity=$('aSeverity').value,action=$('aAction').value.trim(),note=$('aNote').value.trim();if(!plantId||!note){showToast('Tulis dulu catatan masalah');return}attentions.push({id:makeId('attention'),plantId,date,type:'attention',problemType:type,affectedPart:part,severity,action,note,priority:$('aPriority').value,status:'active',createdAt:new Date().toISOString()});if(save()){closeAttentionModal();showToast('⚠️ Masalah ditambahkan')}}
+function attentionText(a){const core=a.problemType?`${ti4ProblemLabels[a.problemType]||a.problemType} · ${ti4PartLabels[a.affectedPart]||a.affectedPart} · keparahan ${ti4SeverityLabels[a.severity]||a.severity}`:'';return [core,a.note,a.action?`Tindakan: ${a.action}`:''].filter(Boolean).join(' · ')||'Perlu diperiksa';}
+function completeAttention(id){let a=attentions.find(x=>x.id===id);if(!a){const auto=getAutomaticAttentions().find(x=>x.id===id);if(!auto)return;a={id:auto.id,plantId:auto.plantId,date:auto.date,type:auto.type,priority:auto.priority,note:auto.note,automatic:true,status:'done',createdAt:new Date().toISOString()};attentions.push(a)}else{a.status='done';a.completedAt=new Date().toISOString();a.completedDate=today()}const x=data.find(p=>p.id===a.plantId);if(x){const events=Array.isArray(x.events)?x.events:[];x.events=[...events,{id:makeId('event'),date:today(),type:'attention-done',label:'Perhatian diselesaikan',note:a.note,createdAt:new Date().toISOString()}]}if(save())showToast('✓ Perhatian diselesaikan');}
+function renderAttentionList(){const arr=getAutomaticAttentions().sort((a,b)=>(a.priority==='urgent'?0:1)-(b.priority==='urgent'?0:1)||String(a.date).localeCompare(String(b.date)));$('attentionCount').textContent=arr.length;if(!arr.length){$('attentionList').innerHTML='<div class="meta">✓ Tidak ada perhatian aktif.</div>';return}$('attentionList').innerHTML=arr.slice(0,6).map(a=>`<div class="attention-row ${a.priority==='urgent'?'urgent':''}"><div class="attention-main"><div class="attention-title">${attentionPriorityLabel(a)} · ${esc(plantName(a.plantId))}</div><div class="attention-detail">${esc(attentionText(a))}</div></div><div class="attention-actions">${a.water?`<button type="button" class="secondary" data-water-attention="${esc(a.plantId)}">💧 Siram</button>`:`<button type="button" class="secondary" data-attention-done="${esc(a.id)}">✓ Selesai</button>`}</div></div>`).join('');}
+function ti4PatchBindings(){
+  if($('waterScopeBtn'))$('waterScopeBtn').onclick=openWaterScopeModal;
+  if($('waterScopeCancel'))$('waterScopeCancel').onclick=closeWaterScopeModal;
+  if($('waterScopeSave'))$('waterScopeSave').onclick=saveWaterScope;
+  if($('waterScopeModal'))$('waterScopeModal').onclick=e=>{if(e.target.id==='waterScopeModal')closeWaterScopeModal()};
+  if($('addBedBtn'))$('addBedBtn').onclick=()=>openBedEdit();
+  if($('bedsClose'))$('bedsClose').onclick=()=>$('bedsModal').classList.remove('show');
+  if($('bedsModal'))$('bedsModal').onclick=e=>{if(e.target.id==='bedsModal')$('bedsModal').classList.remove('show')};
+  if($('bedEditCancel'))$('bedEditCancel').onclick=closeBedEdit;
+  if($('bedEditModal'))$('bedEditModal').onclick=e=>{if(e.target.id==='bedEditModal')closeBedEdit()};
+  if($('bedEditSave'))$('bedEditSave').onclick=saveBed;
+  if($('addBedZoneBtn'))$('addBedZoneBtn').onclick=()=>{const current=ti4ReadZoneEditor();ti4DraftZones=current;ti4DraftZones.push({id:makeId('zone'),name:`Zona cahaya ${ti4DraftZones.length+1}`,start:'06:00',end:'18:00',intensity:'bright'});ti4RenderZoneEditor(ti4DraftZones)};
+  if($('bedZonesEditor'))$('bedZonesEditor').onclick=e=>{const b=e.target.closest?.('[data-zone-remove]');if(!b)return;const current=ti4ReadZoneEditor();const i=Number(b.dataset.zoneRemove);ti4DraftZones=current.filter((_,idx)=>idx!==i);ti4RenderZoneEditor(ti4DraftZones)};
+  if($('bedMasterList'))$('bedMasterList').onclick=e=>{const b=e.target.closest('[data-bed-menu]');if(b)openBedEdit(b.dataset.bedMenu)};
+  if($('bedActionEdit'))$('bedActionEdit').onclick=()=>{const id=selectedBedActionId;closeBedAction();if(id)openBedEdit(id)};
+  if($('bedActionDelete'))$('bedActionDelete').onclick=()=>{const id=selectedBedActionId;closeBedAction();if(id)deleteBed(id)};
+  if($('bedActionCancel'))$('bedActionCancel').onclick=closeBedAction;
+  if($('bedActionModal'))$('bedActionModal').onclick=e=>{if(e.target.id==='bedActionModal')closeBedAction()};
+  if($('jType'))$('jType').onchange=()=>ti4RenderJourneyCareFields(journeyPlantId);
+  if($('journeyModal'))$('journeyModal').onclick=e=>{if(e.target.id==='journeyModal')closeJourneyModal()};
+  if($('journeyCancel'))$('journeyCancel').onclick=closeJourneyModal;
+  if($('journeySave'))$('journeySave').onclick=saveJourney;
+  if($('attentionCancel'))$('attentionCancel').onclick=closeAttentionModal;
+  if($('attentionModal'))$('attentionModal').onclick=e=>{if(e.target.id==='attentionModal')closeAttentionModal()};
+  if($('attentionSave'))$('attentionSave').onclick=saveAttention;
+  if($('journeyModal'))$('journeyModal').addEventListener('change',e=>{if(e.target.id==='jType')ti4RenderJourneyCareFields(journeyPlantId)});
+  // Initial plant form: one Bed + optional zone when a Bed has multiple zones.
+  if($('saveBtn'))$('saveBtn').onclick=()=>{const name=$('fName').value.trim(),date=$('fDate').value,qty=Math.max(1,Number($('fQty').value||0)),bedId=ti4SelectedInitialBedId(),b=ti4Bed(bedId),zones=ti4ZonesForBed(b),zoneId=zones.length>1?($('fZone')?.value||''):zones.length===1?zones[0].id:'';if(!name||(!editingId&&!date)||(!editingId&&!(qty>0))){showToast(editingId?'Nama tanaman wajib diisi':'Nama, tanggal tanam, dan jumlah wajib diisi');return}if(!editingId&&!b){showToast('Lokasi / Bed wajib dipilih');return}if(!editingId&&zones.length>1&&!zoneId){showToast('Pilih zona cahaya untuk Bed ini');return}const finish=(photo)=>{const prev=editingId?data.find(x=>x.id===editingId):null;let groups=Array.isArray(prev?.plantingGroups)?prev.plantingGroups:[];if(!editingId)groups=[{id:makeId('group'),date,totalQty:qty,qty,activeQty:qty,completedQty:0,failedQty:0,bedId,zoneId,locations:[b.name],createdAt:new Date().toISOString()}];const total=groups.reduce((n,g)=>n+groupTotal(g),0);const obj={id:editingId||makeId('plant'),name,variety:$('fVar').value.trim(),date:groups[0]?.date||date,locations:[],bed:'',plantingGroups:groups,cycleType:$('fCycle').value||'repeat',harvestDays:$('fDays').value===''?'':Number($('fDays').value),qty:total||1,waterEvery:$('fWater').value===''?'':Number($('fWater').value),waterTime:$('fWaterTime').value||'07:00',lastWater:prev?.lastWater||'',lastWaterSource:prev?.lastWaterSource||'',events:Array.isArray(prev?.events)?prev.events:[],photo:photo||prev?.photo||'',photoRef:photo?null:(prev?.photoRef||''),_photoDirty:!!photo,note:$('fNote').value.trim()};data=editingId?data.map(a=>a.id===editingId?obj:a):[...data,obj];if(save()){closeForm();scheduleNotifications();showToast(editingId?'Catatan diperbarui':'Tanaman ditambahkan')}};const pf=$('fPhoto').files[0];if(pf)compressFile(pf).then(finish);else finish()};
+}
+ti4NormalizeState();
+ti4PatchBindings();
+
 document.querySelectorAll('[data-nav]').forEach(btn=>btn.onclick=()=>showPage(btn.dataset.nav));
+ti4NormalizeState();
 render();
 initStorage().then(()=>{scheduleNotifications();});
 setTimeout(()=>optimizeStoredPhotos(),250);
