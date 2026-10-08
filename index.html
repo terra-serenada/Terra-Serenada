@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Terra Serenada</title>
-<!-- v1.0.8 Cerita Kehidupan dari Jejak Kehadiran -->
+<!-- v3.0 Statistik Kebun + v1.0.10 Cerita Kehidupan -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d120d">
 <meta name="mobile-web-app-capable" content="yes">
@@ -197,6 +197,11 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 @media(max-width:360px){.garden-status-item{padding-left:3px;padding-right:3px}.garden-status-item span{font-size:8px}.garden-status-item b{font-size:18px}}
 
 
+
+/* Terra Serenada v3.0 — Statistik Kebun */
+.statistics-back{margin-bottom:10px;padding:8px 11px}.statistics-head{padding:8px 2px 8px;margin-bottom:4px}.statistics-head .hero-title{font-size:22px}.statistics-section{padding:14px;margin-bottom:14px}.statistics-summary{margin-bottom:14px}.statistics-mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.statistics-mini{background:var(--surface2);border-radius:13px;padding:10px;min-width:0}.statistics-mini span{display:block;color:var(--muted);font-size:10px;line-height:1.25}.statistics-mini b{display:block;font-size:17px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.statistics-subtitle{font-size:13px;font-weight:800;margin:14px 1px 9px}.statistics-subtitle:first-child{margin-top:0}.harvest-stat-list{display:grid;gap:7px}.harvest-stat-row{padding:10px 11px;background:var(--surface2);border-radius:12px}.harvest-stat-name{font-size:13px;font-weight:800}.harvest-stat-meta{font-size:10px;color:var(--muted);margin-top:3px}.harvest-stat-units{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.harvest-stat-unit{padding:5px 8px;border-radius:999px;background:var(--accent2);color:var(--accent);font-size:10px;font-weight:750}.chart-scroll{overflow-x:auto;overflow-y:hidden;padding-bottom:3px}.line-chart,.bar-chart,.activity-chart{min-width:520px}.line-chart{height:190px}.line-chart svg{width:100%;height:190px;display:block}.chart-label{font-size:10px;fill:var(--muted)}.chart-value{font-size:10px;fill:var(--text);font-weight:700}.chart-gridline{stroke:var(--border);stroke-width:1}.chart-line{fill:none;stroke:var(--accent);stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.chart-dot{fill:var(--accent);stroke:var(--surface);stroke-width:2}.bar-chart{height:190px;display:flex;align-items:flex-end;gap:10px;padding:10px 6px 24px}.bar-month{width:34px;min-width:34px;height:150px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:5px}.bar-value{font-size:9px;color:var(--text);font-weight:750;min-height:12px}.bar-fill{width:22px;background:var(--accent);border-radius:7px 7px 2px 2px;min-height:2px}.bar-label{font-size:9px;color:var(--muted);white-space:nowrap}.status-subtitle{margin-top:18px}.status-stat-list{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.status-stat-list>div{background:var(--surface2);padding:11px;border-radius:12px}.status-stat-list span{display:block;color:var(--muted);font-size:10px}.status-stat-list b{display:block;font-size:19px;margin-top:4px}.activity-chart{height:205px;display:flex;align-items:flex-end;gap:12px;padding:8px 6px 25px}.activity-month{width:52px;min-width:52px;height:170px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center}.activity-bars{height:145px;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:3px}.activity-bar{width:11px;border-radius:5px 5px 1px 1px;min-height:2px}.activity-bar.tanam{background:var(--accent)}.activity-bar.flower{background:#d9c36a}.activity-bar.harvest{background:#c68b58}.activity-label{font-size:9px;color:var(--muted);margin-top:7px}.chart-legend{display:flex;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:10px;margin-top:8px}.garden-status-bottom{display:flex;align-items:center;gap:8px;margin-top:8px}.garden-status-bottom .garden-status-insight{flex:1;margin-top:0;border-top:0;padding-left:0}.stats-entry-btn{white-space:nowrap;padding:9px 12px;background:var(--accent2);border-color:transparent;color:var(--text)}
+@media(max-width:560px){.statistics-mini-grid{grid-template-columns:repeat(2,1fr)}.status-stat-list{grid-template-columns:1fr}.garden-status-bottom{align-items:flex-end}.garden-status-bottom .garden-status-insight{font-size:10px}.stats-entry-btn{padding:9px 10px}}
+
 /* Terra Serenada — hide legacy dashboard presentation */
 #pageHome > .stats{display:none !important;}
 /* Perlu perhatian + Aktivitas terbaru tetap dipertahankan. */
@@ -221,12 +226,12 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   <section class="card garden-status-card" id="gardenStatusCard">
     <div class="garden-status-head"><div><b>🌿 Kondisi Kebun</b><div class="meta">Ringkasan kondisi kebun hari ini.</div></div><div class="garden-status-badge" id="gardenStatusBadge">● TERPANTAU</div></div>
     <div class="garden-status-grid">
-      <div class="garden-status-item"><span class="status-icon">🌱</span><b id="statusPlants">0</b><span>Tanaman</span></div>
-      <div class="garden-status-item"><span class="status-icon">🌱</span><b id="statusRecent">0</b><span>Baru ditanam</span></div>
+      <div class="garden-status-item"><span class="status-icon">🌱</span><b id="statusPlants">0</b><span>Tanaman aktif</span></div>
+      <div class="garden-status-item"><span class="status-icon">🌼</span><b id="statusFlower">0</b><span>Berbunga</span></div>
       <div class="garden-status-item"><span class="status-icon">🧺</span><b id="statusHarvest">0</b><span>Siap panen</span></div>
-      <div class="garden-status-item"><span class="status-icon">📍</span><b id="statusBeds">0</b><span>Lokasi / bed</span></div>
+      <div class="garden-status-item"><span class="status-icon">🧺</span><b id="statusHarvestMonth">0</b><span>Panen bulan ini</span></div>
     </div>
-    <div class="garden-status-insight good" id="gardenStatusInsight">✓ Kebun terpantau baik hari ini.</div>
+    <div class="garden-status-bottom"><div class="garden-status-insight good" id="gardenStatusInsight">✓ Kebun terpantau baik hari ini.</div><button type="button" class="secondary stats-entry-btn" id="openStatisticsBtn">📊 Statistik</button></div>
   </section>
   <section class="stats">
     <div class="stat"><b id="statTotal">0</b><span>Total tanaman</span></div>
@@ -297,6 +302,51 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 
   <div class="section-title"><h2>Riwayat panen</h2><span class="count" id="harvestCount">0 catatan</span></div>
   <section class="items" id="harvestItems"></section>
+  </section>
+
+  <section class="page" id="pageStatistics">
+    <div class="statistics-head"><button type="button" class="secondary statistics-back" id="statisticsBack">‹ Kembali</button>
+      <div><div class="hero-title">📊 Statistik Kebun</div><div class="hero-sub">Gambaran perkembangan kebun dari data yang sudah tercatat.</div></div>
+    </div>
+
+    <div class="section-title"><h2>📌 Ringkasan</h2></div>
+    <section class="stats statistics-summary" id="statisticsSummary">
+      <div class="stat"><b id="statActiveIndividuals">0</b><span>Tanaman aktif</span></div>
+      <div class="stat"><b id="statPlantedTotal">0</b><span>Total ditanam</span></div>
+      <div class="stat"><b id="statHarvestTotal">0</b><span>Total panen</span></div>
+      <div class="stat"><b id="statGardenDays">0</b><span>Hari berkebun</span></div>
+    </section>
+
+    <div class="section-title"><h2>🧺 Statistik Panen</h2></div>
+    <section class="card statistics-section">
+      <div class="statistics-mini-grid">
+        <div class="statistics-mini"><span>Total panen</span><b id="statHarvestRecords">0</b></div>
+        <div class="statistics-mini"><span>Tanaman menghasilkan</span><b id="statHarvestingPlants">0</b></div>
+        <div class="statistics-mini"><span>Panen bulan ini</span><b id="statHarvestThisMonth">0</b></div>
+        <div class="statistics-mini"><span>Panen terakhir</span><b id="statLastHarvest">—</b></div>
+      </div>
+      <div class="statistics-subtitle">Panen berdasarkan tanaman</div>
+      <div id="harvestByPlant" class="harvest-stat-list"></div>
+      <div class="statistics-subtitle">Panen per bulan</div>
+      <div class="chart-scroll"><div id="harvestMonthlyChart" class="bar-chart compact-chart"></div></div>
+    </section>
+
+    <div class="section-title"><h2>📈 Perkembangan Kebun</h2></div>
+    <section class="card statistics-section">
+      <div class="statistics-subtitle">🌱 Penanaman per bulan</div>
+      <div class="chart-scroll"><div id="plantingLineChart" class="line-chart"></div></div>
+
+      <div class="statistics-subtitle status-subtitle">🌿 Status Tanaman</div>
+      <div class="status-stat-list">
+        <div><span>🌱 Aktif</span><b id="statStatusActive">0</b></div>
+        <div><span>✅ Selesai</span><b id="statStatusCompleted">0</b></div>
+        <div><span>❌ Gagal</span><b id="statStatusFailed">0</b></div>
+      </div>
+
+      <div class="statistics-subtitle">📊 Aktivitas Kebun per bulan</div>
+      <div class="chart-scroll"><div id="activityMonthlyChart" class="activity-chart"></div></div>
+      <div class="chart-legend"><span>🌱 Tanam</span><span>🌼 Berbunga</span><span>🧺 Panen</span></div>
+    </section>
   </section>
 
   <section class="page" id="pageInhabitants">
@@ -1034,25 +1084,79 @@ function closePlantDetail(){$('plantDetailPage').classList.remove('show');docume
 function renderGardenStatus(){
   const now=new Date();
   const active=data.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(g=>(g.status||'active')==='active'));
-  const recent=active.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(g=>g.date&&daysBetween(g.date,now)<=7)).length;
   const nearHarvest=active.filter(x=>{
     const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(g=>(g.status||'active')==='active');
     return gs.some(g=>{const hd=groupHarvestDate(x,g);if(!hd)return false;return Math.ceil((new Date(hd+'T00:00:00')-now)/86400000)<=7});
   }).length;
   const attention=getAutomaticAttentions().length+attentions.filter(a=>a.status!=='done').length;
-  const flowering=active.filter(x=>(Array.isArray(x.events)?x.events:[]).some(e=>e.type==='flower'&&daysBetween(e.date,now)<=14)).length;
+  const flowering=new Set();
+  data.forEach(x=>(Array.isArray(x.events)?x.events:[]).filter(e=>e.type==='flowering'&&daysBetween(e.date,now)<=14).forEach(()=>flowering.add(x.id)));
+  const ym=today().slice(0,7);
   $('statusPlants').textContent=active.length;
-  $('statusRecent').textContent=recent;
+  $('statusFlower').textContent=flowering.size;
   $('statusHarvest').textContent=nearHarvest;
-  $('statusBeds').textContent=beds.length;
+  $('statusHarvestMonth').textContent=harvests.filter(h=>String(h.date||'').slice(0,7)===ym).length;
   const badge=$('gardenStatusBadge'),insight=$('gardenStatusInsight');
   badge.textContent=attention>0?'● PERLU PERHATIAN':'● TERPANTAU';
   insight.className='garden-status-insight '+(attention>0?'attention':'good');
   if(attention>0) insight.textContent=`⚠️ ${attention} hal perlu diperhatikan.`;
-  else if(flowering>0&&nearHarvest>0) insight.textContent=`🌼 ${flowering} tanaman berbunga · 🧺 ${nearHarvest} mendekati panen`;
-  else if(flowering>0) insight.textContent=`🌼 ${flowering} tanaman sedang berbunga.`;
+  else if(flowering.size>0&&nearHarvest>0) insight.textContent=`🌼 ${flowering.size} tanaman berbunga · 🧺 ${nearHarvest} mendekati panen`;
+  else if(flowering.size>0) insight.textContent=`🌼 ${flowering.size} tanaman sedang berbunga.`;
   else if(nearHarvest>0) insight.textContent=`🧺 ${nearHarvest} tanaman mendekati panen.`;
   else insight.textContent='✓ Kebun terpantau baik hari ini.';
+}
+
+function statsMonthRange(){
+  const dates=[];
+  data.forEach(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).forEach(g=>{if(g.date)dates.push(g.date)}));
+  harvests.forEach(h=>{if(h.date)dates.push(h.date)});
+  data.forEach(x=>(Array.isArray(x.events)?x.events:[]).forEach(e=>{if(e.type==='flowering'&&e.date)dates.push(e.date)}));
+  const end=today().slice(0,7);
+  const start=(dates.sort()[0]||end).slice(0,7);
+  const out=[];let [y,m]=start.split('-').map(Number),[ey,em]=end.split('-').map(Number);
+  while(y<ey||(y===ey&&m<=em)){out.push(`${y}-${String(m).padStart(2,'0')}`);m++;if(m>12){m=1;y++}}
+  return out.length?out:[end];
+}
+function monthLabel(ym){const [y,m]=ym.split('-').map(Number);return new Date(y,m-1,1).toLocaleDateString('id-ID',{month:'short'}).replace('.','')+' '+String(y).slice(-2);}
+function statQtyGroups(filter){let n=0;data.forEach(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).forEach(g=>{if(filter(g))n+=Number(g.qty||0)}));return n;}
+function renderSvgLineChart(el,months,values){
+  if(!el)return;const W=Math.max(520,months.length*58);el.style.width=W+'px',H=190,L=28,R=12,T=18,B=30,plotW=W-L-R,plotH=H-T-B,max=Math.max(1,...values);
+  const points=values.map((v,i)=>{const x=L+(months.length===1?plotW/2:(i/(months.length-1))*plotW);const y=T+plotH-(v/max)*plotH;return [x,y,v]});
+  const grid=[0,.5,1].map(f=>{const y=T+plotH-f*plotH;return `<line class="chart-gridline" x1="${L}" x2="${W-R}" y1="${y}" y2="${y}"/>`}).join('');
+  const poly=points.map(p=>p[0]+','+p[1]).join(' ');
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${grid}<polyline class="chart-line" points="${poly}"/>${points.map((p,i)=>`<circle class="chart-dot" cx="${p[0]}" cy="${p[1]}" r="4"/><text class="chart-value" x="${p[0]}" y="${Math.max(11,p[1]-8)}" text-anchor="middle">${p[2]}</text><text class="chart-label" x="${p[0]}" y="${H-9}" text-anchor="middle">${monthLabel(months[i])}</text>`).join('')}</svg>`;
+}
+function renderSimpleMonthlyBars(el,months,values){
+  if(!el)return;el.style.width=Math.max(520,months.length*44)+'px';const max=Math.max(1,...values);el.innerHTML=months.map((m,i)=>`<div class="bar-month"><div class="bar-value">${values[i]||''}</div><div class="bar-fill" style="height:${Math.max(2,Math.round((values[i]/max)*128))}px"></div><div class="bar-label">${monthLabel(m)}</div></div>`).join('');
+}
+function renderActivityBars(el,months,rows){
+  if(!el)return;el.style.width=Math.max(520,months.length*64)+'px';const max=Math.max(1,...rows.flatMap(r=>r.values));el.innerHTML=months.map((m,i)=>`<div class="activity-month"><div class="activity-bars"><div class="activity-bar tanam" title="Tanam ${rows[0].values[i]}"></div><div class="activity-bar flower" title="Berbunga ${rows[1].values[i]}"></div><div class="activity-bar harvest" title="Panen ${rows[2].values[i]}"></div></div><div class="activity-label">${monthLabel(m)}</div></div>`).join('');el.querySelectorAll('.activity-month').forEach((box,i)=>{[['tanam',rows[0].values[i]],['flower',rows[1].values[i]],['harvest',rows[2].values[i]]].forEach(([cls,v])=>{const e=box.querySelector('.'+cls);e.style.height=Math.max(2,Math.round((v/max)*128))+'px';})});
+}
+function renderStatistics(){
+  const months=statsMonthRange(),ym=today().slice(0,7);
+  const activeQty=statQtyGroups(g=>(g.status||'active')==='active');
+  const totalPlanted=statQtyGroups(()=>true);
+  const completedQty=statQtyGroups(g=>(g.status||'active')==='completed');
+  const failedQty=statQtyGroups(g=>(g.status||'active')==='failed');
+  const todayDate=new Date(today()+'T00:00:00');
+  const firstPlantDate=(data.flatMap(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).map(g=>g.date).filter(Boolean)).sort()[0])||today();
+  const days=Math.max(0,Math.floor((todayDate-new Date(firstPlantDate+'T00:00:00'))/86400000)+1);
+  $('statActiveIndividuals').textContent=activeQty;
+  $('statPlantedTotal').textContent=totalPlanted;
+  $('statHarvestTotal').textContent=harvests.length;
+  $('statGardenDays').textContent=days;
+  $('statHarvestRecords').textContent=harvests.length;
+  $('statHarvestingPlants').textContent=new Set(harvests.map(h=>h.plantId).filter(Boolean)).size;
+  $('statHarvestThisMonth').textContent=harvests.filter(h=>String(h.date||'').slice(0,7)===ym).length;
+  const last=harvests.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')))[0];
+  $('statLastHarvest').textContent=last?.date?fmt(last.date):'—';
+  $('statStatusActive').textContent=activeQty;$('statStatusCompleted').textContent=completedQty;$('statStatusFailed').textContent=failedQty;
+  const byPlant=new Map();harvests.forEach(h=>{const p=data.find(x=>x.id===h.plantId);const name=p?.name||'Tanaman dihapus';const key=h.plantId||('harvest-'+h.id);if(!byPlant.has(key))byPlant.set(key,{name,records:0,units:new Map()});const row=byPlant.get(key);row.records++;const unit=String(h.unit||'').trim()||'satuan';row.units.set(unit,(row.units.get(unit)||0)+Number(h.qty||0));});
+  $('harvestByPlant').innerHTML=byPlant.size?[...byPlant.values()].sort((a,b)=>b.records-a.records||a.name.localeCompare(b.name,'id')).map(r=>`<div class="harvest-stat-row"><div class="harvest-stat-name">🌿 ${esc(r.name)}</div><div class="harvest-stat-meta">${r.records} kali panen</div><div class="harvest-stat-units">${[...r.units.entries()].map(([u,q])=>`<span class="harvest-stat-unit">${q} ${esc(u)}</span>`).join('')}</div></div>`).join(''):'<div class="empty" style="padding:20px 10px">Belum ada catatan panen.</div>';
+  const planting=months.map(m=>statQtyGroups(g=>String(g.date||'').slice(0,7)===m));
+  const monthlyHarvest=months.map(m=>harvests.filter(h=>String(h.date||'').slice(0,7)===m).length);
+  const flowering=months.map(m=>{let n=0;data.forEach(x=>(Array.isArray(x.events)?x.events:[]).forEach(e=>{if(e.type==='flowering'&&String(e.date||'').slice(0,7)===m)n++;}));return n;});
+  renderSvgLineChart($('plantingLineChart'),months,planting);renderSimpleMonthlyBars($('harvestMonthlyChart'),months,monthlyHarvest);renderActivityBars($('activityMonthlyChart'),months,[{values:planting},{values:flowering},{values:monthlyHarvest}]);
 }
 
 function render(){
@@ -1066,6 +1170,7 @@ function render(){
   $('statBeds').textContent=bedCount;
   renderGardenCover();
   renderGardenStatus();
+  renderStatistics();
 
   const arr=filtered();
   $('listCount').textContent=`${arr.length} tanaman`;
@@ -1182,8 +1287,10 @@ document.documentElement.style.colorScheme='light dark';
 setTodayLabel();
 normalizeBedsState();
 $('fabAdd').onclick=()=>openForm();
+$('openStatisticsBtn').onclick=()=>showPage('statistics');
 showPage('home');
 $('gardenCoverInput').onchange=()=>{const f=$('gardenCoverInput').files[0];if(!f)return;compressFile(f).then(photo=>{gardenSettings={...gardenSettings,coverPhoto:photo||''};if(save()){renderGardenCover();showToast('📷 Foto sampul kebun diperbarui')}});};
+$('statisticsBack').onclick=()=>showPage('home');
 $('manageBedsBtn').onclick=openBedsModal;
 $('bedsClose').onclick=()=>$('bedsModal').classList.remove('show');
 $('bedsModal').onclick=e=>{if(e.target.id==='bedsModal')$('bedsModal').classList.remove('show')};
@@ -1205,7 +1312,7 @@ $('backupOpen').onclick=()=>{$('backupBtn').click();showToast('Backup JSON dibua
 $('exportOpen').onclick=()=>{$('exportBtn').click();showToast('CSV dibuat');};
 $('exportHarvestOpen').onclick=()=>{exportHarvests();showToast('CSV panen dibuat')};
 $('installHelp').onclick=()=>{showToast('Di Chrome: menu ⋮ → Tambahkan ke layar utama');};
-function showPage(n){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));const map={home:'pageHome',plants:'pagePlants',inhabitants:'pageInhabitants'};$(map[n]||'pageHome').classList.add('active');document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.nav===n));window.scrollTo({top:0,behavior:'smooth'});$('fabAdd').style.display=n==='inhabitants'?'block':(n==='plants'?'block':'none');$('fabAdd').setAttribute('aria-label',n==='inhabitants'?'Tambah Inhabitant':'Tambah tanaman');$('fabAdd').onclick=()=>n==='inhabitants'?openInhabitantModal():openForm();}
+function showPage(n){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));const map={home:'pageHome',plants:'pagePlants',statistics:'pageStatistics',inhabitants:'pageInhabitants'};$(map[n]||'pageHome').classList.add('active');document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.nav===n));window.scrollTo({top:0,behavior:'smooth'});$('fabAdd').style.display=n==='inhabitants'?'block':(n==='plants'?'block':'none');$('fabAdd').setAttribute('aria-label',n==='inhabitants'?'Tambah Inhabitant':'Tambah tanaman');$('fabAdd').onclick=()=>n==='inhabitants'?openInhabitantModal():openForm();}
 
 // v1.0.6 FIX — detail tanaman lives outside #items, so its delegated handlers must be captured here.
 document.addEventListener('click',e=>{
