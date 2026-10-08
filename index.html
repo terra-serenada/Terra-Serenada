@@ -1366,6 +1366,8 @@ document.addEventListener('click',e=>{
   if(groupAdd){e.preventDefault();e.stopPropagation();openGroupModal(groupAdd.dataset.groupAdd);return;}
   const groupEdit=e.target.closest?.('[data-group-edit]');
   if(groupEdit){e.preventDefault();e.stopPropagation();openGroupModal(groupEdit.dataset.groupEdit,groupEdit.dataset.groupId);return;}
+  const groupStatus=e.target.closest?.('[data-group-status]');
+  if(groupStatus){e.preventDefault();e.stopPropagation();openGroupStatusModal(groupStatus.dataset.groupPlant,groupStatus.dataset.groupId,groupStatus.dataset.groupStatus);return;}
   const groupDel=e.target.closest?.('[data-group-del]');
   if(groupDel){e.preventDefault();e.stopPropagation();deleteGroup(groupDel.dataset.groupDel,groupDel.dataset.groupId);return;}
   const journey=e.target.closest?.('[data-journey]');
