@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Terra Serenada</title>
-<!-- v3.1 Statistik Kebun tahunan + v1.0.10 Cerita Kehidupan -->
+<!-- v3.2 Minor Update: unit panen + status individu kelompok tanam + riwayat kelompok selesai -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d120d">
 <meta name="mobile-web-app-capable" content="yes">
@@ -206,6 +206,8 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 #pageHome > .stats{display:none !important;}
 /* Perlu perhatian + Aktivitas terbaru tetap dipertahankan. */
 #pageHome > #todayDashboard .dashboard-grid{display:none !important;}
+
+.planting-group-history-list{margin-top:8px}.planting-group-history{padding:10px 12px}.planting-group-actions{display:flex;flex-wrap:wrap;gap:6px}.planting-group-actions button{font-size:12px;padding:7px 9px}.planting-groups-history{border-top:1px solid var(--border);margin-top:12px;padding-top:4px}
 </style>
 </head>
 <body>
@@ -390,18 +392,24 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   <div class="grid">
     <div class="field"><label>Tanggal tanam *</label><input id="gDate" type="date"></div>
     <div class="field"><label>Jumlah tanaman *</label><input id="gQty" type="number" min="1" placeholder="Contoh: 8"></div>
-    <div class="field"><label>Status kelompok</label><select id="gStatus"><option value="active">🟢 Aktif</option><option value="completed">⚪ Selesai</option><option value="failed">🔴 Gagal</option></select></div>
+    
     <div class="field full"><label>Lokasi / bed saat ini</label><div id="gBedChecklist" class="bed-checklist"></div></div>
   </div>
-  <div class="meta" style="margin-top:10px">Status dicatat pada kelompok. Panen tidak otomatis mengakhiri kelompok Produktif Berulang atau Permanen.</div>
+  <div class="meta" id="groupEditStatusNote" style="margin-top:10px">Jumlah awal kelompok tetap. Status individu dicatat melalui tombol Selesai dan Gagal pada kartu kelompok.</div>
   <div class="actions"><button type="button" class="secondary" id="groupCancel">Batal</button><button type="button" class="primary" id="groupSave">Simpan</button></div>
+</div></div>
+<div class="modal" id="groupStatusModal"><div class="card modalbox form"><h2 id="groupStatusTitle">Atur status tanaman</h2>
+  <div class="meta" id="groupStatusHint" style="margin-top:-4px"></div>
+  <div class="field" style="margin-top:12px"><label id="groupStatusQtyLabel">Jumlah saat ini</label><input id="groupStatusQty" type="number" min="0" step="1"></div>
+  <div class="meta" id="groupStatusBalance" style="margin-top:8px"></div>
+  <div class="actions"><button type="button" class="secondary" id="groupStatusCancel">Batal</button><button type="button" class="primary" id="groupStatusSave">Simpan</button></div>
 </div></div>
 <div class="modal" id="harvestModal"><div class="card modalbox form"><h2>Catat panen</h2>
   <div class="grid">
     <div class="field full"><label>Tanaman *</label><select id="hPlant"></select></div>
     <div class="field"><label>Tanggal panen *</label><input id="hDate" type="date"></div>
     <div class="field"><label>Jumlah *</label><input id="hQty" type="number" min="0" step="0.01" placeholder="Contoh: 1,5"></div>
-    <div class="field"><label>Satuan</label><select id="hUnit"><option>kg</option><option>gram</option><option>buah</option><option>ikat</option><option>butir</option><option>liter</option><option>helai</option><option>lainnya</option></select></div>
+    <div class="field"><label>Satuan</label><select id="hUnit" size="5" style="max-height:150px"><option value="g">⚖️ g</option><option value="kg">⚖️ kg</option><option value="buah">🍅 buah</option><option value="rimpang">🫚 rimpang</option><option value="umbi">🥔 umbi</option><option value="batang">🌿 batang</option><option value="daun">🍃 daun</option><option value="bunga">🌸 bunga</option><option value="polong">🫛 polong</option><option value="bonggol">🧄 bonggol</option></select></div>
     <div class="field"><label>Kualitas</label><select id="hQuality"><option>Baik</option><option>Sangat baik</option><option>Cukup</option><option>Kurang</option></select></div>
     <div class="field full"><label>Catatan panen</label><textarea id="hNote" rows="3" placeholder="Ukuran, kondisi, pemakaian, atau hal penting lainnya…"></textarea></div>
   </div>
@@ -504,353 +512,53 @@ function normalizePlantingGroups(){
     let groups=Array.isArray(x.plantingGroups)?x.plantingGroups.filter(Boolean):[];
     const legacyLocs=Array.isArray(x.locations)?x.locations.filter(Boolean):(x.bed?String(x.bed).split(' · ').map(v=>v.trim()).filter(Boolean):[]);
     if(!groups.length && x.date){
-      groups=[{id:makeId('group'),date:x.date,qty:Math.max(1,Number(x.qty||1)),locations:[...new Set(legacyLocs)],status:'active',createdAt:new Date().toISOString()}];
+      const totalQty=Math.max(1,Number(x.qty||1));
+      groups=[{id:makeId('group'),date:x.date,totalQty,qty:totalQty,activeQty:totalQty,completedQty:0,failedQty:0,locations:[...new Set(legacyLocs)],createdAt:new Date().toISOString()}];
       changed=true;
     }
     groups=groups.map((g,i)=>{
+      const totalQty=Math.max(1,Number(g.totalQty??g.qty??1));
+      let activeQty,completedQty,failedQty;
+      if(g.activeQty!=null||g.completedQty!=null||g.failedQty!=null){
+        completedQty=Math.max(0,Number(g.completedQty||0));
+        failedQty=Math.max(0,Number(g.failedQty||0));
+        activeQty=Math.max(0,totalQty-completedQty-failedQty);
+      }else{
+        const legacyStatus=['active','completed','failed'].includes(g.status)?g.status:'active';
+        activeQty=legacyStatus==='active'?totalQty:0;
+        completedQty=legacyStatus==='completed'?totalQty:0;
+        failedQty=legacyStatus==='failed'?totalQty:0;
+        changed=true;
+      }
       let locs=Array.isArray(g.locations)?g.locations.filter(Boolean):[];
       if(i===0&&!locs.length&&legacyLocs.length)locs=[...new Set(legacyLocs)];
-      return {id:g.id||makeId('group'),date:g.date||x.date||today(),qty:Math.max(1,Number(g.qty||1)),locations:[...new Set(locs)],status:['active','completed','failed'].includes(g.status)?g.status:'active',createdAt:g.createdAt||new Date().toISOString()};
+      return {id:g.id||makeId('group'),date:g.date||x.date||today(),totalQty,qty:totalQty,activeQty,completedQty,failedQty,locations:[...new Set(locs)],createdAt:g.createdAt||new Date().toISOString()};
     });
     const sorted=[...groups].sort((a,b)=>String(a.date).localeCompare(String(b.date)));
     const first=sorted[0];
-    const total=groups.reduce((n,g)=>n+Number(g.qty||0),0);
-    // Location is now owned only by planting groups. Legacy plant-level location is migrated into the first group.
-    return {...x,plantingGroups:groups,date:first?.date||x.date||today(),qty:total||1,cycleType:x.cycleType||'repeat',locations:[],bed:''};
+    const total=groups.reduce((n,g)=>n+Number(g.totalQty||g.qty||0),0);
+    return {...x,plantingGroups:groups,date:first?.date||x.date,qty:total||1,locations:[],bed:''};
   });
   return changed;
 }
-function bedNames(){return beds.map(b=>b.name).filter(Boolean);}
-function bedId(){return makeId('bed');}
-function renderBedChecklist(selected=[]){
-  const names=bedNames();
-  const list=names.length?names.map(name=>`<label class="bed-check-option"><input type="checkbox" value="${esc(name)}" ${selected.includes(name)?'checked':''}><span>${esc(name)}</span></label>`).join(''):'<div class="multi-select-empty">Belum ada bed. Tambahkan dulu melalui “📍 Lokasi / Bed” di Beranda.</div>';
-  $('bedChecklist').innerHTML=`<div class="multi-select" data-ms-root><button type="button" class="multi-select-trigger ${selected.length?'has-selection':''}" data-ms-trigger><span class="multi-select-summary" data-ms-summary>${selected.length?`${selected.length} bed dipilih`:'Pilih lokasi / bed…'}</span><span class="multi-select-chevron">⌄</span></button><div class="multi-select-panel" data-ms-panel><div class="multi-select-list">${list}</div><div class="multi-select-footer"><span class="multi-select-count" data-ms-count>${selected.length} dipilih</span><button type="button" class="multi-select-done" data-ms-close>Selesai</button></div></div></div>`;
-}
-function selectedBedsFromForm(){return [...$('bedChecklist').querySelectorAll('input:checked')].map(i=>i.value);}
-function bedPlantCount(name){return data.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(g=>groupLocations(g).includes(name))).length;}
-function renderBedMaster(){
-  const list=$('bedMasterList');
-  if(!beds.length){list.innerHTML='<div class="bed-empty">Belum ada bed. Tambahkan bed pertama untuk mulai mengatur lokasi tanaman.</div>';return;}
-  list.innerHTML=beds.map(b=>`<div class="bed-master-row"><div class="bed-master-name">🌱 ${esc(b.name)}</div><div class="bed-master-count">${bedPlantCount(b.name)} tanaman</div><button type="button" class="bed-master-menu" data-bed-menu="${esc(b.id)}" aria-label="Kelola ${esc(b.name)}">⋮</button></div>`).join('');
-}
-function renderBedHome(){
-  $('bedSummary').textContent=`${beds.length} bed terdaftar`;
-  $('bedHomeList').innerHTML=beds.length?beds.map(b=>`<span style="display:inline-block;margin:0 5px 5px 0;padding:5px 8px;border-radius:999px;background:var(--accent2);color:var(--accent);font-weight:700">${esc(b.name)}</span>`).join(''):'Belum ada bed. Tekan “⚙️ Kelola” untuk menambahkan.';
-}
-function openBedAction(id){selectedBedActionId=id;const b=beds.find(x=>x.id===id);if(!b)return;$('bedActionTitle').textContent=`Kelola ${b.name}`;$('bedActionModal').classList.add('show');}
-function closeBedAction(){$('bedActionModal').classList.remove('show');selectedBedActionId=null;}
-function openBedsModal(){renderBedMaster();$('bedsModal').classList.add('show');}
-function openBedEdit(id=null){editingBedId=id;const b=id?beds.find(x=>x.id===id):null;$('bedEditTitle').textContent=b?'Ubah Bed':'Tambah Bed';$('bedNameInput').value=b?.name||'';$('bedEditModal').classList.add('show');$('bedNameInput').focus();}
-function closeBedEdit(){$('bedEditModal').classList.remove('show');editingBedId=null;}
-function saveBed(){
-  const name=$('bedNameInput').value.trim();
-  if(!name){showToast('Nama bed wajib diisi');return;}
-  const duplicate=beds.some(b=>b.name.toLowerCase()===name.toLowerCase()&&b.id!==editingBedId);
-  if(duplicate){showToast('Nama bed sudah ada');return;}
-  if(editingBedId){
-    const old=beds.find(b=>b.id===editingBedId);
-    beds=beds.map(b=>b.id===editingBedId?{...b,name}:b);
-    if(old&&old.name!==name){data=data.map(x=>{const groups=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).map(g=>({...g,locations:(Array.isArray(g.locations)?g.locations:[]).map(v=>v===old.name?name:v)}));return {...x,plantingGroups:groups,locations:[],bed:''};});}
-    if(save()){closeBedEdit();renderBedMaster();showToast('Bed diperbarui');}
-  }else{beds.push({id:bedId(),name});if(save()){closeBedEdit();renderBedMaster();showToast('Bed ditambahkan');}}
-}
-function deleteBed(id){
-  const b=beds.find(x=>x.id===id);if(!b)return;
-  const used=bedPlantCount(b.name);
-  const message=used>0?`Bed “${b.name}” digunakan oleh ${used} tanaman. Hapus bed ini? Tanaman tetap disimpan dan lokasi bed tersebut akan dikosongkan.`:`Hapus “${b.name}”?`;
-  if(confirm(message)){
-    data=data.map(x=>{const groups=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).map(g=>({...g,locations:groupLocations(g).filter(v=>v!==b.name)}));return {...x,plantingGroups:groups,locations:[],bed:''};});
-    beds=beds.filter(x=>x.id!==id);
-    if(save()){renderBedMaster();showToast(used>0?'Bed dihapus · lokasi tanaman dikosongkan':'Bed dihapus');}
-  }
-}
-function normalizeBedsState(){
-  if(!Array.isArray(data)) data=[];
-  if(!Array.isArray(beds)) beds=[];
-  normalizePlantingGroups();
-  const fromGroups=data.flatMap(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).flatMap(g=>groupLocations(g))).filter(Boolean);
-  const existing=beds.map(b=>typeof b==='string'?{id:bedId(),name:b}:b).filter(b=>b&&b.name);
-  const map=new Map(existing.map(b=>[b.name,b]));
-  fromGroups.forEach(name=>{if(!map.has(name))map.set(name,{id:bedId(),name});});
-  beds=[...map.values()];
-}
+function groupTotal(g){return Math.max(1,Number(g?.totalQty??g?.qty??1));}
+function groupActiveQty(g){const t=groupTotal(g);return Math.max(0,Math.min(t,Number(g?.activeQty??(g?.status==='active'?t:0))));}
+function groupCompletedQty(g){return Math.max(0,Math.min(groupTotal(g),Number(g?.completedQty||0)));}
+function groupFailedQty(g){return Math.max(0,Math.min(groupTotal(g),Number(g?.failedQty||0)));}
+function groupHasActive(g){return groupActiveQty(g)>0;}
+function groupDerivedStatus(g){const a=groupActiveQty(g),c=groupCompletedQty(g),f=groupFailedQty(g);if(a>0)return 'active';if(c>0&&f>0)return 'mixed';if(c===groupTotal(g))return 'completed';if(f===groupTotal(g))return 'failed';return 'mixed';}
+function openGroupModal(plantId,groupId=null){const x=data.find(a=>a.id===plantId);if(!x)return;groupPlantId=plantId;editingGroupId=groupId;const g=groupId?(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).find(a=>a.id===groupId):null;if(g&&!groupHasActive(g)){showToast('Kelompok ini sudah masuk Riwayat Kelompok Tanam');return;}$('groupFormTitle').textContent=g?'✏️ Edit Kelompok Tanam':'🌱 Tanam Susulan';$('gDate').value=g?.date||today();$('gQty').value=g?groupTotal(g):1;$('gQty').readOnly=!!g;renderGroupChecklist(groupLocations(g));$('groupEditStatusNote').textContent=g?'Jumlah awal kelompok tetap dan tidak dapat diubah. Status individu dapat dikoreksi melalui tombol Selesai/Gagal.':'Jumlah awal kelompok akan tetap setelah kelompok dibuat.';$('groupModal').classList.add('show');}
+function closeGroupModal(){$('groupModal').classList.remove('show');groupPlantId=null;editingGroupId=null;$('gQty').readOnly=false;}
+function saveGroup(){const isEdit=!!editingGroupId;const x=data.find(a=>a.id===groupPlantId);const date=$('gDate').value;const qty=isEdit?Number($('gQty').value):Math.max(1,Number($('gQty').value||0));if(!x||!date||!(qty>0)){showToast('Tanggal dan jumlah tanaman wajib diisi');return}const locations=selectedGroupBeds();let groups=Array.isArray(x.plantingGroups)?[...x.plantingGroups]:[];if(editingGroupId){groups=groups.map(g=>g.id===editingGroupId?{...g,date,locations}:g)}else{groups.push({id:makeId('group'),date,totalQty:qty,qty,activeQty:qty,completedQty:0,failedQty:0,locations,createdAt:new Date().toISOString()});}groups.sort((a,b)=>String(a.date).localeCompare(String(b.date)));const total=groups.reduce((n,g)=>n+groupTotal(g),0);data=data.map(a=>a.id===x.id?{...a,plantingGroups:groups,date:groups[0]?.date||date,qty:total||1,locations:[],bed:''}:a);if(save()){closeGroupModal();showToast(isEdit?'Kelompok tanam diperbarui':'🌱 Tanam susulan ditambahkan');}}
+function openGroupStatusModal(plantId,groupId,type){const x=data.find(a=>a.id===plantId);const g=x?.plantingGroups?.find(a=>a.id===groupId);if(!g||!groupHasActive(g))return;groupStatusPlantId=plantId;groupStatusGroupId=groupId;groupStatusType=type;const current=type==='completed'?groupCompletedQty(g):groupFailedQty(g);$('groupStatusTitle').textContent=type==='completed'?'✅ Atur tanaman selesai':'❌ Atur tanaman gagal';$('groupStatusQtyLabel').textContent=type==='completed'?'Jumlah selesai saat ini':'Jumlah gagal saat ini';$('groupStatusQty').value=current;$('groupStatusHint').textContent=`Total awal kelompok: ${groupTotal(g)} tanaman · Aktif saat ini: ${groupActiveQty(g)} · Selesai: ${groupCompletedQty(g)} · Gagal: ${groupFailedQty(g)}`;updateGroupStatusBalance();$('groupStatusModal').classList.add('show');$('groupStatusQty').focus();}
+function updateGroupStatusBalance(){const x=data.find(a=>a.id===groupStatusPlantId),g=x?.plantingGroups?.find(a=>a.id===groupStatusGroupId);if(!g)return;const q=Math.max(0,Number($('groupStatusQty').value||0));const c=groupStatusType==='completed'?q:groupCompletedQty(g);const f=groupStatusType==='failed'?q:groupFailedQty(g);const active=groupTotal(g)-c-f;$('groupStatusBalance').textContent=`Setelah disimpan: 🌱 ${Math.max(0,active)} aktif · ✅ ${c} selesai · ❌ ${f} gagal`;$('groupStatusBalance').style.color=active===0?'var(--accent-dark)':'var(--muted)';}
+function closeGroupStatusModal(){$('groupStatusModal').classList.remove('show');groupStatusPlantId=null;groupStatusGroupId=null;groupStatusType=null;}
+function saveGroupStatus(){const x=data.find(a=>a.id===groupStatusPlantId),g=x?.plantingGroups?.find(a=>a.id===groupStatusGroupId);if(!g)return;const q=Math.floor(Number($('groupStatusQty').value||0));if(!Number.isFinite(q)||q<0){showToast('Masukkan jumlah yang valid');return}const other=groupStatusType==='completed'?groupFailedQty(g):groupCompletedQty(g);if(q+other>groupTotal(g)){showToast(`Jumlah melebihi ${groupTotal(g)} tanaman awal`);return}const next={...g,completedQty:groupStatusType==='completed'?q:groupCompletedQty(g),failedQty:groupStatusType==='failed'?q:groupFailedQty(g)};next.activeQty=groupTotal(g)-next.completedQty-next.failedQty;next.qty=groupTotal(g);if(next.activeQty===0){const ok=confirm(`⚠️ Kelompok tanam telah selesai\n\nSemua ${groupTotal(g)} tanaman dalam kelompok ini sudah menyelesaikan siklusnya.\nKelompok akan dipindahkan ke Riwayat Kelompok Tanam dan tidak dapat diedit lagi dari sini.`);if(!ok)return;}data=data.map(a=>a.id===x.id?{...a,plantingGroups:(a.plantingGroups||[]).map(z=>z.id===g.id?next:z)}:a);if(save()){closeGroupStatusModal();showToast(next.activeQty===0?'✓ Kelompok tanam selesai · dipindahkan ke riwayat':'Status tanaman diperbarui');}}
 
-/* Terra Serenada v19 — IndexedDB storage layer.
-   localStorage remains only as a migration/fallback source. Photos are stored as Blobs in IndexedDB. */
-const DB_NAME='TerraSerenadaDB';
-const DB_VERSION=1;
-let db=null;
-let storageReady=false;
-let storageInitPromise=null;
-const DB_STATE='state';
-const DB_PHOTOS='photos';
-
-function clonePlain(value){return JSON.parse(JSON.stringify(value));}
-function makeId(prefix='id'){return (globalThis.crypto&&typeof globalThis.crypto.randomUUID==='function')?crypto.randomUUID():`${prefix}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;}
-function dataUrlToBlob(dataUrl){
-  try{const [head,b64]=String(dataUrl).split(',');const mime=(head.match(/data:([^;]+);/)||[])[1]||'image/jpeg';const bin=atob(b64);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new Blob([bytes],{type:mime});}catch{return null}
-}
-function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(blob);});}
-function openDB(){return new Promise((resolve,reject)=>{if(!('indexedDB' in window)){reject(new Error('IndexedDB tidak tersedia'));return}const req=indexedDB.open(DB_NAME,DB_VERSION);req.onupgradeneeded=()=>{const d=req.result;if(!d.objectStoreNames.contains(DB_STATE))d.createObjectStore(DB_STATE);if(!d.objectStoreNames.contains(DB_PHOTOS))d.createObjectStore(DB_PHOTOS)};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Gagal membuka database'));});}
-function idbGet(store,key){return new Promise((resolve,reject)=>{const tx=db.transaction(store,'readonly');const req=tx.objectStore(store).get(key);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
-function idbPut(store,key,value){return new Promise((resolve,reject)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).put(value,key);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error||new Error('Gagal menyimpan'));tx.onabort=()=>reject(tx.error||new Error('Transaksi dibatalkan'));});}
-function idbDelete(store,key){return new Promise((resolve,reject)=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).delete(key);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});}
-
-async function prepareStateForDB(){
-  const photos=[];
-  const takePhoto=async(liveObj,storedObj,field,kind)=>{
-    if(!liveObj||!liveObj[field]){
-      storedObj[field]='';
-      if(liveObj?.photoRef)storedObj.photoRef=liveObj.photoRef;
-      return;
-    }
-    let ref=liveObj.photoRef||'';
-    const dirty=liveObj._photoDirty===true;
-    if(!ref)ref=`photo-${makeId('photo')}`;
-    if(dirty||!liveObj.photoRef){
-      let blob=null;
-      const src=String(liveObj[field]);
-      if(src.startsWith('data:image/'))blob=dataUrlToBlob(src);
-      else if(src.startsWith('blob:')||src.startsWith('http')){try{const r=await fetch(src);blob=await r.blob();}catch{}}
-      if(blob)photos.push({ref,blob,kind});
-    }
-    liveObj.photoRef=ref;
-    liveObj._photoDirty=false;
-    storedObj.photoRef=ref;
-    storedObj[field]='';
-  };
-  const plants=clonePlain(data), inh=clonePlain(inhabitants);
-  for(let i=0;i<data.length;i++){
-    const p=data[i],q=plants[i];
-    await takePhoto(p,q,'photo','plant');
-    q._photoDirty=undefined;
-    if(Array.isArray(p.events)){
-      for(let j=0;j<p.events.length;j++){
-        const e=p.events[j],eq=q.events[j];
-        if(!eq)continue;
-        // Journey events can contain multiple photos. Keep the photo blobs in IndexedDB
-        // and store only their stable references in the state object.
-        const livePhotos=Array.isArray(e.photos)&&e.photos.length?e.photos.filter(Boolean):(e.photo?[e.photo]:[]);
-        // Journey photos are intentionally kept as compressed Data URLs in the IndexedDB state.
-        // This avoids the Android WebView Blob -> DataURL hydration failure seen in APK v1.0.6.
-        // Catalog photos and inhabitant photos keep the existing Blob/photoRef storage path.
-        eq.photoRefs=[];
-        eq.photoRef='';
-        eq.photos=livePhotos.slice();
-        eq.photo=livePhotos[0]||'';
-        eq._photoDirty=undefined;
-        e.photoRefs=[];
-        e.photoRef='';
-        e.photo=livePhotos[0]||'';
-        e.photos=livePhotos.slice();
-        e._photoDirty=false;
-      }
-    }
-  }
-  for(let i=0;i<inhabitants.length;i++){
-    const p=inhabitants[i],q=inh[i];
-    await takePhoto(p,q,'photo','inhabitant');
-    q._photoDirty=undefined;
-    if(Array.isArray(p.events)){
-      for(let j=0;j<p.events.length;j++){
-        const e=p.events[j],eq=q.events[j];
-        if(!eq)continue;
-        await takePhoto(e,eq,'photo','inhabitant-event');
-        eq._photoDirty=undefined;
-      }
-    }
-  }
-  return {state:{version:13,plants,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings,savedAt:new Date().toISOString()},photos};
-}
-async function persistToIDB(){
-  if(!db)return false;
-  const prepared=await prepareStateForDB();
-  const tx=db.transaction([DB_STATE,DB_PHOTOS],'readwrite');
-  tx.objectStore(DB_STATE).put(prepared.state,'current');
-  for(const p of prepared.photos)tx.objectStore(DB_PHOTOS).put(p.blob,p.ref);
-  await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Gagal menyimpan'));tx.onabort=()=>reject(tx.error||new Error('Transaksi dibatalkan'));});
-  return true;
-}
-async function hydratePhotoObjects(){
-  const load=async(obj)=>{
-    if(!obj)return;
-    // Legacy journey-photo storage: restore photoRefs[] if an older APK still has them. New records keep photos[] directly in state.
-    if(Array.isArray(obj.photoRefs)&&obj.photoRefs.length){
-      const restored=[];
-      for(const ref of obj.photoRefs){
-        try{const blob=await idbGet(DB_PHOTOS,ref);if(blob)restored.push(await blobToDataUrl(blob));}catch{}
-      }
-      if(restored.length){
-        obj.photos=restored;
-        obj.photo=restored[0]||''; // backwards-compatible first-photo field
-      }
-    }else if(obj.photoRef&&!obj.photo){
-      // Legacy single-photo records.
-      try{const blob=await idbGet(DB_PHOTOS,obj.photoRef);if(blob)obj.photo=await blobToDataUrl(blob);}catch{}
-    }else if(Array.isArray(obj.photos)&&obj.photos.length&&!obj.photo){
-      // Older v1.0.6 records may already contain journey photos[] directly in state.
-      // Keep the first one visible; the next save migrates it into photoRefs[]/IndexedDB.
-      obj.photo=obj.photos[0]||'';
-      obj._photoDirty=true;
-    }
-    if(Array.isArray(obj.events))for(const e of obj.events)await load(e);
-  };
-  for(const p of data)await load(p);for(const x of inhabitants)await load(x);
-}
-async function migrateLegacyToIDB(){
-  const existing=await idbGet(DB_STATE,'current');
-  if(existing)return false;
-  await persistToIDB();
-  try{localStorage.setItem('terra-serenada-storage-v19','indexeddb');}catch{}
-  return true;
-}
-async function loadFromIDB(){
-  const state=await idbGet(DB_STATE,'current');
-  if(!state)return false;
-  data=Array.isArray(state.plants)?state.plants:[];
-  harvests=Array.isArray(state.harvests)?state.harvests:[];
-  gardenEvents=Array.isArray(state.gardenEvents)?state.gardenEvents:[];
-  attentions=Array.isArray(state.attentions)?state.attentions:[];
-  inhabitants=Array.isArray(state.inhabitants)?state.inhabitants:[];
-  beds=Array.isArray(state.beds)?state.beds:[];
-  gardenSettings=state.gardenSettings&&Number(state.gardenSettings.waterDefaultEvery)>0?{waterDefaultEvery:Number(state.gardenSettings.waterDefaultEvery),coverPhoto:state.gardenSettings.coverPhoto||''}:{waterDefaultEvery:3,coverPhoto:''};
-  normalizeBedsState();
-  await hydratePhotoObjects();
-  render();
-  return true;
-}
-async function initStorage(){
-  if(storageInitPromise)return storageInitPromise;
-  storageInitPromise=(async()=>{try{normalizeBedsState();db=await openDB();const existing=await idbGet(DB_STATE,'current');if(!existing){await persistToIDB();}else{await loadFromIDB();}storageReady=true;showToast('💾 Penyimpanan perangkat aktif');}catch(err){storageReady=false;console.warn('IndexedDB tidak tersedia, memakai penyimpanan cadangan.',err);showToast('💾 Penyimpanan perangkat tidak tersedia; mode cadangan aktif');}return storageReady;})();
-  return storageInitPromise;
-}
-function reloadStoredState(){gardenEvents=readStored(GARDEN_EVENTS_KEY,[]);attentions=readStored(ATTENTION_KEY,[]);data=readStored(KEY,[]);harvests=readStored(HARVEST_KEY,[]);inhabitants=readStored(INHABITANT_KEY,[]);beds=readStored(BED_KEY,[]);gardenSettings=readStored(GARDEN_SETTINGS_KEY,{waterDefaultEvery:3,coverPhoto:''});if(!gardenSettings||Number(gardenSettings.waterDefaultEvery)<1)gardenSettings={waterDefaultEvery:3,coverPhoto:''};normalizeBedsState();render();}
-function save(){
-  render();
-  if(storageReady&&db){
-    persistToIDB().catch(err=>{console.error('Terra Serenada IndexedDB save error:',err);showToast('⚠️ Gagal menyimpan ke penyimpanan perangkat. Data di layar belum hilang.');});
-    return true;
-  }
-  // Fallback only when IndexedDB is unavailable or still initializing.
-  try{
-    localStorage.setItem(KEY,JSON.stringify(data));localStorage.setItem(HARVEST_KEY,JSON.stringify(harvests));localStorage.setItem(GARDEN_EVENTS_KEY,JSON.stringify(gardenEvents));localStorage.setItem(ATTENTION_KEY,JSON.stringify(attentions));localStorage.setItem(INHABITANT_KEY,JSON.stringify(inhabitants));localStorage.setItem(BED_KEY,JSON.stringify(beds));localStorage.setItem(GARDEN_SETTINGS_KEY,JSON.stringify(gardenSettings));return true;
-  }catch(err){showToast('⚠️ Penyimpanan perangkat penuh.');console.error('Fallback storage error:',err);return false;}
-}
-
-const PHOTO_MAX_DIM=1280;
-const PHOTO_QUALITY=.76;
-function compressImageDataUrl(dataUrl,maxDim=PHOTO_MAX_DIM,quality=PHOTO_QUALITY){
-  return new Promise(resolve=>{
-    if(!dataUrl||typeof dataUrl!=='string'||!dataUrl.startsWith('data:image/')){resolve(dataUrl||'');return}
-    const img=new Image();
-    img.onload=()=>{
-      try{
-        const scale=Math.min(1,maxDim/Math.max(img.naturalWidth||img.width,img.naturalHeight||img.height));
-        const w=Math.max(1,Math.round((img.naturalWidth||img.width)*scale));
-        const h=Math.max(1,Math.round((img.naturalHeight||img.height)*scale));
-        const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
-        const ctx=canvas.getContext('2d');
-        if(!ctx){resolve(dataUrl);return}
-        ctx.drawImage(img,0,0,w,h);
-        const out=canvas.toDataURL('image/jpeg',quality);
-        resolve(out&&out.length<dataUrl.length?out:dataUrl);
-      }catch{resolve(dataUrl)}
-    };
-    img.onerror=()=>resolve(dataUrl);
-    img.src=dataUrl;
-  });
-}
-function compressFile(file){
-  return new Promise((resolve,reject)=>{
-    if(!file){reject(new Error('File foto tidak tersedia'));return}
-    const r=new FileReader();
-    r.onload=async()=>{
-      try{
-        const result=await compressImageDataUrl(r.result);
-        if(!result)throw new Error('Foto kosong');
-        resolve(result);
-      }catch(err){reject(err)}
-    };
-    r.onerror=()=>reject(new Error('WebView tidak dapat membaca foto yang dipilih'));
-    r.onabort=()=>reject(new Error('Pembacaan foto dibatalkan'));
-    try{r.readAsDataURL(file)}catch(err){reject(err)}
-  });
-}
-async function optimizeStoredPhotos(){
-  let changed=false;
-  for(const p of data){
-    if(p.photo){const next=await compressImageDataUrl(p.photo);if(next!==p.photo){p.photo=next;changed=true}}
-    for(const e of (Array.isArray(p.events)?p.events:[])){if(e.photo){const next=await compressImageDataUrl(e.photo);if(next!==e.photo){e.photo=next;changed=true}}}
-  }
-  for(const x of inhabitants){
-    if(x.photo){const next=await compressImageDataUrl(x.photo);if(next!==x.photo){x.photo=next;changed=true}}
-    for(const e of (Array.isArray(x.events)?x.events:[])){if(e.photo){const next=await compressImageDataUrl(e.photo);if(next!==e.photo){e.photo=next;changed=true}}}
-  }
-  if(changed){
-    try{
-      if(storageReady&&db) await persistToIDB();
-      else {localStorage.setItem(KEY,JSON.stringify(data));localStorage.setItem(INHABITANT_KEY,JSON.stringify(inhabitants));}
-      render();
-      showToast('📸 Foto kebun dioptimalkan');
-    }catch(err){console.error('Photo optimization save failed:',err)}
-  }
-}
-function today(){return new Date().toISOString().slice(0,10)}
-function daysBetween(a,b=new Date()){if(!a)return 0;const d=new Date(a+'T00:00:00');const x=new Date(b.getFullYear(),b.getMonth(),b.getDate());return Math.max(0,Math.floor((x-d)/86400000));}
-function waterInterval(item){const custom=Number(item?.waterEvery||0);return custom>0?custom:Number(gardenSettings.waterDefaultEvery||3);}
-function waterIsDue(item){return !!item?.lastWater&&daysBetween(item.lastWater)>=waterInterval(item);}
-function fmt(d){if(!d)return '-';return new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'})}
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function showToast(t){$('toast').textContent=t;$('toast').classList.add('show');setTimeout(()=>$('toast').classList.remove('show'),1800)}
-function plantName(id){const x=data.find(a=>a.id===id);return x?.name||'Tanaman dihapus';}
-function inhabitantNames(ids){return (Array.isArray(ids)?ids:[]).map(id=>inhabitants.find(i=>i.id===id)?.name).filter(Boolean);}
-function plantNames(ids){return (Array.isArray(ids)?ids:[]).map(id=>data.find(p=>p.id===id)?.name).filter(Boolean);}
-function openHarvestModal(plantId=''){harvestPlantId=plantId;$('hPlant').innerHTML=data.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}${x.variety?` · ${esc(x.variety)}`:''}</option>`).join('');if(plantId)$('hPlant').value=plantId;$('hDate').value=today();$('hQty').value='';$('hUnit').value='kg';$('hQuality').value='Baik';$('hNote').value='';$('harvestModal').classList.add('show');$('hQty').focus();}
-function closeHarvestModal(){$('harvestModal').classList.remove('show');harvestPlantId=null}
-function renderHarvests(){const arr=[...harvests].sort((a,b)=>b.date.localeCompare(a.date)||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));$('harvestCount').textContent=`${arr.length} catatan`;if(!arr.length){$('harvestItems').innerHTML='<div class="card empty">Belum ada catatan panen.<br><span style="font-size:12px">Gunakan “🧺 Catat Panen” pada tanaman yang sudah dipanen.</span></div>';return}$('harvestItems').className='harvest-list';$('harvestItems').innerHTML=arr.slice(0,10).map(h=>`<article class="harvest-row"><div class="harvest-main"><div class="harvest-name">🧺 ${esc(plantName(h.plantId))}</div><div class="harvest-meta">${fmt(h.date)} · ${esc(h.quality||'Baik')}${h.note?' · 📝 '+esc(h.note):''}</div></div><span class="harvest-qty">${esc(String(h.qty))} ${esc(h.unit||'kg')}</span><button class="harvest-delete" type="button" aria-label="Hapus catatan panen" data-hdel="${h.id}">×</button></article>`).join('');}
-function openForm(item=null){
-  editingId=item?.id||null;
-  $('formTitle').textContent=item?'Edit tanaman':'Tambah tanaman';
-  $('fName').value=item?.name||'';
-  $('fVar').value=item?.variety||'';
-  const groups=Array.isArray(item?.plantingGroups)?item.plantingGroups:[];
-  const first=groups.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)))[0];
-  $('fDate').value=item?(first?.date||item?.date||today()):today();
-  const firstLocs=groupLocations(first);
-  renderBedChecklist(firstLocs);
-  $('fCycle').value=item?.cycleType||'repeat';
-  $('fDays').value=item?.harvestDays??'';
-  $('fQty').value=item?(first?.qty??item?.qty??1):1;
-  $('fWater').value=item?.waterEvery??'';
-  $('fWaterTime').value=item?.waterTime||'07:00';
-  $('fNote').value=item?.note||'';
-  $('initialGroupDateField').classList.toggle('hidden-field',!!item);
-  $('initialGroupQtyField').classList.toggle('hidden-field',!!item);
-  $('initialGroupBedField').classList.toggle('hidden-field',!!item);
-  $('editGroupHint').classList.toggle('hidden-field',!item);
-  $('photoPreview').innerHTML=item?.photo?`<img src="${item.photo}" style="width:100%;max-height:180px;object-fit:cover;border-radius:14px">`:'';
-  $('formCard').style.display='block';$('fName').focus();window.scrollTo({top:$('formCard').offsetTop-8,behavior:'smooth'});
-}
-function closeForm(){editingId=null;$('formCard').style.display='none'}
-function groupLocations(g){return Array.isArray(g?.locations)?g.locations.filter(Boolean):[]}
-function groupAge(g){return daysBetween(g?.date)}
-function renderGroupChecklist(selected=[]){
-  const names=bedNames();
-  const list=names.length?names.map(name=>`<label class="bed-check-option"><input type="checkbox" value="${esc(name)}" ${selected.includes(name)?'checked':''}><span>${esc(name)}</span></label>`).join(''):'<div class="multi-select-empty">Belum ada bed. Tambahkan dulu melalui “📍 Lokasi / Bed” di Beranda.</div>';
-  $('gBedChecklist').innerHTML=`<div class="multi-select" data-ms-root><button type="button" class="multi-select-trigger ${selected.length?'has-selection':''}" data-ms-trigger><span class="multi-select-summary" data-ms-summary>${selected.length?`${selected.length} bed dipilih`:'Pilih lokasi / bed…'}</span><span class="multi-select-chevron">⌄</span></button><div class="multi-select-panel" data-ms-panel><div class="multi-select-list">${list}</div><div class="multi-select-footer"><span class="multi-select-count" data-ms-count>${selected.length} dipilih</span><button type="button" class="multi-select-done" data-ms-close>Selesai</button></div></div></div>`;
-}
-function selectedGroupBeds(){return [...$('gBedChecklist').querySelectorAll('input:checked')].map(i=>i.value);}
-function cycleLabel(type){return type==='once'?'🌱 Sekali Siklus':type==='permanent'?'🌳 Permanen':'🌿 Produktif Berulang';}
-function groupStatusLabel(type){return type==='completed'?'⚪ Selesai':type==='failed'?'🔴 Gagal':'🟢 Aktif';}
-function groupHarvestDate(item,g){if(item?.harvestDays===''||item?.harvestDays==null||!g?.date)return '';const d=new Date(g.date+'T00:00:00');d.setDate(d.getDate()+Number(item.harvestDays));return d.toISOString().slice(0,10);}
-function openGroupModal(plantId,groupId=null){const x=data.find(a=>a.id===plantId);if(!x)return;groupPlantId=plantId;editingGroupId=groupId;const g=groupId?(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).find(a=>a.id===groupId):null;$('groupFormTitle').textContent=g?'✏️ Edit Kelompok Tanam':'🌱 Tanam Susulan';$('gDate').value=g?.date||today();$('gQty').value=g?.qty||1;$('gStatus').value=g?.status||'active';renderGroupChecklist(groupLocations(g));$('groupModal').classList.add('show');}
-function closeGroupModal(){$('groupModal').classList.remove('show');groupPlantId=null;editingGroupId=null;}
-function saveGroup(){const isEdit=!!editingGroupId;const x=data.find(a=>a.id===groupPlantId);const date=$('gDate').value;const qty=Math.max(1,Number($('gQty').value||0));if(!x||!date||!(qty>0)){showToast('Tanggal dan jumlah tanaman wajib diisi');return}const locations=selectedGroupBeds();const status=$('gStatus').value;let groups=Array.isArray(x.plantingGroups)?[...x.plantingGroups]:[];if(editingGroupId){groups=groups.map(g=>g.id===editingGroupId?{...g,date,qty,locations,status}:g)}else{groups.push({id:makeId('group'),date,qty,locations,status,createdAt:new Date().toISOString()});}groups.sort((a,b)=>String(a.date).localeCompare(String(b.date)));const total=groups.reduce((n,g)=>n+Number(g.qty||0),0);data=data.map(a=>a.id===x.id?{...a,plantingGroups:groups,date:groups[0]?.date||date,qty:total||1,locations:[],bed:''}:a);if(save()){closeGroupModal();showToast(isEdit?'Kelompok tanam diperbarui':'🌱 Tanam susulan ditambahkan');}}
 function deleteGroup(plantId,groupId){const x=data.find(a=>a.id===plantId);if(!x)return;const groups=Array.isArray(x.plantingGroups)?x.plantingGroups:[];if(groups.length<=1){showToast('Tanaman harus memiliki minimal satu kelompok tanam');return}if(!confirm('Hapus kelompok tanam ini?'))return;const next=groups.filter(g=>g.id!==groupId);const total=next.reduce((n,g)=>n+Number(g.qty||0),0);data=data.map(a=>a.id===plantId?{...a,plantingGroups:next,date:next.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)))[0]?.date||a.date,qty:total||1,locations:[],bed:''}:a);if(save())showToast('Kelompok tanam dihapus');}
-function plantingGroupsView(item){const groups=(Array.isArray(item.plantingGroups)?item.plantingGroups:[]).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)));return `<div class="planting-groups"><div class="planting-groups-title">🌱 Kelompok Tanam</div><div class="planting-group-list">${groups.map((g,i)=>{const hd=groupHarvestDate(item,g);return `<div class="planting-group"><div class="planting-group-main"><div class="planting-group-date">${fmt(g.date)} · ${Number(g.qty||0)} tanaman</div><div class="planting-group-meta">${groupLocations(g).length?'📍 '+esc(groupLocations(g).join(' · ')):'📍 Lokasi belum diatur'} · ${groupStatusLabel(g.status)}</div>${hd?`<div class="planting-group-meta">🧺 Perkiraan panen: ${fmt(hd)}</div>`:''}</div><div class="planting-group-age">${groupAge(g)} hari</div><div class="planting-group-actions"><button type="button" class="secondary" data-group-edit="${esc(item.id)}" data-group-id="${esc(g.id)}">Edit</button><button type="button" class="danger" data-group-del="${esc(item.id)}" data-group-id="${esc(g.id)}">×</button></div></div>`}).join('')}</div><div class="journey-actions"><button type="button" class="secondary" data-group-add="${esc(item.id)}">＋ Tanam Susulan</button></div></div>`;}
-function status(item){const groups=Array.isArray(item.plantingGroups)?item.plantingGroups:[];const active=groups.filter(g=>(g.status||'active')==='active');if(!active.length){const failed=groups.some(g=>g.status==='failed');return {text:failed?'Gagal':'Selesai',cls:failed?'ready':'age'};}const dates=active.map(g=>groupHarvestDate(item,g)).filter(Boolean).sort();if(dates.length){const left=Math.ceil((new Date(dates[0]+'T00:00:00')-new Date())/86400000);if(left<=0)return {text:'Siap panen',cls:'ready'};if(left<=7)return {text:`Panen ± ${left} hari`,cls:'near'};}const age=active.length?Math.max(...active.map(groupAge)):0;return {text:`Hari ke-${age}`,cls:'age'};}
-function filtered(){const q=$('search').value.trim().toLowerCase();const f=$('filter').value;return data.filter(x=>{const groupBedText=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).flatMap(g=>groupLocations(g)).join(' ');const hay=[x.name,x.variety,groupBedText,x.note].join(' ').toLowerCase();if(q&&!hay.includes(q))return false;const groups=Array.isArray(x.plantingGroups)?x.plantingGroups:[];const activeGroups=groups.filter(g=>(g.status||'active')==='active');const age=activeGroups.length?Math.max(...activeGroups.map(groupAge)):0;const harvestLeft=activeGroups.map(g=>groupHarvestDate(x,g)).filter(Boolean).map(d=>Math.ceil((new Date(d+'T00:00:00')-new Date())/86400000));const left=harvestLeft.length?Math.min(...harvestLeft):99999;if(f==='recent'&&age>7)return false;if(f==='harvest'&&left>7)return false;return true}).sort((a,b)=>b.date.localeCompare(a.date));}
+function plantingGroupsView(item){const all=(Array.isArray(item.plantingGroups)?item.plantingGroups:[]).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)));const activeGroups=all.filter(groupHasActive),historyGroups=all.filter(g=>!groupHasActive(g));const renderGroup=g=>{const hd=groupHarvestDate(item,g);const t=groupTotal(g),a=groupActiveQty(g),c=groupCompletedQty(g),f=groupFailedQty(g);return `<div class="planting-group"><div class="planting-group-main"><div class="planting-group-date">${fmt(g.date)} · ${t} tanaman</div><div class="planting-group-meta">${groupLocations(g).length?'📍 '+esc(groupLocations(g).join(' · ')):'📍 Lokasi belum diatur'} · ${groupStatusLabel(groupDerivedStatus(g))}</div><div class="planting-group-meta">🌱 ${a} aktif · ✅ ${c} selesai · ❌ ${f} gagal</div>${hd?`<div class="planting-group-meta">🧺 Perkiraan panen: ${fmt(hd)}</div>`:''}</div><div class="planting-group-age">${groupAge(g)} hari</div><div class="planting-group-actions"><button type="button" class="secondary" data-group-edit="${esc(item.id)}" data-group-id="${esc(g.id)}">Edit</button><button type="button" class="secondary" data-group-status="completed" data-group-plant="${esc(item.id)}" data-group-id="${esc(g.id)}">＋ Selesai</button><button type="button" class="secondary" data-group-status="failed" data-group-plant="${esc(item.id)}" data-group-id="${esc(g.id)}">＋ Gagal</button><button type="button" class="danger" data-group-del="${esc(item.id)}" data-group-id="${esc(g.id)}">×</button></div></div>`};return `<div class="planting-groups"><div class="planting-groups-title">🌱 Kelompok Tanam</div>${activeGroups.length?`<div class="planting-group-list">${activeGroups.map(renderGroup).join('')}</div><div class="journey-actions"><button type="button" class="secondary" data-group-add="${esc(item.id)}">＋ Tanam Susulan</button></div>`:'<div class="meta">Tidak ada kelompok tanam yang masih aktif.</div>'}${historyGroups.length?`<div class="planting-groups-history"><div class="planting-groups-title" style="margin-top:14px">📚 Riwayat Kelompok Tanam · ${historyGroups.length}</div><div class="planting-group-list planting-group-history-list">${historyGroups.map(g=>{const t=groupTotal(g),c=groupCompletedQty(g),f=groupFailedQty(g);return `<div class="planting-group planting-group-history"><div class="planting-group-main"><div class="planting-group-date">${fmt(g.date)} · ${t} tanaman</div><div class="planting-group-meta">${groupStatusLabel(groupDerivedStatus(g))} · ✅ ${c} selesai · ❌ ${f} gagal</div></div></div>`}).join('')}</div></div>`:''}</div>`;}
+function status(item){const groups=Array.isArray(item.plantingGroups)?item.plantingGroups:[];const active=groups.filter(groupHasActive);if(!active.length){const failed=groups.length&&groups.every(g=>groupDerivedStatus(g)==='failed');return {text:failed?'Gagal':'Selesai',cls:failed?'ready':'age'};}const dates=active.map(g=>groupHarvestDate(item,g)).filter(Boolean).sort();if(dates.length){const left=Math.ceil((new Date(dates[0]+'T00:00:00')-new Date())/86400000);if(left<=0)return {text:'Siap panen',cls:'ready'};if(left<=7)return {text:`Panen ± ${left} hari`,cls:'near'};}const age=active.length?Math.max(...active.map(groupAge)):0;return {text:`Hari ke-${age}`,cls:'age'};}
+function filtered(){const q=$('search').value.trim().toLowerCase();const f=$('filter').value;return data.filter(x=>{const groupBedText=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).flatMap(g=>groupLocations(g)).join(' ');const hay=[x.name,x.variety,groupBedText,x.note].join(' ').toLowerCase();if(q&&!hay.includes(q))return false;const groups=Array.isArray(x.plantingGroups)?x.plantingGroups:[];const activeGroups=groups.filter(groupHasActive);const age=activeGroups.length?Math.max(...activeGroups.map(groupAge)):0;const harvestLeft=activeGroups.map(g=>groupHarvestDate(x,g)).filter(Boolean).map(d=>Math.ceil((new Date(d+'T00:00:00')-new Date())/86400000));const left=harvestLeft.length?Math.min(...harvestLeft):99999;if(f==='recent'&&age>7)return false;if(f==='harvest'&&left>7)return false;return true}).sort((a,b)=>b.date.localeCompare(a.date));}
 
 function recordGardenWater(type){
   const date=today();
@@ -890,7 +598,7 @@ function getAutomaticAttentions(){
   const out=[];
   data.forEach(x=>{
     const groups=Array.isArray(x.plantingGroups)?x.plantingGroups:[];
-    groups.filter(g=>(g.status||'active')==='active').forEach(g=>{
+    groups.filter(groupHasActive).forEach(g=>{
       const hd=groupHarvestDate(x,g);
       if(hd){
         const left=Math.ceil((new Date(hd+'T00:00:00')-new Date())/86400000);
@@ -1080,22 +788,22 @@ let storyLightbox={photos:[],index:0};function openStoryLightbox(events,eventInd
 function renderStoryLightbox(){const n=storyLightbox.photos.length,i=storyLightbox.index;$('photoLightboxImg').src=storyLightbox.photos[i]||'';$('photoLightboxCount').textContent=n>1?`${i+1} / ${n}`:'';$('photoPrev').style.display=n>1?'grid':'none';$('photoNext').style.display=n>1?'grid':'none';}
 function closeStoryLightbox(){$('photoLightbox').classList.remove('show');$('photoLightboxImg').src='';}
 function storyPrev(){if(storyLightbox.photos.length<2)return;storyLightbox.index=(storyLightbox.index-1+storyLightbox.photos.length)%storyLightbox.photos.length;renderStoryLightbox()}function storyNext(){if(storyLightbox.photos.length<2)return;storyLightbox.index=(storyLightbox.index+1)%storyLightbox.photos.length;renderStoryLightbox()}
-function openPlantDetail(id){const x=data.find(a=>a.id===id);if(!x)return;const groups=Array.isArray(x.plantingGroups)?x.plantingGroups:[],age=groups.length?Math.max(...groups.map(groupAge)):daysBetween(x.date),totalQty=groups.length?groups.reduce((n,g)=>n+Number(g.qty||0),0):(x.qty||1),hs=groups.filter(g=>(g.status||'active')==='active').map(g=>groupHarvestDate(x,g)).filter(Boolean).sort(),harvest=hs.length?fmt(hs[0]):'-',thumb=plantThumbnail(x);$('plantDetailTitle').textContent=x.name||'Tanaman';$('plantDetailBody').innerHTML=`${thumb?`<img class="full-detail-photo" src="${thumb}" alt="Foto ${esc(x.name)}">`:'<div class="full-detail-photo" style="display:grid;place-items:center;font-size:72px">🌱</div>'}<div class="card form" style="margin-top:12px"><div class="plant-detail-title">${esc(x.name)}${x.variety?` · ${esc(x.variety)}`:''}</div><div class="plant-detail-sub">Pola siklus · ${cycleLabel(x.cycleType)}</div><div class="item-mid"><div class="mini"><span>Umur</span><b>${age} hari</b></div><div class="mini"><span>Jumlah tanaman</span><b>${totalQty}</b></div><div class="mini"><span>Estimasi panen</span><b>${harvest}</b></div></div>${plantingGroupsView(x)}<div class="meta" style="margin-bottom:7px">💧 Air: tiap ${waterInterval(x)} hari${x.waterEvery?' · aturan khusus':' · aturan kebun'}${x.lastWater?` · terakhir ${fmt(x.lastWater)} · ${esc(x.lastWaterSource||'Disiram')}`:' · belum dicatat'}</div>${x.note?`<div class="meta" style="margin-bottom:10px">📝 ${esc(x.note)}</div>`:''}${plantTimeline(x)}${plantLessons(x)}<div class="journey-actions"><button type="button" class="primary" id="detailStoryBtn" data-story-plant="${esc(id)}" >📸 Cerita Pertumbuhan</button><button type="button" class="secondary" id="detailWaterBtn">💧 Siram</button><button type="button" class="secondary" id="detailJourneyBtn">📸 Tambah perjalanan</button><button type="button" class="secondary" id="detailAttentionBtn">⚠️ Perlu perhatian</button><button type="button" class="secondary" id="detailHarvestBtn">🧺 Catat Panen</button><button type="button" class="danger" id="detailDeleteBtn">Hapus</button></div></div>`;$('plantDetailPage').classList.add('show');document.body.style.overflow='hidden';$('plantDetailEdit').onclick=(e)=>{e.preventDefault();e.stopPropagation();$('plantDetailPage').classList.remove('show');$('plantDetailPage').style.display='none';document.body.style.overflow='';showPage('plants');requestAnimationFrame(()=>{$('plantDetailPage').style.display='';openForm(x)});};$('detailStoryBtn').onclick=(e)=>{e.preventDefault();e.stopPropagation();window.openGrowthStory(id)};$('detailWaterBtn').onclick=()=>{recordPlantWater(id);openPlantDetail(id);render()};$('detailJourneyBtn').onclick=()=>openJourneyModal(id);$('detailAttentionBtn').onclick=()=>openAttentionModal(id);$('detailHarvestBtn').onclick=()=>openHarvestModal(id);$('detailDeleteBtn').onclick=()=>{if(confirm(`Hapus tanaman ${x.name}?`)){data=data.filter(a=>a.id!==id);if(save()){closePlantDetail();render()}}}}
+function openPlantDetail(id){const x=data.find(a=>a.id===id);if(!x)return;const groups=Array.isArray(x.plantingGroups)?x.plantingGroups:[],age=groups.length?Math.max(...groups.map(groupAge)):daysBetween(x.date),totalQty=groups.length?groups.reduce((n,g)=>n+Number(g.qty||0),0):(x.qty||1),hs=groups.filter(groupHasActive).map(g=>groupHarvestDate(x,g)).filter(Boolean).sort(),harvest=hs.length?fmt(hs[0]):'-',thumb=plantThumbnail(x);$('plantDetailTitle').textContent=x.name||'Tanaman';$('plantDetailBody').innerHTML=`${thumb?`<img class="full-detail-photo" src="${thumb}" alt="Foto ${esc(x.name)}">`:'<div class="full-detail-photo" style="display:grid;place-items:center;font-size:72px">🌱</div>'}<div class="card form" style="margin-top:12px"><div class="plant-detail-title">${esc(x.name)}${x.variety?` · ${esc(x.variety)}`:''}</div><div class="plant-detail-sub">Pola siklus · ${cycleLabel(x.cycleType)}</div><div class="item-mid"><div class="mini"><span>Umur</span><b>${age} hari</b></div><div class="mini"><span>Jumlah tanaman</span><b>${totalQty}</b></div><div class="mini"><span>Estimasi panen</span><b>${harvest}</b></div></div>${plantingGroupsView(x)}<div class="meta" style="margin-bottom:7px">💧 Air: tiap ${waterInterval(x)} hari${x.waterEvery?' · aturan khusus':' · aturan kebun'}${x.lastWater?` · terakhir ${fmt(x.lastWater)} · ${esc(x.lastWaterSource||'Disiram')}`:' · belum dicatat'}</div>${x.note?`<div class="meta" style="margin-bottom:10px">📝 ${esc(x.note)}</div>`:''}${plantTimeline(x)}${plantLessons(x)}<div class="journey-actions"><button type="button" class="primary" id="detailStoryBtn" data-story-plant="${esc(id)}" >📸 Cerita Pertumbuhan</button><button type="button" class="secondary" id="detailWaterBtn">💧 Siram</button><button type="button" class="secondary" id="detailJourneyBtn">📸 Tambah perjalanan</button><button type="button" class="secondary" id="detailAttentionBtn">⚠️ Perlu perhatian</button><button type="button" class="secondary" id="detailHarvestBtn">🧺 Catat Panen</button><button type="button" class="danger" id="detailDeleteBtn">Hapus</button></div></div>`;$('plantDetailPage').classList.add('show');document.body.style.overflow='hidden';$('plantDetailEdit').onclick=(e)=>{e.preventDefault();e.stopPropagation();$('plantDetailPage').classList.remove('show');$('plantDetailPage').style.display='none';document.body.style.overflow='';showPage('plants');requestAnimationFrame(()=>{$('plantDetailPage').style.display='';openForm(x)});};$('detailStoryBtn').onclick=(e)=>{e.preventDefault();e.stopPropagation();window.openGrowthStory(id)};$('detailWaterBtn').onclick=()=>{recordPlantWater(id);openPlantDetail(id);render()};$('detailJourneyBtn').onclick=()=>openJourneyModal(id);$('detailAttentionBtn').onclick=()=>openAttentionModal(id);$('detailHarvestBtn').onclick=()=>openHarvestModal(id);$('detailDeleteBtn').onclick=()=>{if(confirm(`Hapus tanaman ${x.name}?`)){data=data.filter(a=>a.id!==id);if(save()){closePlantDetail();render()}}}}
 function closePlantDetail(){$('plantDetailPage').classList.remove('show');document.body.style.overflow=''}
 
 
 function renderGardenStatus(){
   const now=new Date();
-  const active=data.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(g=>(g.status||'active')==='active'));
+  const active=data.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(groupHasActive));
   const nearHarvest=active.filter(x=>{
-    const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(g=>(g.status||'active')==='active');
+    const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(groupHasActive);
     return gs.some(g=>{const hd=groupHarvestDate(x,g);if(!hd)return false;return Math.ceil((new Date(hd+'T00:00:00')-now)/86400000)<=7});
   }).length;
   const attention=getAutomaticAttentions().length+attentions.filter(a=>a.status!=='done').length;
   const flowering=new Set();
   data.forEach(x=>(Array.isArray(x.events)?x.events:[]).filter(e=>e.type==='flowering'&&daysBetween(e.date,now)<=14).forEach(()=>flowering.add(x.id)));
   const ym=today().slice(0,7);
-  $('statusPlants').textContent=active.length;
+  $('statusPlants').textContent=active.reduce((n,x)=>n+(x.plantingGroups||[]).filter(groupHasActive).reduce((m,g)=>m+groupActiveQty(g),0),0);
   $('statusFlower').textContent=flowering.size;
   $('statusHarvest').textContent=nearHarvest;
   $('statusHarvestMonth').textContent=harvests.filter(h=>String(h.date||'').slice(0,7)===ym).length;
@@ -1141,10 +849,10 @@ function renderStatistics(){
   renderStatisticsYearOptions();
   const year=Number($('statYearSelect')?.value)||Number(today().slice(0,4));
   const months=annualMonths(year),ym=today().slice(0,7);
-  const activeQty=statQtyGroups(g=>(g.status||'active')==='active');
-  const totalPlanted=statQtyGroups(()=>true);
-  const completedQty=statQtyGroups(g=>(g.status||'active')==='completed');
-  const failedQty=statQtyGroups(g=>(g.status||'active')==='failed');
+  const activeQty=data.reduce((n,x)=>n+(x.plantingGroups||[]).reduce((m,g)=>m+groupActiveQty(g),0),0);
+  const totalPlanted=statQtyGroups(g=>true);
+  const completedQty=data.reduce((n,x)=>n+(x.plantingGroups||[]).reduce((m,g)=>m+groupCompletedQty(g),0),0);
+  const failedQty=data.reduce((n,x)=>n+(x.plantingGroups||[]).reduce((m,g)=>m+groupFailedQty(g),0),0);
   const todayDate=new Date(today()+'T00:00:00');
   const firstPlantDate=(data.flatMap(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).map(g=>g.date).filter(Boolean)).sort()[0])||today();
   const days=Math.max(0,Math.floor((todayDate-new Date(firstPlantDate+'T00:00:00'))/86400000)+1);
@@ -1162,8 +870,8 @@ function renderStatistics(){
 
 function render(){
   const now=new Date();
-  const recent=data.filter(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(g=>(g.status||'active')==='active');return gs.length?Math.min(...gs.map(g=>daysBetween(g.date,now)))<=7:false}).length;
-  const harvest=data.filter(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(g=>(g.status||'active')==='active');const dates=gs.map(g=>groupHarvestDate(x,g)).filter(Boolean).map(d=>Math.ceil((new Date(d+'T00:00:00')-now)/86400000));return dates.length&&Math.min(...dates)<=7}).length;
+  const recent=data.filter(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(groupHasActive);return gs.length?Math.min(...gs.map(g=>daysBetween(g.date,now)))<=7:false}).length;
+  const harvest=data.filter(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(groupHasActive);const dates=gs.map(g=>groupHarvestDate(x,g)).filter(Boolean).map(d=>Math.ceil((new Date(d+'T00:00:00')-now)/86400000));return dates.length&&Math.min(...dates)<=7}).length;
   const bedCount=beds.length;
   $('statTotal').textContent=data.length;
   $('statRecent').textContent=recent;
@@ -1211,9 +919,10 @@ $('items').onclick=e=>{
   }
   const timelineToggle=e.target.closest('[data-timeline-toggle]');
   if(timelineToggle){const id=timelineToggle.dataset.timelineToggle;if(expandedTimelines.has(id)) expandedTimelines.delete(id); else expandedTimelines.add(id);render();return;}
-  const water=e.target.closest('[data-water-plant]'),edit=e.target.closest('[data-edit]'),del=e.target.closest('[data-del]'),harvest=e.target.closest('[data-harvest]'),journey=e.target.closest('[data-journey]'),lesson=e.target.closest('[data-lesson]'),attention=e.target.closest('[data-attention]'),groupAdd=e.target.closest('[data-group-add]'),groupEdit=e.target.closest('[data-group-edit]'),groupDel=e.target.closest('[data-group-del]');
+  const water=e.target.closest('[data-water-plant]'),edit=e.target.closest('[data-edit]'),del=e.target.closest('[data-del]'),harvest=e.target.closest('[data-harvest]'),journey=e.target.closest('[data-journey]'),lesson=e.target.closest('[data-lesson]'),attention=e.target.closest('[data-attention]'),groupAdd=e.target.closest('[data-group-add]'),groupEdit=e.target.closest('[data-group-edit]'),groupDel=e.target.closest('[data-group-del]'),groupStatus=e.target.closest('[data-group-status]');
   if(water){recordPlantWater(water.dataset.waterPlant);return}
   if(groupAdd){openGroupModal(groupAdd.dataset.groupAdd);return}
+  if(groupStatus){openGroupStatusModal(groupStatus.dataset.groupPlant,groupStatus.dataset.groupId,groupStatus.dataset.groupStatus);return}
   if(groupEdit){openGroupModal(groupEdit.dataset.groupEdit,groupEdit.dataset.groupId);return}
   if(groupDel){deleteGroup(groupDel.dataset.groupDel,groupDel.dataset.groupId);return}
   if(attention){openAttentionModal(attention.dataset.attention);return}
@@ -1226,6 +935,7 @@ $('items').onclick=e=>{
 $('items').onkeydown=e=>{};
 $('harvestItems').onclick=e=>{const hdel=e.target.closest('[data-hdel]');if(hdel){const h=harvests.find(a=>a.id===hdel.dataset.hdel);if(h&&confirm('Hapus catatan panen ini?')){harvests=harvests.filter(a=>a.id!==h.id);if(save())showToast('Catatan panen dihapus')}}};
 $('groupCancel').onclick=closeGroupModal;$('groupModal').onclick=e=>{if(e.target.id==='groupModal')closeGroupModal()};$('groupSave').onclick=saveGroup;
+$('groupStatusCancel').onclick=closeGroupStatusModal;$('groupStatusModal').onclick=e=>{if(e.target.id==='groupStatusModal')closeGroupStatusModal()};$('groupStatusQty').oninput=updateGroupStatusBalance;$('groupStatusSave').onclick=saveGroupStatus;
 $('journeyCancel').onclick=closeJourneyModal;$('journeyModal').onclick=e=>{if(e.target.id==='journeyModal')closeJourneyModal()};$('journeySave').onclick=saveJourney;$('lessonCancel').onclick=closeLessonModal;$('lessonModal').onclick=e=>{if(e.target.id==='lessonModal')closeLessonModal()};$('lessonSave').onclick=saveLesson;
 $('attentionList').onclick=e=>{const w=e.target.closest('[data-water-attention]');if(w){recordPlantWater(w.dataset.waterAttention);return}const b=e.target.closest('[data-attention-done]');if(b)completeAttention(b.dataset.attentionDone)};
 $('attentionCancel').onclick=closeAttentionModal;$('attentionModal').onclick=e=>{if(e.target.id==='attentionModal')closeAttentionModal()};$('attentionSave').onclick=saveAttention;
@@ -1280,7 +990,7 @@ $('restoreGo').onclick=async()=>{
 };
 
 async function requestNotifications(){if(!('Notification' in window)){showToast('Browser ini tidak mendukung notifikasi');return false}const p=await Notification.requestPermission();if(p==='granted'){showToast('Notifikasi diaktifkan');scheduleNotifications();return true}showToast('Izin notifikasi belum diberikan');return false}
-function scheduleNotifications(){const reminders=[],now=new Date(),stamp=today();data.forEach(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(g=>(g.status||'active')==='active');gs.forEach(g=>{const hd=groupHarvestDate(x,g);if(hd){const diff=Math.ceil((new Date(hd+'T00:00:00')-now)/86400000);if(diff<=0)reminders.push(`🌱 ${x.name}: perkiraan panen hari ini`)}});if(x.lastWater&&daysBetween(x.lastWater,now)>=waterInterval(x))reminders.push(`💧 ${x.name}: waktunya menyiram`)});const late=getAutomaticAttentions().filter(a=>daysBetween(a.date,now)>=3);if(late.length)reminders.push(`⚠️ ${late.length} perhatian belum diselesaikan selama 3 hari`);$('reminderSummary').textContent=reminders.length?reminders.slice(0,3).join(' · '):'Tidak ada pengingat mendesak.';if(window.AndroidBridge&&typeof window.AndroidBridge.scheduleNotifications==='function'){try{window.AndroidBridge.scheduleNotifications(JSON.stringify({date:stamp,harvest:reminders.filter(x=>x.startsWith('🌱')),water:reminders.filter(x=>x.startsWith('💧')),attention:reminders.filter(x=>x.startsWith('⚠️'))}))}catch(e){console.warn(e)}}if('Notification' in window&&Notification.permission==='granted'&&reminders.length&&localStorage.getItem('garden-last-notify-v103')!==stamp){new Notification('Terra Serenada',{body:reminders.slice(0,3).join('\n'),icon:'icon.png'});localStorage.setItem('garden-last-notify-v103',stamp)}}
+function scheduleNotifications(){const reminders=[],now=new Date(),stamp=today();data.forEach(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(groupHasActive);gs.forEach(g=>{const hd=groupHarvestDate(x,g);if(hd){const diff=Math.ceil((new Date(hd+'T00:00:00')-now)/86400000);if(diff<=0)reminders.push(`🌱 ${x.name}: perkiraan panen hari ini`)}});if(x.lastWater&&daysBetween(x.lastWater,now)>=waterInterval(x))reminders.push(`💧 ${x.name}: waktunya menyiram`)});const late=getAutomaticAttentions().filter(a=>daysBetween(a.date,now)>=3);if(late.length)reminders.push(`⚠️ ${late.length} perhatian belum diselesaikan selama 3 hari`);$('reminderSummary').textContent=reminders.length?reminders.slice(0,3).join(' · '):'Tidak ada pengingat mendesak.';if(window.AndroidBridge&&typeof window.AndroidBridge.scheduleNotifications==='function'){try{window.AndroidBridge.scheduleNotifications(JSON.stringify({date:stamp,harvest:reminders.filter(x=>x.startsWith('🌱')),water:reminders.filter(x=>x.startsWith('💧')),attention:reminders.filter(x=>x.startsWith('⚠️'))}))}catch(e){console.warn(e)}}if('Notification' in window&&Notification.permission==='granted'&&reminders.length&&localStorage.getItem('garden-last-notify-v103')!==stamp){new Notification('Terra Serenada',{body:reminders.slice(0,3).join('\n'),icon:'icon.png'});localStorage.setItem('garden-last-notify-v103',stamp)}}
 $('notifyBtn').onclick=requestNotifications;
 if('serviceWorker' in navigator && location.protocol!=='file:') navigator.serviceWorker.register('./sw.js').catch(()=>{});
 function setTodayLabel(){const d=new Date();const t=d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});if($('todayLabel'))$('todayLabel').textContent=t;if($('gardenCoverDate'))$('gardenCoverDate').textContent=t}
