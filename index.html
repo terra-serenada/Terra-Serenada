@@ -285,6 +285,40 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 }
 </style>
 
+
+<style id="patch-3-2-1-font-tuning">
+/* Patch 3.2.1 — typography tuning */
+.group-status-chip{
+  font-size:12px !important;
+  font-weight:600;
+  padding:6px 10px;
+}
+.planting-group-actions button{
+  font-size:12px !important;
+  font-weight:700;
+  min-height:38px;
+  padding:6px 9px;
+}
+.planting-group-date{
+  font-size:16px !important;
+}
+.planting-group-meta{
+  font-size:12px !important;
+}
+.planting-group-age{
+  font-size:15px !important;
+}
+@media (max-width:600px){
+  .group-status-chip{
+    font-size:11px !important;
+    padding:6px 9px;
+  }
+  .planting-group-actions button{
+    font-size:11px !important;
+  }
+}
+</style>
+
 </head>
 <body>
 <div id="app">
