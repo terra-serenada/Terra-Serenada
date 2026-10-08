@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Terra Serenada</title>
-<!-- v1.0.6 photo journey persistence fix -->
+<!-- v1.0.7 Cerita Kehidupan inhabitant -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d120d">
 <meta name="mobile-web-app-capable" content="yes">
@@ -160,6 +160,24 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 .growth-story-end{margin:4px 0 8px;padding:14px;border:1px solid var(--border);border-radius:16px;background:var(--surface2);text-align:center}.growth-story-end b{font-size:13px}.growth-story-end div{font-size:11px;color:var(--muted);margin-top:4px}
 .photo-lightbox{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.94);display:none;align-items:center;justify-content:center;padding:18px}.photo-lightbox.show{display:flex}.photo-lightbox img{max-width:100%;max-height:88vh;object-fit:contain;border-radius:10px}.photo-lightbox-close{position:absolute;right:14px;top:max(14px,env(safe-area-inset-top));width:42px;height:42px;border:1px solid rgba(255,255,255,.2);border-radius:13px;background:rgba(30,30,30,.75);color:#fff;font-size:22px}.photo-lightbox-nav{position:absolute;left:14px;right:14px;top:50%;display:flex;justify-content:space-between;pointer-events:none}.photo-lightbox-nav button{pointer-events:auto;width:42px;height:42px;border:1px solid rgba(255,255,255,.2);border-radius:50%;background:rgba(30,30,30,.65);color:#fff;font-size:20px}.photo-lightbox-count{position:absolute;bottom:max(18px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:#fff;font-size:11px}
 @media(max-width:520px){.growth-story-body{padding:14px}.growth-story-photo-grid{grid-template-columns:1fr}.growth-story-photo{aspect-ratio:16/11}}
+/* Terra Serenada — Cerita Kehidupan Inhabitant */
+.life-story-page{position:fixed;inset:0;z-index:45;background:var(--bg);display:none;overflow:auto;padding-bottom:28px}
+.life-story-page.show{display:block}
+.life-story-top{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--nav);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}
+.life-story-top h2{font-size:16px;margin:0;flex:1}
+.life-story-body{max-width:760px;margin:auto;padding:16px}
+.life-story-head{padding:2px 2px 16px}.life-story-name{font-size:22px;font-weight:850;letter-spacing:-.4px}.life-story-meta{font-size:12px;color:var(--muted);margin-top:4px}
+.life-story-section-title{font-size:13px;font-weight:800;margin:6px 2px 12px}
+.life-story-timeline{position:relative}
+.life-story-timeline:before{content:"";position:absolute;left:15px;top:10px;bottom:14px;width:1px;background:var(--border)}
+.life-story-event{position:relative;display:grid;grid-template-columns:32px 1fr;gap:10px;margin-bottom:18px}
+.life-story-dot{width:32px;height:32px;border-radius:11px;background:var(--accent2);display:grid;place-items:center;font-size:15px;position:relative;z-index:1;border:1px solid var(--border)}
+.life-story-card{min-width:0}.life-story-date{font-size:10px;color:var(--muted);font-weight:750}.life-story-label{font-size:14px;font-weight:800;margin-top:2px}.life-story-detail{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.45}
+.life-story-photo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:9px}.life-story-photo{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:14px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;display:block}
+.life-story-empty{padding:26px 14px;text-align:center;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:16px}
+.life-story-end{margin:4px 0 8px;padding:14px;border:1px solid var(--border);border-radius:16px;background:var(--surface2);text-align:center}.life-story-end b{font-size:13px}.life-story-end div{font-size:11px;color:var(--muted);margin-top:4px}
+@media(max-width:520px){.life-story-body{padding:14px}.life-story-photo-grid{grid-template-columns:1fr}.life-story-photo{aspect-ratio:16/11}}
+
 
 @media(max-width:720px){.plant-list-v5,.inhabitant-list{grid-template-columns:repeat(4,minmax(0,1fr));gap:3px}.garden-cover-overlay .hero-title{font-size:21px}}
 
@@ -299,6 +317,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 <section class="full-detail-page" id="plantDetailPage"><div class="full-detail-top"><button class="full-detail-back" id="plantDetailBack">‹</button><h2 id="plantDetailTitle">Tanaman</h2><button class="icon-btn" id="plantDetailEdit">✏️</button></div><div class="full-detail-body" id="plantDetailBody"></div></section>
 <section class="full-detail-page" id="inhabitantDetailPage"><div class="full-detail-top"><button class="full-detail-back" id="inhabitantDetailBack">‹</button><h2 id="inhabitantDetailTitle">Inhabitant</h2><button class="icon-btn" id="inhabitantDetailEdit">✏️</button></div><div class="full-detail-body" id="inhabitantDetailBody"></div></section>
 <section class="growth-story-page" id="growthStoryPage"><div class="growth-story-top"><button class="full-detail-back" id="growthStoryBack">‹</button><h2>📸 Cerita Pertumbuhan</h2><div style="width:40px"></div></div><div class="growth-story-body" id="growthStoryBody"></div></section>
+<section class="life-story-page" id="lifeStoryPage"><div class="life-story-top"><button class="full-detail-back" id="lifeStoryBack">‹</button><h2>📖 Cerita Kehidupan</h2><div style="width:40px"></div></div><div class="life-story-body" id="lifeStoryBody"></div></section>
 <div class="photo-lightbox" id="photoLightbox"><button class="photo-lightbox-close" id="photoLightboxClose">✕</button><img id="photoLightboxImg" alt="Foto tanaman"><div class="photo-lightbox-nav"><button id="photoPrev">‹</button><button id="photoNext">›</button></div><div class="photo-lightbox-count" id="photoLightboxCount"></div></div>
 <div class="modal" id="bedsModal"><div class="card modalbox form"><h2>📍 Lokasi / Bed</h2><p class="meta">Daftar bed yang tersedia untuk seluruh tanaman.</p><div id="bedMasterList" class="bed-master-list"></div><div class="actions" style="margin-top:12px"><button type="button" class="secondary" id="addBedBtn">＋ Tambah Bed</button><button type="button" class="secondary" id="bedsClose">Tutup</button></div></div></div>
 <div class="modal" id="bedActionModal"><div class="card modalbox form"><h2 id="bedActionTitle">Kelola Bed</h2><div class="settings-list"><button type="button" class="secondary" id="bedActionEdit">✏️ Ubah nama</button><button type="button" class="danger" id="bedActionDelete">🗑️ Hapus</button></div><div class="actions"><button type="button" class="secondary" id="bedActionCancel">Batal</button></div></div></div>
@@ -885,7 +904,7 @@ function saveObservation(){const x=inhabitants.find(a=>a.id===observationInhabit
 function syncInhabitantTagsFromMentions(){return false;}
 function inhabitantDerivedEvents(id){const rows=[];data.forEach(p=>(Array.isArray(p.events)?p.events:[]).forEach(e=>{const tags=Array.isArray(e.inhabitantTags)?e.inhabitantTags:[];if(tags.includes(id)&&e.sourceObservationId==null)rows.push({id:`plant-${e.id}`,date:e.date,type:'plant-tag',label:e.label||'Terlihat',note:e.note||'',photo:e.photo||'',plantId:p.id,plantName:p.name,createdAt:e.createdAt||''})}));const x=inhabitants.find(a=>a.id===id);(Array.isArray(x?.events)?x.events:[]).forEach(e=>rows.push({...e,plantId:null,plantName:'',plantNames:plantNames(e.plantIds)}));return rows.sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));}
 function renderInhabitants(){const arr=[...inhabitants].sort((a,b)=>String(a.name).localeCompare(String(b.name),'id'));$('inhabitantCount').textContent=`${arr.length} catatan`;if(!arr.length){$('inhabitantItems').innerHTML='<div class="card empty">Belum ada Inhabitant.<br><span style="font-size:12px">Tekan “＋ Tambah” untuk mencatat penghuni kebun.</span></div>';return}$('inhabitantItems').innerHTML='<div class="inhabitant-list">'+arr.map(x=>{const events=inhabitantDerivedEvents(x.id),thumb=x.photo||events.find(e=>e.photo)?.photo||'';return `<article class="inhabitant-card" data-inh-open="${esc(x.id)}"><div class="inhabitant-summary"><div class="inhabitant-thumb">${thumb?`<img src="${thumb}" alt="Foto ${esc(x.name)}">`:'<span>🐾</span>'}</div><div class="inhabitant-copy"><div class="inhabitant-name">${esc(x.name)}</div></div></div></article>`}).join('')+`<button type="button" class="gallery-add-card" id="galleryAddInhabitant"><span><b>＋</b>Tambah Inhabitant</span></button></div>`;$('galleryAddInhabitant').onclick=()=>openInhabitantModal()}
-function openInhabitantDetail(id){const x=inhabitants.find(a=>a.id===id);if(!x)return;const events=inhabitantDerivedEvents(id),thumb=x.photo||events.find(e=>e.photo)?.photo||'';$('inhabitantDetailTitle').textContent=x.name||'Inhabitant';$('inhabitantDetailBody').innerHTML=`${thumb?`<img class="full-detail-photo" src="${thumb}" alt="Foto ${esc(x.name)}">`:'<div class="full-detail-photo" style="display:grid;place-items:center;font-size:72px">🐾</div>'}<div class="card form" style="margin-top:12px"><div class="plant-detail-title">${esc(x.name)}</div><div class="plant-detail-sub">${x.faction?`Faksi · ${esc(x.faction)} · `:''}Status · ${inhabitantStatusLabel(x.status)}</div>${x.note?`<div class="meta" style="margin-top:10px">📝 ${esc(x.note)}</div>`:''}<div class="inhabitant-section"><div class="inhabitant-section-title">👣 Jejak Kehadiran</div><div class="observation-list">${events.length?events.map(e=>`<div class="observation-item"><div class="observation-date">${fmt(e.date)}</div><div class="observation-title">${e.type==='plant-tag'?'🌿 '+esc(e.plantName)+' · ':''}${esc(e.type==='plant-tag'?'Terlihat di tanaman':observationLabel(e.type))}</div>${e.plantNames?.length?`<div class="tag-list">${e.plantNames.map(n=>`<span class="tag-chip">🌱 ${esc(n)}</span>`).join('')}</div>`:''}${e.note?`<div class="observation-detail">${esc(e.note)}</div>`:''}${e.photo?`<img class="journey-photo" src="${e.photo}" alt="Jejak ${esc(x.name)}">`:''}</div>`).join(''):'<div class="meta">Belum ada jejak kehadiran.</div>'}</div></div><div class="inhabitant-actions"><button type="button" class="secondary" id="detailObserveBtn">＋ Tambah jejak</button><button type="button" class="danger" id="detailDeleteBtn">Hapus</button></div></div>`;$('inhabitantDetailPage').classList.add('show');document.body.style.overflow='hidden';$('detailObserveBtn').onclick=()=>openObservationModal(id);$('detailDeleteBtn').onclick=()=>{if(confirm(`Hapus Inhabitant ${x.name}?`)){inhabitants=inhabitants.filter(a=>a.id!==id);if(save()){closeInhabitantDetail();renderInhabitants()}}};$('inhabitantDetailEdit').onclick=(e)=>{e.preventDefault();e.stopPropagation();$('inhabitantDetailPage').classList.remove('show');$('inhabitantDetailPage').style.display='none';document.body.style.overflow='';showPage('inhabitants');requestAnimationFrame(()=>{$('inhabitantDetailPage').style.display='';openInhabitantModal(x)})}}
+function openInhabitantDetail(id){const x=inhabitants.find(a=>a.id===id);if(!x)return;const events=inhabitantDerivedEvents(id),thumb=x.photo||events.find(e=>e.photo)?.photo||'';$('inhabitantDetailTitle').textContent=x.name||'Inhabitant';$('inhabitantDetailBody').innerHTML=`${thumb?`<img class="full-detail-photo" src="${thumb}" alt="Foto ${esc(x.name)}">`:'<div class="full-detail-photo" style="display:grid;place-items:center;font-size:72px">🐾</div>'}<div class="card form" style="margin-top:12px"><div class="plant-detail-title">${esc(x.name)}</div><div class="plant-detail-sub">${x.faction?`Faksi · ${esc(x.faction)} · `:''}Status · ${inhabitantStatusLabel(x.status)}</div>${x.note?`<div class="meta" style="margin-top:10px">📝 ${esc(x.note)}</div>`:''}<div class="inhabitant-section"><div class="inhabitant-section-title">👣 Jejak Kehadiran</div><div class="observation-list">${events.length?events.map(e=>`<div class="observation-item"><div class="observation-date">${fmt(e.date)}</div><div class="observation-title">${e.type==='plant-tag'?'🌿 '+esc(e.plantName)+' · ':''}${esc(e.type==='plant-tag'?'Terlihat di tanaman':observationLabel(e.type))}</div>${e.plantNames?.length?`<div class="tag-list">${e.plantNames.map(n=>`<span class="tag-chip">🌱 ${esc(n)}</span>`).join('')}</div>`:''}${e.note?`<div class="observation-detail">${esc(e.note)}</div>`:''}${e.photo?`<img class="journey-photo" src="${e.photo}" alt="Jejak ${esc(x.name)}">`:''}</div>`).join(''):'<div class="meta">Belum ada jejak kehadiran.</div>'}</div></div><div class="inhabitant-actions"><button type="button" class="secondary" id="detailLifeStoryBtn">📖 Cerita Kehidupan</button><button type="button" class="secondary" id="detailObserveBtn">＋ Tambah jejak</button><button type="button" class="danger" id="detailDeleteBtn">Hapus</button></div></div>`;$('inhabitantDetailPage').classList.add('show');document.body.style.overflow='hidden';$('detailLifeStoryBtn').onclick=()=>openLifeStory(id);$('detailObserveBtn').onclick=()=>openObservationModal(id);$('detailDeleteBtn').onclick=()=>{if(confirm(`Hapus Inhabitant ${x.name}?`)){inhabitants=inhabitants.filter(a=>a.id!==id);if(save()){closeInhabitantDetail();renderInhabitants()}}};$('inhabitantDetailEdit').onclick=(e)=>{e.preventDefault();e.stopPropagation();$('inhabitantDetailPage').classList.remove('show');$('inhabitantDetailPage').style.display='none';document.body.style.overflow='';showPage('inhabitants');requestAnimationFrame(()=>{$('inhabitantDetailPage').style.display='';openInhabitantModal(x)})}}
 function closeInhabitantDetail(){$('inhabitantDetailPage').classList.remove('show');document.body.style.overflow=''}
 
 function openJourneyModal(plantId){
@@ -928,6 +947,53 @@ function growthStoryEvents(item){
   events.sort((a,b)=>a.sort.localeCompare(b.sort));return events;
 }
 function growthStoryStatus(item){const groups=(Array.isArray(item.plantingGroups)?item.plantingGroups:[]);if(item.cycleType==='permanent')return ['🌳 Perjalanan masih berlanjut','Tanaman permanen tetap menjadi bagian dari kebun.'];if(item.cycleType==='once'&&groups.length&&groups.every(g=>['completed','failed'].includes(g.status||'active'))){return ['🌾 Siklus tanaman selesai','Kelompok tanam yang tercatat sudah berakhir.'];}return ['🌿 Perjalanan masih berlanjut','Tanaman ini masih aktif dan terus dipantau.'];}
+
+function lifeStoryIcon(type){return ({seen:'👀',nesting:'🏠',egg:'🥚',predating:'🍽️',visiting:'🌼',first:'✨',note:'📝'})[type]||'👣';}
+function lifeStoryEvents(item){
+  const rows=(Array.isArray(item?.events)?item.events:[]).map(e=>({
+    ...e,
+    photos:Array.isArray(e.photos)&&e.photos.length?e.photos:(e.photo?[e.photo]:[]),
+    plantNames:plantNames(e.plantIds)
+  }));
+  rows.sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
+  return rows;
+}
+function openLifeStory(id){
+  const x=inhabitants.find(a=>a.id===id);
+  const page=$('lifeStoryPage'),body=$('lifeStoryBody');
+  if(!page||!body){showToast('⚠️ Halaman Cerita Kehidupan tidak tersedia');return;}
+  if(!x){showToast('⚠️ Inhabitant tidak ditemukan');return;}
+  page.classList.add('show');
+  page.style.display='block';
+  page.style.zIndex='9999';
+  document.body.style.overflow='hidden';
+  body.innerHTML='<div class="life-story-empty">Memuat cerita kehidupan…</div>';
+  try{
+    const events=lifeStoryEvents(x);
+    body.innerHTML=`<div class="life-story-head"><div class="life-story-name">📖 ${esc(x.name||'Inhabitant')}</div><div class="life-story-meta">${x.faction?`${esc(x.faction)} · `:''}Status · ${inhabitantStatusLabel(x.status)}</div></div><div class="life-story-section-title">JEJAK KEHADIRAN</div>${events.length?`<div class="life-story-timeline">${events.map((e,i)=>`<div class="life-story-event"><div class="life-story-dot">${lifeStoryIcon(e.type)}</div><div class="life-story-card"><div class="life-story-date">${fmt(e.date)}</div><div class="life-story-label">${esc(observationLabel(e.type))}</div>${e.plantNames?.length?`<div class="tag-list">${e.plantNames.map(n=>`<span class="tag-chip">🌱 ${esc(n)}</span>`).join('')}</div>`:''}${e.note?`<div class="life-story-detail">${esc(e.note)}</div>`:''}${e.photos?.length?`<div class="life-story-photo-grid">${e.photos.map((p,j)=>`<img class="life-story-photo" src="${p}" alt="Jejak ${esc(x.name)} ${j+1}" data-life-event="${i}" data-life-index="${j}">`).join('')}</div>`:''}</div></div>`).join('')}</div>`:'<div class="life-story-empty">Belum ada jejak kehadiran yang tercatat.</div>'}<div class="life-story-end"><b>🌿 Perjalanan masih berlanjut</b><div>Inhabitant ini masih aktif dan terus dipantau.</div></div>`;
+    body.querySelectorAll('[data-life-event]').forEach(img=>img.onclick=()=>{
+      const e=events[Number(img.dataset.lifeEvent)];
+      if(!e||!e.photos?.length)return;
+      storyLightbox={photos:e.photos,index:Number(img.dataset.lifeIndex)||0};
+      renderStoryLightbox();
+      $('photoLightbox').classList.add('show');
+      document.body.style.overflow='hidden';
+    });
+  }catch(err){
+    console.error('Cerita Kehidupan:',err);
+    body.innerHTML='<div class="life-story-empty"><b>⚠️ Cerita Kehidupan gagal dimuat</b><div style="margin-top:8px">'+esc(err?.message||String(err))+'</div></div>';
+  }
+}
+function closeLifeStory(){
+  const p=$('lifeStoryPage');
+  p.classList.remove('show');
+  p.style.display='';
+  p.style.zIndex='';
+  document.body.style.overflow='';
+  closeStoryLightbox();
+}
+window.openLifeStory=openLifeStory;
+
 function openGrowthStory(id){
   const x=data.find(a=>a.id===id);
   const page=$('growthStoryPage'), body=$('growthStoryBody');
@@ -1126,7 +1192,7 @@ $('bedActionCancel').onclick=closeBedAction;
 $('bedActionModal').onclick=e=>{if(e.target.id==='bedActionModal')closeBedAction()};
 $('bedActionEdit').onclick=()=>{const id=selectedBedActionId;closeBedAction();if(id)openBedEdit(id)};
 $('bedActionDelete').onclick=()=>{const id=selectedBedActionId;closeBedAction();if(id)deleteBed(id)};
-$('plantDetailBack').onclick=closePlantDetail;$('inhabitantDetailBack').onclick=closeInhabitantDetail;$('growthStoryBack').onclick=closeGrowthStory;$('photoLightboxClose').onclick=closeStoryLightbox;$('photoPrev').onclick=storyPrev;$('photoNext').onclick=storyNext;$('photoLightbox').onclick=e=>{if(e.target.id==='photoLightbox')closeStoryLightbox()};$('settingsBtn').onclick=()=>{$('gardenWaterDefault').value=waterInterval({});$('settingsModal').classList.add('show')};
+$('plantDetailBack').onclick=closePlantDetail;$('inhabitantDetailBack').onclick=closeInhabitantDetail;$('growthStoryBack').onclick=closeGrowthStory;$('lifeStoryBack').onclick=closeLifeStory;$('photoLightboxClose').onclick=closeStoryLightbox;$('photoPrev').onclick=storyPrev;$('photoNext').onclick=storyNext;$('photoLightbox').onclick=e=>{if(e.target.id==='photoLightbox')closeStoryLightbox()};$('settingsBtn').onclick=()=>{$('gardenWaterDefault').value=waterInterval({});$('settingsModal').classList.add('show')};
 $('saveWaterSettings').onclick=()=>{const n=Math.max(1,Math.min(365,Number($('gardenWaterDefault').value||3)));gardenSettings={waterDefaultEvery:n};if(save()){$('settingsModal').classList.remove('show');scheduleNotifications();showToast(`💧 Aturan air default: ${n} hari`)}};
 $('settingsClose').onclick=()=>$('settingsModal').classList.remove('show');
 $('settingsModal').onclick=e=>{if(e.target.id==='settingsModal')$('settingsModal').classList.remove('show')};
