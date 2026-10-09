@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d120d">
+<title>Terra Insight v1 · Prototipe</title>
+<style>
+:root{color-scheme:dark;--bg:#0d120d;--surface:#172018;--surface2:#202b20;--text:#edf4ec;--muted:#aeb9ad;--border:#334033;--accent:#8cc676;--accent2:#243724;--warn:#e8c477;--danger:#f08c82}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.45}button,input,select{font:inherit}button{cursor:pointer;border:1px solid var(--border);border-radius:12px;padding:10px 13px;background:var(--accent2);color:var(--text)}button.primary{background:var(--accent);color:#132010;border-color:var(--accent);font-weight:700}.wrap{max-width:1020px;margin:auto;padding:0 15px 90px}.top{position:sticky;top:0;z-index:4;background:#101710ed;backdrop-filter:blur(14px);border-bottom:1px solid var(--border);padding:14px 15px}.topinner{max-width:1020px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{display:flex;gap:10px;align-items:center}.logo{width:42px;height:42px;border-radius:14px;background:var(--accent2);display:grid;place-items:center;font-size:23px}.brand h1{font-size:18px;margin:0}.brand p{font-size:12px;color:var(--muted);margin:0}.tag{font-size:11px;color:var(--accent);border:1px solid #496246;border-radius:20px;padding:4px 8px;white-space:nowrap}.intro{padding:24px 0 14px}.eyebrow{color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.intro h2{font-size:27px;line-height:1.15;letter-spacing:-.6px;margin:7px 0}.intro p{color:var(--muted);margin:0;max-width:700px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:15px 0}.nav{display:flex;gap:8px;overflow:auto;padding:8px 0 14px;scrollbar-width:none}.nav button{white-space:nowrap;background:transparent}.nav button.active{background:var(--accent2);border-color:#65835c;color:#c5efb4}.section{display:none}.section.active{display:block}.sectionhead{display:flex;justify-content:space-between;align-items:end;gap:12px;margin:12px 0}.sectionhead h3{margin:0;font-size:19px}.sectionhead p{margin:3px 0 0;color:var(--muted);font-size:13px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.card{background:var(--surface);border:1px solid var(--border);border-radius:17px;padding:15px;min-width:0}.metric .label{font-size:12px;color:var(--muted)}.metric .value{font-size:27px;font-weight:750;letter-spacing:-.7px;margin:5px 0 2px}.metric .sub{font-size:11px;color:var(--muted)}.card h4{margin:0 0 9px;font-size:15px}.muted{color:var(--muted)}.small{font-size:12px}.pill{display:inline-block;border:1px solid var(--border);padding:3px 8px;border-radius:30px;font-size:11px;color:var(--muted)}.insight{border-left:3px solid var(--accent);padding:10px 12px;background:#1b291b;border-radius:0 12px 12px 0;margin:8px 0;font-size:13px}.insight.warn{border-color:var(--warn);background:#2a2519}.insight.danger{border-color:var(--danger);background:#2a1d1b}.barlist{display:grid;gap:13px}.barrow{display:grid;grid-template-columns:minmax(75px,1fr) 2fr auto;align-items:center;gap:10px;font-size:12px}.barbg{height:9px;background:#2c382c;border-radius:10px;overflow:hidden}.barfill{height:100%;background:var(--accent);border-radius:10px}.timeline{display:grid;gap:10px}.event{display:flex;gap:10px;align-items:flex-start}.eventicon{width:34px;height:34px;flex:0 0 34px;border-radius:11px;background:var(--surface2);display:grid;place-items:center}.event b{font-size:13px}.event p{font-size:12px;color:var(--muted);margin:2px 0}.plantrow{display:grid;grid-template-columns:1fr auto;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}.plantrow:last-child{border-bottom:0}.plantrow b{font-size:14px}.plantrow .meta{font-size:12px;color:var(--muted)}.chart{width:100%;height:210px;display:block}.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted)}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:5px}.notice{background:#222b20;border:1px dashed #52654b;border-radius:14px;padding:12px;font-size:12px;color:var(--muted);margin:12px 0}.empty{padding:20px;text-align:center;color:var(--muted);font-size:13px}.footer{padding:25px 0 0;color:var(--muted);font-size:11px;text-align:center}.hidden{display:none!important}select,input[type=file]{max-width:100%;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px}.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#e9f5e4;color:#172316;padding:10px 15px;border-radius:12px;font-size:13px;box-shadow:0 5px 24px #0008;display:none;z-index:10;max-width:90vw}
+@media(max-width:680px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.grid.two{grid-template-columns:1fr}.intro h2{font-size:24px}.metric .value{font-size:25px}.topinner{align-items:flex-start}.barrow{grid-template-columns:85px 1fr auto}.card{padding:13px}.sectionhead{align-items:start;flex-direction:column}}
+</style>
+</head>
+<body>
+<header class="top"><div class="topinner"><div class="brand"><div class="logo">🌱</div><div><h1>Terra Insight</h1><p>Analitik kebun · Terra Serenada</p></div></div><span class="tag">PROTOTIPE v1</span></div></header>
+<main class="wrap">
+  <div class="intro"><div class="eyebrow">Baca pola, tentukan langkah</div><h2>Kebun Anda, dipahami dari datanya.</h2><p>Ringkasan kondisi kebun, pertumbuhan, air dan cuaca, aktivitas, serta prioritas tindak lanjut—dengan alasan yang dapat diperiksa.</p>
+  <div class="actions"><button class="primary" id="importBtn">Impor backup kebun (.json)</button><button id="demoBtn">Gunakan data contoh</button><input id="fileInput" type="file" accept=".json,application/json" class="hidden"></div>
+  <div id="sourceNote" class="notice">Mode contoh aktif. Data yang tampil adalah ilustrasi, bukan data kebun aktual. Impor backup JSON Terra Serenada untuk mencoba analisis dari catatan Anda.</div></div>
+  <nav class="nav" aria-label="Bagian analisis">
+    <button class="active" data-tab="overview">Ringkasan</button><button data-tab="growth">Pertumbuhan</button><button data-tab="water">Air & cuaca</button><button data-tab="activity">Aktivitas</button><button data-tab="quality">Kualitas data</button>
+  </nav>
+  <section class="section active" id="overview">
+    <div class="sectionhead"><div><h3>Kondisi kebun</h3><p>Gambaran ringkas dari catatan yang tersedia.</p></div><span class="pill" id="dateLabel"></span></div>
+    <div class="grid" id="metrics"></div>
+    <div class="grid two" style="margin-top:10px">
+      <div class="card"><h4>Yang perlu diperhatikan</h4><div id="priorities"></div></div>
+      <div class="card"><h4>Aktivitas terbaru</h4><div class="timeline" id="recent"></div></div>
+    </div>
+    <div class="notice">Terra Insight v1 memakai aturan dan perhitungan transparan. Pola yang terlihat bukan bukti sebab-akibat; rekomendasi akan dibatasi pada informasi yang benar-benar tercatat.</div>
+  </section>
+  <section class="section" id="growth">
+    <div class="sectionhead"><div><h3>Analisis pertumbuhan</h3><p>Perbandingan pengukuran yang dicatat pada perjalanan tanaman.</p></div><select id="plantSelect" aria-label="Pilih tanaman"></select></div>
+    <div class="grid" id="growthMetrics"></div>
+    <div class="card" style="margin-top:10px"><h4>Perjalanan pengukuran</h4><div id="growthChart"></div><div class="legend"><span><i class="dot"></i>Nilai pengukuran</span></div><p class="small muted" id="growthCaption"></p></div>
+    <div class="card" style="margin-top:10px"><h4>Catatan interpretasi</h4><div id="growthInsights"></div></div>
+  </section>
+  <section class="section" id="water">
+    <div class="sectionhead"><div><h3>Air & cuaca</h3><p>Catatan hujan/penyiraman dipisahkan dari prakiraan cuaca.</p></div></div>
+    <div class="grid" id="waterMetrics"></div>
+    <div class="grid two" style="margin-top:10px"><div class="card"><h4>Riwayat air kebun</h4><div class="timeline" id="waterTimeline"></div></div><div class="card"><h4>Interpretasi yang aman</h4><div id="waterInsights"></div></div></div>
+    <div class="notice">Prakiraan cuaca bukan catatan hujan aktual. Prototipe ini tidak mengubah jadwal penyiraman atau mencatat hujan secara otomatis.</div>
+  </section>
+  <section class="section" id="activity">
+    <div class="sectionhead"><div><h3>Aktivitas & prioritas</h3><p>Ringkasan kejadian yang tercatat di kebun.</p></div></div>
+    <div class="grid two"><div class="card"><h4>Aktivitas berdasarkan kategori</h4><div id="activityBars" class="barlist"></div></div><div class="card"><h4>Ringkasan panen</h4><div id="harvestSummary"></div></div></div>
+    <div class="card" style="margin-top:10px"><h4>Riwayat aktivitas</h4><div class="timeline" id="activityTimeline"></div></div>
+  </section>
+  <section class="section" id="quality">
+    <div class="sectionhead"><div><h3>Kualitas & kecukupan data</h3><p>Seberapa kuat kesimpulan yang bisa diambil?</p></div></div>
+    <div class="grid" id="qualityMetrics"></div>
+    <div class="card" style="margin-top:10px"><h4>Hal yang memengaruhi ketepatan analisis</h4><div id="qualityList"></div></div>
+    <div class="notice">Semakin rutin dan konsisten pencatatan, semakin bermakna analisis dari waktu ke waktu. Tidak adanya catatan tidak berarti suatu kejadian tidak terjadi.</div>
+  </section>
+  <div class="footer">Terra Insight v1 · prototipe HTML mandiri · tidak mengubah data Terra Serenada</div>
+</main><div class="toast" id="toast"></div>
+<script>
+const $=id=>document.getElementById(id);
+const today=()=>new Date().toISOString().slice(0,10);
+const fmt=d=>d?new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}):'Tanggal tidak tersedia';
+const num=n=>Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:2});
+const daysBetween=(a,b)=>Math.floor((Date.parse((b||today())+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/86400000);
+let state, imported=false;
+const sample=()=>{const d=(ago)=>new Date(Date.now()-ago*86400000).toISOString().slice(0,10);return {
+plants:[
+{id:'p1',name:'Labu madu',variety:'',date:d(40),qty:1,plantingGroups:[{id:'g1',date:d(40),qty:1}],lastWater:d(1),lastWaterSource:'Disiram',events:[
+{date:d(35),type:'note',label:'Pengamatan',note:'Daun baru mulai membuka.',measurements:[{indicatorId:'ti41-height',indicatorName:'Tinggi tanaman',value:18,unit:'cm'},{indicatorId:'ti41-vine-length',indicatorName:'Panjang sulur',value:35,unit:'cm'},{indicatorId:'ti41-leaf-count',indicatorName:'Jumlah daun',value:5,unit:'helai'}]},
+{date:d(27),type:'note',label:'Pengukuran pertumbuhan',note:'Pertumbuhan tampak aktif.',measurements:[{indicatorId:'ti41-height',indicatorName:'Tinggi tanaman',value:27,unit:'cm'},{indicatorId:'ti41-vine-length',indicatorName:'Panjang sulur',value:72,unit:'cm'},{indicatorId:'ti41-leaf-count',indicatorName:'Jumlah daun',value:9,unit:'helai'}]},
+{date:d(15),type:'flowering',label:'Berbunga',note:'Bunga pertama terlihat.'},
+{date:d(8),type:'note',label:'Pengukuran pertumbuhan',measurements:[{indicatorId:'ti41-height',indicatorName:'Tinggi tanaman',value:32,unit:'cm'},{indicatorId:'ti41-vine-length',indicatorName:'Panjang sulur',value:128,unit:'cm'},{indicatorId:'ti41-leaf-count',indicatorName:'Jumlah daun',value:14,unit:'helai'},{indicatorId:'ti41-flower-count',indicatorName:'Jumlah bunga',value:2,unit:'bunga'}]},
+{date:d(1),type:'pruning',label:'Pemangkasan',note:'Sulur samping dipangkas.'}]},
+{id:'p2',name:'Cabai rawit',date:d(62),qty:3,plantingGroups:[{id:'g2',date:d(62),qty:3}],lastWater:d(3),lastWaterSource:'Disiram',events:[{date:d(30),type:'note',label:'Pengukuran',measurements:[{indicatorId:'ti41-height',indicatorName:'Tinggi tanaman',value:22,unit:'cm'}]},{date:d(9),type:'pest',label:'Gangguan tanaman',note:'Terlihat beberapa daun berlubang.'}]}
+],
+harvests:[{plantId:'p2',date:d(4),qty:0.3,unit:'kg',quality:'Baik',note:''}],
+gardenEvents:[{date:d(1),type:'water',label:'Disiram',bedNames:['Bed utama']},{date:d(3),type:'rain',label:'Hujan',bedNames:['Seluruh kebun']},{date:d(5),type:'weeding',label:'Penyiangan',bedNames:['Bed utama']}],
+attentions:[],gardenNotes:[{date:d(2),title:'Catatan kebun',note:'Kondisi tanah permukaan mulai mengering.'}],inhabitants:[],beds:[{id:'b1',name:'Bed utama'}],savedAt:new Date().toISOString()
+}};
+function normalizeBackup(obj){
+  if(!obj||typeof obj!=='object')throw Error('Berkas bukan JSON objek yang valid.');
+  let root=obj;
+  if(obj.state&&typeof obj.state==='object')root=obj.state;
+  const plants=root.plants||root.data||root.tanaman||[];
+  const result={
+    plants:Array.isArray(plants)?plants:[],
+    harvests:Array.isArray(root.harvests)?root.harvests:(Array.isArray(root.panen)?root.panen:[]),
+    gardenEvents:Array.isArray(root.gardenEvents)?root.gardenEvents:[],
+    attentions:Array.isArray(root.attentions)?root.attentions:[],
+    gardenNotes:Array.isArray(root.gardenNotes)?root.gardenNotes:[],
+    growthIndicators:Array.isArray(root.growthIndicators)?root.growthIndicators:[],
+    inhabitants:Array.isArray(root.inhabitants)?root.inhabitants:[],
+    beds:Array.isArray(root.beds)?root.beds:[],
+    savedAt:root.savedAt||obj.savedAt||''
+  };
+  if(!result.plants.length&&!result.gardenEvents.length&&!result.harvests.length)throw Error('Tidak menemukan daftar tanaman, aktivitas kebun, atau panen pada struktur JSON ini. Format backup mungkin berbeda.');
+  return result;
+}
+function toast(t){$('toast').textContent=t;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',3000)}
+function escapeHTML(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function allEvents(){const rows=[];for(const p of state.plants)for(const e of (p.events||[]))rows.push({date:e.date,icon:e.type==='flowering'?'🌼':e.type==='pest'?'🐛':e.type==='pruning'?'✂️':'🌿',title:(e.label||e.type||'Perkembangan')+' · '+(p.name||'Tanaman'),detail:e.note||'',type:e.type});for(const h of state.harvests)rows.push({date:h.date,icon:'🧺',title:'Panen · '+plantName(h.plantId),detail:`${h.qty??'—'} ${h.unit||''}`.trim(),type:'harvest'});for(const e of state.gardenEvents)rows.push({date:e.date,icon:e.type==='rain'?'🌧️':e.type==='water'?'💧':'🪴',title:e.label||({rain:'Hujan',water:'Penyiraman',weeding:'Penyiangan','soil-addition':'Penambahan tanah'}[e.type]||'Aktivitas kebun'),detail:(e.bedNames||[]).join(' · '),type:e.type});return rows.filter(x=>x.date).sort((a,b)=>String(b.date).localeCompare(String(a.date)))}
+function plantName(id){return state.plants.find(p=>p.id===id)?.name||'Tanaman'}
+function activeQty(){let q=0;for(const p of state.plants){const gs=p.plantingGroups||[];if(gs.length)q+=gs.reduce((s,g)=>s+Math.max(0,Number(g.qty||0)-Number(g.completedQty||0)-Number(g.failedQty||0)),0);else q+=Number(p.qty||0)}return q}
+function measurementsFor(p){return (p.events||[]).flatMap(e=>(e.measurements||[]).filter(m=>m.indicatorId&&Number.isFinite(Number(m.value))).map(m=>({...m,date:e.date}))).sort((a,b)=>String(a.date).localeCompare(String(b.date)))}
+function selectedMeasurements(){const p=state.plants.find(x=>x.id===$('plantSelect').value)||state.plants[0];return {p,ms:p?measurementsFor(p):[]}}
+function latestWater(){return [...state.gardenEvents].filter(e=>['water','rain'].includes(e.type)&&e.date).sort((a,b)=>String(b.date).localeCompare(String(a.date)))[0]}
+function metric(label,value,sub=''){return `<div class="card metric"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`}
+function eventHTML(e){return `<div class="event"><div class="eventicon">${e.icon||'🌿'}</div><div><b>${escapeHTML(e.title)}</b><p>${escapeHTML(e.detail||'Tidak ada keterangan tambahan')}</p><span class="small muted">${fmt(e.date)}</span></div></div>`}
+function render(){
+ $('dateLabel').textContent=fmt(today());
+ const ev=allEvents(),water=latestWater(),flowered=new Set(state.plants.filter(p=>(p.events||[]).some(e=>e.type==='flowering')).map(p=>p.id)).size;
+ const active=activeQty(),recentHarvest=state.harvests.filter(h=>String(h.date||'').slice(0,7)===today().slice(0,7)).length;
+ $('metrics').innerHTML=metric('Tanaman tercatat',state.plants.length,'Jenis/entri tanaman')+metric('Individu aktif',num(active),'Berdasarkan kelompok tanam')+metric('Pernah berbunga',flowered,'Tanaman dengan catatan berbunga')+metric('Panen bulan ini',recentHarvest,'Catatan panen bulan berjalan');
+ const pr=[];if(!state.plants.length)pr.push(['danger','Belum ada data tanaman','Impor backup kebun atau periksa format berkas.']);if(state.plants.some(p=>measurementsFor(p).length===1))pr.push(['warn','Pengukuran masih terbatas','Sebagian tanaman baru memiliki satu pengukuran; tren belum dapat dihitung.']);if(!water)pr.push(['warn','Belum ada riwayat air','Catat hujan dan penyiraman di Terra Serenada agar pola air bisa dianalisis.']);if(!state.gardenEvents.length)pr.push(['','Aktivitas kebun belum tercatat','Analisis aktivitas akan lebih berguna setelah catatan rutin tersedia.']);if(!pr.length)pr.push(['','Tidak ada tanda data yang mendesak','Ini bukan penilaian kesehatan biologis tanaman; hanya ringkasan catatan yang tersedia.']);
+ $('priorities').innerHTML=pr.map(x=>`<div class="insight ${x[0]}"><b>${x[1]}</b><br>${x[2]}</div>`).join('');
+ $('recent').innerHTML=ev.length?ev.slice(0,5).map(eventHTML).join(''):'<div class="empty">Belum ada aktivitas yang dapat ditampilkan.</div>';
+ $('plantSelect').innerHTML=state.plants.map(p=>`<option value="${escapeHTML(p.id)}">${escapeHTML(p.name||'Tanaman')}</option>`).join('');
+ if(!$('plantSelect').value&&state.plants[0])$('plantSelect').value=state.plants[0].id;
+ renderGrowth();renderWater();renderActivity();renderQuality();
+}
+function renderGrowth(){
+ const {p,ms}=selectedMeasurements(),names=[...new Set(ms.map(m=>m.indicatorName||m.indicatorId))];
+ if(!p){$('growthMetrics').innerHTML=metric('Pengukuran',0,'Belum ada tanaman');$('growthChart').innerHTML='<div class="empty">Impor data tanaman untuk melihat analisis.</div>';$('growthInsights').innerHTML='';return}
+ const chosen=names[0],series=ms.filter(m=>(m.indicatorName||m.indicatorId)===chosen);
+ let delta='—',rate='Belum cukup data',last='Belum diukur';
+ if(series.length){last=num(series[series.length-1].value)+' '+(series[series.length-1].unit||'');if(series.length>1){const a=series[0],b=series[series.length-1],days=daysBetween(a.date,b.date);delta=(Number(b.value)-Number(a.value)>0?'+':'')+num(Number(b.value)-Number(a.value))+' '+(b.unit||'');rate=days>0?(num((Number(b.value)-Number(a.value))/days)+' '+(b.unit||'')+'/hari'):'Jarak tanggal tidak valid';}}
+ $('growthMetrics').innerHTML=metric('Pengukuran tercatat',ms.length,'Semua indikator')+metric('Indikator terukur',names.length,'Jenis ukuran')+metric('Nilai terbaru',last,'Indikator: '+(chosen||'—'))+metric('Perubahan rentang',delta,rate);
+ $('growthCaption').textContent=series.length>1?`Grafik memakai indikator “${chosen}”; laju dihitung dari pengukuran pertama hingga terakhir yang tersedia.`:'Catat indikator yang sama lebih dari sekali untuk mulai melihat tren.';
+ if(series.length>1){
+ const W=640,H=210,L=42,R=16,T=16,B=35,vals=series.map(x=>Number(x.value)),min=Math.min(...vals),max=Math.max(...vals),range=max-min||1;
+ const points=series.map((x,i)=>({x:L+i*(W-L-R)/Math.max(1,series.length-1),y:T+(max-Number(x.value))*(H-T-B)/range,v:x.value,date:x.date}));
+ const path=points.map((p,i)=>(i?'L':'M')+p.x.toFixed(1)+' '+p.y.toFixed(1)).join(' ');
+ $('growthChart').innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Grafik pertumbuhan"><line x1="${L}" y1="${H-B}" x2="${W-R}" y2="${H-B}" stroke="#526052"/><line x1="${L}" y1="${T}" x2="${L}" y2="${H-B}" stroke="#526052"/><path d="${path}" fill="none" stroke="#8cc676" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>${points.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="4" fill="#b7e6a7"><title>${fmt(p.date)}: ${p.v}</title></circle>`).join('')}${points.map((p,i)=>i===0||i===points.length-1?`<text x="${p.x}" y="${H-10}" fill="#aeb9ad" text-anchor="${i===0?'start':'end'}" font-size="11">${fmt(p.date)}</text>`:'').join('')}</svg>`;
+ }else $('growthChart').innerHTML='<div class="empty">Belum ada dua pengukuran dengan indikator yang sama untuk membuat grafik.</div>';
+ const ins=[];if(ms.length<2)ins.push('Riwayat pengukuran belum cukup untuk menyimpulkan arah pertumbuhan.');else if(series.length<2)ins.push('Ada catatan pengukuran, tetapi indikator terpilih belum diukur berulang kali.');else ins.push(`Nilai ${chosen} berubah ${delta} selama rentang pengukuran. Perubahan ini adalah deskripsi angka, bukan penilaian bahwa tanaman sehat atau tidak sehat.`);if(!p.events?.some(e=>e.type==='flowering'))ins.push('Belum ada catatan berbunga untuk tanaman ini; pastikan status lapangan diperbarui jika sudah berbunga.');$('growthInsights').innerHTML=ins.map(x=>`<div class="insight">${x}</div>`).join('');
+}
+function renderWater(){
+ const w=latestWater(),rains=state.gardenEvents.filter(e=>e.type==='rain'),waters=state.gardenEvents.filter(e=>e.type==='water');
+ $('waterMetrics').innerHTML=metric('Catatan hujan',rains.length,'Input manual')+metric('Catatan penyiraman',waters.length,'Aktivitas tercatat')+metric('Terakhir mendapat air',w?fmt(w.date):'Belum ada',w?(w.type==='rain'?'Sumber: hujan tercatat':'Sumber: penyiraman tercatat'):'Tidak ada riwayat air')+metric('Prakiraan cuaca','—','Tidak diimpor dari backup JSON');
+ const rows=[...state.gardenEvents].filter(e=>['rain','water'].includes(e.type)&&e.date).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+ $('waterTimeline').innerHTML=rows.length?rows.slice(0,8).map(e=>eventHTML({date:e.date,icon:e.type==='rain'?'🌧️':'💧',title:e.type==='rain'?'Hujan dicatat':'Penyiraman dicatat',detail:(e.bedNames||[]).join(' · ')||'Cakupan bed tidak tercatat'})).join(''):'<div class="empty">Belum ada catatan hujan atau penyiraman.</div>';
+ const ins=[];if(!rows.length)ins.push('Belum ada data aktual tentang hujan atau penyiraman; belum bisa menilai pola air.');else ins.push(`Terdapat ${rains.length} catatan hujan dan ${waters.length} catatan penyiraman. Jumlah catatan tidak mengukur volume air atau kelembapan tanah.`);ins.push('Prakiraan cuaca real-time belum dibaca oleh prototipe mandiri ini. Integrasi Weather Sync dilakukan pada tahap integrasi, setelah HTML disetujui.');$('waterInsights').innerHTML=ins.map(x=>`<div class="insight">${x}</div>`).join('');
+}
+function renderActivity(){
+ const types=[['Penanaman',state.plants.reduce((n,p)=>n+(p.plantingGroups?.length||1),0)],['Pembungaan',state.plants.reduce((n,p)=>n+(p.events||[]).filter(e=>e.type==='flowering').length,0)],['Gangguan',state.plants.reduce((n,p)=>n+(p.events||[]).filter(e=>e.type==='pest').length,0)],['Pemangkasan',state.plants.reduce((n,p)=>n+(p.events||[]).filter(e=>e.type==='pruning').length,0)],['Air kebun',state.gardenEvents.filter(e=>['rain','water'].includes(e.type)).length],['Panen',state.harvests.length]];
+ const max=Math.max(1,...types.map(x=>x[1]));$('activityBars').innerHTML=types.map(([name,v])=>`<div class="barrow"><span>${name}</span><div class="barbg"><div class="barfill" style="width:${Math.max(v?3:0,v/max*100)}%"></div></div><b>${v}</b></div>`).join('');
+ const qty=state.harvests.reduce((n,h)=>n+Number(h.qty||0),0),units=[...new Set(state.harvests.map(h=>h.unit||'unit'))];
+ $('harvestSummary').innerHTML=`<div class="metric"><div class="label">Jumlah catatan panen</div><div class="value">${state.harvests.length}</div></div><p class="muted small">Jumlah kuantitas tersimpan: <b>${num(qty)}</b> ${units.join(', ')||''}. Satuan yang berbeda tidak dijumlahkan secara bermakna; periksa satuan pada catatan sumber.</p>`;
+ const ev=allEvents();$('activityTimeline').innerHTML=ev.length?ev.slice(0,20).map(eventHTML).join(''):'<div class="empty">Belum ada riwayat aktivitas.</div>';
+}
+function renderQuality(){
+ const ms=state.plants.reduce((n,p)=>n+measurementsFor(p).length,0),measured=state.plants.filter(p=>measurementsFor(p).length>0).length,dated=state.plants.filter(p=>p.date||(p.plantingGroups||[]).some(g=>g.date)).length;
+ $('qualityMetrics').innerHTML=metric('Tanaman punya pengukuran',measured+'/'+state.plants.length,'Ada setidaknya satu data ukur')+metric('Total pengukuran',ms,'Dari perjalanan tanaman')+metric('Tanggal tanam tersedia',dated+'/'+state.plants.length,'Dari data penanaman')+metric('Aktivitas kebun',state.gardenEvents.length,'Termasuk hujan dan penyiraman');
+ const list=[];if(!state.plants.length)list.push('Belum ada data tanaman yang terbaca.');if(state.plants.some(p=>measurementsFor(p).length<2))list.push('Sebagian tanaman memiliki kurang dari dua pengukuran; laju perubahan belum bisa dihitung.');if(!state.gardenEvents.some(e=>e.type==='rain'))list.push('Belum ada catatan hujan yang terbaca.');if(!state.gardenEvents.some(e=>e.type==='water'))list.push('Belum ada catatan penyiraman yang terbaca.');if(!state.harvests.length)list.push('Belum ada catatan panen yang terbaca.');if(!list.length)list.push('Data dasar tersedia untuk beberapa analisis. Periksa konsistensi tanggal, satuan, dan kelengkapan catatan sebelum menarik kesimpulan.');$('qualityList').innerHTML=list.map(x=>`<div class="insight">${escapeHTML(x)}</div>`).join('');
+}
+document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.section').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));}));
+$('plantSelect').addEventListener('change',renderGrowth);
+$('importBtn').onclick=()=>$('fileInput').click();
+$('fileInput').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{state=normalizeBackup(JSON.parse(await f.text()));imported=true;$('sourceNote').textContent=`Backup dimuat: ${f.name}. Tanaman: ${state.plants.length}, catatan aktivitas kebun: ${state.gardenEvents.length}, panen: ${state.harvests.length}. File dibaca lokal oleh prototipe; data asli tidak diubah.`;render();toast('Backup berhasil dibaca');}catch(err){toast(err.message||'Gagal membaca backup');}finally{e.target.value=''}};
+$('demoBtn').onclick=()=>{state=sample();imported=false;$('sourceNote').textContent='Mode contoh aktif. Data yang tampil adalah ilustrasi, bukan data kebun aktual. Impor backup JSON Terra Serenada untuk mencoba analisis dari catatan Anda.';render();toast('Data contoh dimuat')};
+state=sample();$('sourceNote').textContent='Mode contoh aktif. Data yang tampil adalah ilustrasi, bukan data kebun aktual. Impor backup JSON Terra Serenada untuk mencoba analisis dari catatan Anda.';render();
+</script>
+</body></html>
