@@ -1,0 +1,466 @@
+name: Build Android APK v1.0.15 Terra Insight Foundation v19
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-apk-v19.yml"
+
+permissions:
+  contents: read
+
+# Required repository secrets:
+#   ANDROID_KEYSTORE_BASE64     = base64 content of the permanent compact PKCS12 signing file
+#   ANDROID_KEYSTORE_PASSWORD   = password for the keystore and key
+# The alias is fixed to: terra-serenada
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Create Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p android/app/src/main/java/com/terra/serenada
+          mkdir -p android/app/src/main/res/drawable
+          mkdir -p android/app/src/main/res/values
+          mkdir -p android/app/src/main/assets
+
+          cat > android/settings.gradle.kts <<'KOT'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "TerraSerenadaAndroid"
+          include(":app")
+          KOT
+
+          cat > android/build.gradle.kts <<'KOT'
+          plugins { id("com.android.application") version "8.13.0" apply false }
+          KOT
+
+          cat > android/gradle.properties <<'PROP'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          PROP
+
+          cat > android/app/build.gradle.kts <<'KOT'
+          plugins { id("com.android.application") }
+          android {
+              namespace = "com.terra.serenada"
+              compileSdk = 36
+              defaultConfig {
+                  applicationId = "com.terra.serenada"
+                  minSdk = 24
+                  targetSdk = 36
+                  versionCode = 17
+                  versionName = "1.0.15"
+              }
+              signingConfigs {
+                  create("release") {
+                      storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH"))
+                      storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                      keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                      keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                      storeType = "PKCS12"
+                  }
+              }
+              buildTypes {
+                  getByName("release") {
+                      isMinifyEnabled = false
+                      signingConfig = signingConfigs.getByName("release")
+                  }
+              }
+          }
+          dependencies { implementation("androidx.webkit:webkit:1.14.0") }
+          KOT
+
+          cat > android/app/proguard-rules.pro <<'EOF2'
+          # Terra Serenada 1.0.15
+          EOF2
+
+          cat > android/app/src/main/AndroidManifest.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <application
+                  android:allowBackup="true"
+                  android:icon="@drawable/icon"
+                  android:label="@string/app_name"
+                  android:roundIcon="@drawable/icon"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.TerraSerenada">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <receiver android:name=".ReminderReceiver" android:exported="false" />
+              </application>
+          </manifest>
+          XML
+
+          cat > android/app/src/main/res/values/strings.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources><string name="app_name">Terra Serenada</string></resources>
+          XML
+
+          cat > android/app/src/main/res/values/styles.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.TerraSerenada" parent="android:style/Theme.Material.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:statusBarColor">#101712</item>
+                  <item name="android:navigationBarColor">#101712</item>
+                  <item name="android:windowLightNavigationBar">false</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+              </style>
+          </resources>
+          XML
+
+          cp icon.png android/app/src/main/res/drawable/icon.png
+          cp index.html android/app/src/main/assets/index.html
+          cp manifest.webmanifest android/app/src/main/assets/manifest.webmanifest
+          cp icon.png android/app/src/main/assets/icon.png
+
+          cat > android/app/src/main/java/com/terra/serenada/MainActivity.java <<'JAVA'
+          package com.terra.serenada;
+
+          import android.app.Activity;
+          import android.app.AlarmManager;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.Intent;
+          import android.content.ClipData;
+          import android.net.Uri;
+          import android.provider.MediaStore;
+          import android.os.Bundle;
+          import android.Manifest;
+          import android.content.pm.PackageManager;
+          import android.os.Build;
+          import android.view.Window;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.content.ContextCompat;
+          import androidx.webkit.WebViewAssetLoader;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+              private ValueCallback<Uri[]> filePathCallback;
+              private Uri pendingCaptureUri;
+              private String pendingBackupJson;
+              private String pendingBackupFilename = "backup-terra-serenada.json";
+              private static final int FILE_CHOOSER_REQUEST = 1001;
+              private static final int BACKUP_CREATE_REQUEST = 1002;
+              private static final int NOTIFICATION_REQUEST = 1003;
+              private static final String CHANNEL_ID = "terra_serenada_reminders";
+              private static final int DAILY_ALARM_ID = 230103;
+
+              private void createNotificationChannel() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationManager nm = getSystemService(NotificationManager.class);
+                      nm.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "Pengingat Terra Serenada", NotificationManager.IMPORTANCE_DEFAULT));
+                  }
+              }
+
+              private void requestNotificationPermission() {
+                  if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                      ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQUEST);
+                  }
+              }
+
+              private void scheduleDailyReminder(String payload) {
+                  getSharedPreferences("terra_notifications", MODE_PRIVATE).edit().putString("payload", payload == null ? "{}" : payload).apply();
+                  AlarmManager am = (AlarmManager)getSystemService(ALARM_SERVICE);
+                  PendingIntent pi = PendingIntent.getBroadcast(this, DAILY_ALARM_ID, new Intent(this, ReminderReceiver.class), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                  java.util.Calendar cal = java.util.Calendar.getInstance();
+                  cal.set(java.util.Calendar.HOUR_OF_DAY, 8); cal.set(java.util.Calendar.MINUTE, 0); cal.set(java.util.Calendar.SECOND, 0); cal.set(java.util.Calendar.MILLISECOND, 0);
+                  if (cal.getTimeInMillis() <= System.currentTimeMillis()) cal.add(java.util.Calendar.DAY_OF_YEAR, 1);
+                  am.setInexactRepeating(AlarmManager.RTC_WAKEUP, cal.getTimeInMillis(), AlarmManager.INTERVAL_DAY, pi);
+              }
+
+              private class TerraBridge {
+                  @JavascriptInterface
+                  public boolean saveBackup(String filename, String json) {
+                      pendingBackupFilename = (filename == null || filename.isEmpty())
+                              ? "backup-terra-serenada.json" : filename;
+                      pendingBackupJson = json;
+                      runOnUiThread(() -> {
+                          try {
+                              Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                              intent.addCategory(Intent.CATEGORY_OPENABLE);
+                              intent.setType("application/json");
+                              intent.putExtra(Intent.EXTRA_TITLE, pendingBackupFilename);
+                              startActivityForResult(intent, BACKUP_CREATE_REQUEST);
+                          } catch (Exception e) {
+                              pendingBackupJson = null;
+                              webView.evaluateJavascript("window.__terraBackupSaved && window.__terraBackupSaved(false)", null);
+                          }
+                      });
+                      return true;
+                  }
+
+                  @JavascriptInterface
+                  public boolean requestNotifications() {
+                      runOnUiThread(() -> { createNotificationChannel(); requestNotificationPermission(); });
+                      return true;
+                  }
+
+                  @JavascriptInterface
+                  public boolean scheduleNotifications(String json) {
+                      runOnUiThread(() -> { createNotificationChannel(); scheduleDailyReminder(json); });
+                      return true;
+                  }
+              }
+
+              @Override protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  requestWindowFeature(Window.FEATURE_NO_TITLE);
+                  createNotificationChannel();
+                  webView = new WebView(this);
+                  setContentView(webView);
+
+                  WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
+                          .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                          .build();
+
+                  webView.getSettings().setJavaScriptEnabled(true);
+                  webView.getSettings().setDomStorageEnabled(true);
+                  webView.getSettings().setDatabaseEnabled(true);
+                  webView.getSettings().setAllowFileAccess(false);
+                  webView.getSettings().setAllowContentAccess(true);
+                  webView.addJavascriptInterface(new TerraBridge(), "AndroidBridge");
+
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                          return assetLoader.shouldInterceptRequest(request.getUrl());
+                      }
+                  });
+
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                          if (filePathCallback != null) filePathCallback.onReceiveValue(null);
+                          filePathCallback = callback;
+                          pendingCaptureUri = null;
+                          try {
+                              Intent intent = params.createIntent();
+                              // Explicitly grant the external picker/camera access needed by WebView.
+                              intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                              intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                              if (MediaStore.ACTION_IMAGE_CAPTURE.equals(intent.getAction()) || MediaStore.ACTION_VIDEO_CAPTURE.equals(intent.getAction())) {
+                                  try {
+                                      pendingCaptureUri = intent.getParcelableExtra(MediaStore.EXTRA_OUTPUT);
+                                  } catch (Exception ignored) {}
+                              }
+                              startActivityForResult(intent, FILE_CHOOSER_REQUEST);
+                              return true;
+                          } catch (Exception e) {
+                              pendingCaptureUri = null;
+                              filePathCallback = null;
+                              return false;
+                          }
+                      }
+                  });
+
+                  webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+              }
+
+              private Uri[] collectFileChooserResults(Intent data) {
+                  java.util.ArrayList<Uri> uris = new java.util.ArrayList<>();
+                  if (data != null) {
+                      ClipData clip = data.getClipData();
+                      if (clip != null) {
+                          for (int i = 0; i < clip.getItemCount(); i++) {
+                              Uri uri = clip.getItemAt(i).getUri();
+                              if (uri != null && !uris.contains(uri)) uris.add(uri);
+                          }
+                      }
+                      Uri single = data.getData();
+                      if (single != null && !uris.contains(single)) uris.add(single);
+
+                      // Preserve a persistable read grant when the document provider offers one.
+                      if (single != null && (data.getFlags() & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+                          try {
+                              int takeFlags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                              getContentResolver().takePersistableUriPermission(single, takeFlags);
+                          } catch (Exception ignored) {}
+                      }
+                  }
+                  // Camera capture commonly returns RESULT_OK without data.getData(); in that case
+                  // the output URI supplied to the capture intent is the actual selected file.
+                  if (uris.isEmpty() && pendingCaptureUri != null) uris.add(pendingCaptureUri);
+                  return uris.isEmpty() ? null : uris.toArray(new Uri[0]);
+              }
+
+              @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  if (requestCode == FILE_CHOOSER_REQUEST) {
+                      Uri[] results = resultCode == RESULT_OK ? collectFileChooserResults(data) : null;
+                      if (filePathCallback != null) filePathCallback.onReceiveValue(results);
+                      filePathCallback = null;
+                      pendingCaptureUri = null;
+                  } else if (requestCode == BACKUP_CREATE_REQUEST) {
+                      boolean ok = false;
+                      Uri uri = resultCode == RESULT_OK && data != null ? data.getData() : null;
+                      if (pendingBackupJson != null && uri != null) {
+                          try (java.io.OutputStream out = getContentResolver().openOutputStream(uri)) {
+                              if (out == null) throw new java.io.IOException("Output stream unavailable");
+                              out.write(pendingBackupJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                              out.flush();
+                              ok = true;
+                          } catch (Exception ignored) { ok = false; }
+                      }
+                      pendingBackupJson = null;
+                      webView.evaluateJavascript("window.__terraBackupSaved && window.__terraBackupSaved(" + ok + ")", null);
+                  }
+                  super.onActivityResult(requestCode, resultCode, data);
+              }
+
+              @Override public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed();
+              }
+
+              @Override protected void onDestroy() {
+                  if (webView != null) { webView.removeJavascriptInterface("AndroidBridge"); webView.destroy(); }
+                  super.onDestroy();
+              }
+          }
+          JAVA
+
+          cat > android/app/src/main/java/com/terra/serenada/ReminderReceiver.java <<'JAVA'
+          package com.terra.serenada;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.content.BroadcastReceiver;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.os.Build;
+          import androidx.core.app.NotificationCompat;
+          import org.json.JSONObject;
+
+          public class ReminderReceiver extends BroadcastReceiver {
+              private static final String CHANNEL_ID = "terra_serenada_reminders";
+              @Override public void onReceive(Context context, Intent intent) {
+                  if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) return;
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          NotificationManager nm = context.getSystemService(NotificationManager.class);
+                          nm.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "Pengingat Terra Serenada", NotificationManager.IMPORTANCE_DEFAULT));
+                      }
+                      String payload = context.getSharedPreferences("terra_notifications", Context.MODE_PRIVATE).getString("payload", "{}");
+                      JSONObject obj = new JSONObject(payload); StringBuilder body = new StringBuilder();
+                      String[] keys={"harvest","water","attention"};
+                      for(String key:keys){org.json.JSONArray a=obj.optJSONArray(key);if(a!=null)for(int i=0;i<a.length();i++){if(body.length()>0)body.append("\n");body.append(a.optString(i));}}
+                      if(body.length()==0)return;
+                      Intent open=new Intent(context,MainActivity.class);
+                      PendingIntent pi=PendingIntent.getActivity(context,230104,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+                      NotificationCompat.Builder b=new NotificationCompat.Builder(context,CHANNEL_ID).setSmallIcon(R.drawable.icon).setContentTitle("Terra Serenada").setContentText("Ada pengingat untuk kebun").setStyle(new NotificationCompat.BigTextStyle().bigText(body.toString())).setAutoCancel(true).setContentIntent(pi).setPriority(NotificationCompat.PRIORITY_DEFAULT);
+                      ((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).notify(230105,b.build());
+                  } catch(Exception ignored){}
+              }
+          }
+          JAVA
+
+      - name: Patch Android backup/restore bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          p = Path("android/app/src/main/assets/index.html")
+          s = p.read_text()
+          old = """$('backupBtn').onclick=()=>{const blob=new Blob([JSON.stringify({version:12,plants:data,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='backup-terra-serenada.json';a.click();URL.revokeObjectURL(a.href)};"""
+          new = """async function buildBackupJson(){const payload={version:15,plants:data,harvests,gardenEvents,attentions,inhabitants,beds,gardenSettings,savedAt:new Date().toISOString()};return JSON.stringify(payload,null,2)}
+          window.__terraBackupSaved=(ok)=>{showToast(ok?'💾 Backup tersimpan':'⚠️ Backup dibatalkan')};
+          $('backupBtn').onclick=async()=>{try{const json=await buildBackupJson();if(window.AndroidBridge&&typeof window.AndroidBridge.saveBackup==='function'){window.AndroidBridge.saveBackup('backup-terra-serenada.json',json);return}const blob=new Blob([json],{type:'application/json;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='backup-terra-serenada.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);showToast('💾 Backup JSON dibuat')}catch(err){console.error(err);showToast('⚠️ Backup gagal dibuat')}};"""
+          if old in s:
+              s=s.replace(old,new)
+          elif 'buildBackupJson' not in s:
+              raise SystemExit('backup block not found')
+          old2 = """$('restoreGo').onclick=()=>{const f=$('restoreFile').files[0];if(!f){showToast('Pilih file JSON dulu');return}const r=new FileReader();r.onload=()=>{try{const incoming=JSON.parse(r.result);if(Array.isArray(incoming)){data=incoming;harvests=[];gardenEvents=[];attentions=[];inhabitants=[];beds=[];}else if(incoming&&Array.isArray(incoming.plants)){data=incoming.plants;harvests=Array.isArray(incoming.harvests)?incoming.harvests:[];gardenEvents=Array.isArray(incoming.gardenEvents)?incoming.gardenEvents:[];attentions=Array.isArray(incoming.attentions)?incoming.attentions:[];inhabitants=Array.isArray(incoming.inhabitants)?incoming.inhabitants:[];beds=Array.isArray(incoming.beds)?incoming.beds:[];gardenSettings=incoming.gardenSettings&&Number(incoming.gardenSettings.waterDefaultEvery)>0?{waterDefaultEvery:Number(incoming.gardenSettings.waterDefaultEvery)}:{waterDefaultEvery:3};}else throw new Error();normalizeBedsState();if(save()){$('restoreModal').classList.remove('show');showToast('Backup berhasil dipulihkan')}}catch{showToast('File backup tidak valid')}};r.readAsText(f)};"""
+          new2 = """function markBackupPhotosDirty(list){for(const item of (Array.isArray(list)?list:[])){if(item.photo){item.photoRef='';item._photoDirty=true}for(const e of (Array.isArray(item.events)?item.events:[])){if(e.photo){e.photoRef='';e._photoDirty=true}}}}
+          $('restoreGo').onclick=async()=>{const f=$('restoreFile').files[0];if(!f){showToast('Pilih file JSON dulu');return}try{const incoming=JSON.parse(await f.text());if(Array.isArray(incoming)){data=incoming;harvests=[];gardenEvents=[];attentions=[];inhabitants=[];beds=[];}else if(incoming&&Array.isArray(incoming.plants)){data=incoming.plants;harvests=Array.isArray(incoming.harvests)?incoming.harvests:[];gardenEvents=Array.isArray(incoming.gardenEvents)?incoming.gardenEvents:[];attentions=Array.isArray(incoming.attentions)?incoming.attentions:[];inhabitants=Array.isArray(incoming.inhabitants)?incoming.inhabitants:[];beds=Array.isArray(incoming.beds)?incoming.beds:[];gardenSettings=incoming.gardenSettings&&Number(incoming.gardenSettings.waterDefaultEvery)>0?{waterDefaultEvery:Number(incoming.gardenSettings.waterDefaultEvery)}:{waterDefaultEvery:3};}else throw new Error();markBackupPhotosDirty(data);markBackupPhotosDirty(inhabitants);normalizeBedsState();render();if(storageReady&&db){await persistToIDB();await loadFromIDB()}else if(!save())throw new Error();$('restoreModal').classList.remove('show');showToast('💾 Backup berhasil dipulihkan')}catch(err){console.error(err);showToast('⚠️ File backup tidak valid atau gagal dipulihkan')}};"""
+          if old2 in s:
+              s=s.replace(old2,new2)
+          elif 'markBackupPhotosDirty' not in s:
+              raise SystemExit('restore block not found')
+          p.write_text(s)
+          PYTHON
+
+      - name: Patch native Android notification bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          p=Path("android/app/src/main/assets/index.html")
+          s=p.read_text()
+          old="""async function requestNotifications(){if(!('Notification' in window)){showToast('Browser ini tidak mendukung notifikasi');return false}const p=await Notification.requestPermission();if(p==='granted'){showToast('Notifikasi diaktifkan');scheduleNotifications();return true}showToast('Izin notifikasi belum diberikan');return false}"""
+          new="""async function requestNotifications(){if(window.AndroidBridge&&typeof window.AndroidBridge.requestNotifications==='function'){window.AndroidBridge.requestNotifications();showToast('Permintaan izin notifikasi dibuka');scheduleNotifications();return true}if(!('Notification' in window)){showToast('Browser ini tidak mendukung notifikasi');return false}const p=await Notification.requestPermission();if(p==='granted'){showToast('Notifikasi diaktifkan');scheduleNotifications();return true}showToast('Izin notifikasi belum diberikan');return false}"""
+          if old in s:s=s.replace(old,new)
+          p.write_text(s)
+          PYTHON
+
+      - name: Prepare permanent signing key
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ] || [ -z "${KEYSTORE_PASSWORD:-}" ]; then
+            echo "ERROR: GitHub Secrets ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD are required."
+            echo "Add both repository secrets, then run this workflow again."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/terra-serenada-release.p12"
+          test -s "$RUNNER_TEMP/terra-serenada-release.p12"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/terra-serenada-release.p12" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_ALIAS=terra-serenada" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        run: gradle -p android assembleRelease --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Terra-Serenada-v1.0.15
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
