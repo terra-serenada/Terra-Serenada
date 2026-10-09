@@ -523,25 +523,6 @@ body.nara-active .bottom-nav {
 }
 </style>
 
-<style id="nara-care-plan-v1">
-/* Nara Care Plan v1 — weather-aware suggestions; advisory only, never schedules watering. */
-.nara-care-card{padding:13px;margin:0 0 15px;border:1px solid #3c4b32;border-radius:17px;background:#172217}
-.nara-care-head{display:flex;align-items:flex-start;justify-content:space-between;gap:9px;margin-bottom:10px}
-.nara-care-head h3{font-size:14px;margin:0;color:#f1f0d9}
-.nara-care-head p{font-size:10px;line-height:1.45;color:#b8c6aa;margin:4px 0 0}
-.nara-care-badge{flex:0 0 auto;border:1px solid #4a603b;color:#cfe4ad;background:#243520;border-radius:99px;padding:5px 7px;font-size:9px;font-weight:800}
-.nara-care-list{display:grid;gap:7px}
-.nara-care-day{display:grid;grid-template-columns:36px minmax(0,1fr);align-items:start;gap:9px;padding:10px;border:1px solid #354532;border-radius:13px;background:#111a11}
-.nara-care-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:#293a24;font-size:18px}
-.nara-care-day-title{font-size:12px;font-weight:850;color:#f1f0d9}
-.nara-care-meta{font-size:10px;color:#b3c2a8;margin-top:3px;line-height:1.4}
-.nara-care-advice{font-size:11px;line-height:1.5;color:#e2e8d7;margin-top:6px}
-.nara-care-note{font-size:10px;line-height:1.5;color:#b3c2a8;margin-top:10px;padding-top:9px;border-top:1px solid #344331}
-.nara-care-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
-.nara-care-actions button{font-size:11px;padding:8px 10px}
-.nara-care-empty{font-size:11px;line-height:1.55;padding:11px;border:1px dashed #42533b;border-radius:12px;color:#c1ceb5;background:#121a11}
-@media(max-width:360px){.nara-care-card{padding:10px}.nara-care-day{padding:8px;gap:7px}.nara-care-badge{font-size:8px}}
-</style>
 </head>
 <body>
 <div id="app">
@@ -731,20 +712,11 @@ body.nara-active .bottom-nav {
     <div class="nara-action-grid" aria-label="Jalan pintas Nara">
       <button type="button" class="nara-action-tile" data-nara-jump="insights"><span class="nara-action-icon">🌱</span><b>Kondisi<br>kebun</b><small>Lihat ringkasan</small></button>
       <button type="button" class="nara-action-tile gold" data-nara-jump="chat"><span class="nara-action-icon">💬</span><b>Tanya<br>Nara</b><small>Yuk, ngobrol</small></button>
-      <button type="button" class="nara-action-tile" data-nara-prompt="Buat rencana perawatan untuk beberapa hari ke depan."><span class="nara-action-icon">📜</span><b>Rencana<br>perawatan</b><small>Prioritas hari ini</small></button>
+      <button type="button" class="nara-action-tile" data-nara-prompt="Apa prioritas kebun kita hari ini?"><span class="nara-action-icon">📜</span><b>Rencana<br>perawatan</b><small>Prioritas hari ini</small></button>
     </div>
 
     <div class="nara-section-head nara-insights-head" id="naraSectionInsights"><div><span class="nara-eyebrow">CATATAN DARI KEBUN</span><h2>✨ Insight hari ini</h2></div><button type="button" class="nara-refresh-btn" id="naraRefreshBtn" aria-label="Perbarui insight">↻ Perbarui</button></div>
     <div class="nara-metrics" id="naraMetrics"></div>
-
-    <div class="nara-section-head" id="naraCarePlanHeading"><div><span class="nara-eyebrow">LANGKAH BERIKUTNYA</span><h2>🗓️ Rencana Perawatan</h2></div><span class="nara-tag">3 hari</span></div>
-    <section class="nara-care-card" aria-labelledby="naraCarePlanTitle">
-      <div class="nara-care-head"><div><h3 id="naraCarePlanTitle">Panduan untuk kebunmu</h3><p id="naraCarePlanSubtitle">Menggabungkan prakiraan cuaca tersimpan dengan catatan air.</p></div><span class="nara-care-badge" id="naraCarePlanStatus">Offline-ready</span></div>
-      <div class="nara-care-list" id="naraCarePlanList" aria-live="polite"></div>
-      <div class="nara-care-note" id="naraCarePlanNote"></div>
-      <div class="nara-care-actions"><button type="button" class="secondary" data-nara-open-weather>🌦️ Lihat cuaca lengkap</button></div>
-    </section>
-
     <div class="nara-insight-list" id="naraInsightList"></div>
 
     <div class="nara-section-head nara-chat-heading" id="naraChatHeading"><div><span class="nara-eyebrow">OBROLAN DI SERAMBI</span><h2>💬 Ngobrol dengan Nara</h2></div><span class="nara-tag">Prototype offline</span></div>
@@ -2390,73 +2362,6 @@ function naraInsight(icon,status,title,body,reason,actions=''){
   const cls=status==='Mendesak'?'alert':status==='Perlu diperiksa'?'warn':'';
   return `<article class="nara-insight"><div class="nara-insight-top"><div class="nara-insight-icon">${icon}</div><div class="nara-insight-copy"><span class="nara-pill ${cls}">${esc(status)}</span><div class="nara-insight-title">${esc(title)}</div></div></div><p>${esc(body)}</p>${reason?`<p class="nara-reason"><b>Dasar:</b> ${esc(reason)}</p>`:''}${actions?`<div class="nara-actions">${actions}</div>`:''}</article>`;
 }
-function naraCarePlanModel(){
-  let cache=null;
-  try{cache=JSON.parse(localStorage.getItem(TS_WEATHER_CACHE_KEY)||'null')}catch(e){}
-  const payload=cache?.payload;
-  const daily=payload?.daily;
-  const now=Date.now();
-  const fetchedAt=Number(cache?.fetchedAt||payload?._tsFetchedAt||0);
-  const ageMs=fetchedAt>0?Math.max(0,now-fetchedAt):null;
-  const stale=ageMs!==null&&ageMs>24*60*60*1000;
-  const lastWater=typeof latestGardenWater==='function'?latestGardenWater():null;
-  const validDaily=daily&&Array.isArray(daily.time)&&daily.time.length>0;
-  const items=[];
-  if(validDaily){
-    for(let i=0;i<Math.min(3,daily.time.length);i++){
-      const rawProb=daily.precipitation_probability_max?.[i];
-      const rawRain=daily.precipitation_sum?.[i];
-      const rawMax=daily.temperature_2m_max?.[i];
-      const prob=rawProb==null||rawProb===''||!Number.isFinite(Number(rawProb))?null:Number(rawProb);
-      const rain=rawRain==null||rawRain===''||!Number.isFinite(Number(rawRain))?null:Number(rawRain);
-      const maxTemp=rawMax==null||rawMax===''||!Number.isFinite(Number(rawMax))?null:Number(rawMax);
-      const [weather,weatherIcon]=typeof tsWeatherDescription==='function'?tsWeatherDescription(daily.weather_code?.[i]):['Prakiraan cuaca','🌦️'];
-      let icon='🌿',title='Periksa kondisi tanaman',advice='Amati kondisi daun dan tanah secara langsung. Tentukan tindakan berdasarkan kondisi kebun yang benar-benar terlihat.';
-      if((prob!==null&&prob>=70)||(rain!==null&&rain>=5)){
-        icon='🌧️';title='Bersiap menghadapi hujan';
-        advice='Pastikan lubang drainase tidak tersumbat dan air tidak menggenang. Tunda keputusan menyiram sampai kelembapan tanah diperiksa; prakiraan bukan bukti bahwa hujan sudah turun.';
-      }else if(maxTemp!==null&&maxTemp>=32&&(prob===null||prob<40)&&(rain===null||rain<2)){
-        icon='☀️';title='Periksa kelembapan lebih awal';
-        advice='Cuaca diprakirakan panas dan relatif kering. Periksa tanah pada pagi hari; siram hanya jika zona akar memang mulai kering dan sesuai kebutuhan tanaman.';
-      }else if(rain!==null&&rain<1&&prob!==null&&prob<30){
-        icon='💧';title='Jangan mengandalkan hujan';
-        advice='Peluang hujan rendah pada prakiraan ini. Periksa tanah dan tanaman, terutama yang tumbuh dalam pot atau media dangkal; catat penyiraman hanya setelah benar-benar dilakukan.';
-      }else if((prob!==null&&prob>=40)||(rain!==null&&rain>=1)){
-        icon='🌦️';title='Pantau perubahan cuaca';
-        advice='Ada peluang hujan atau curah hujan ringan pada prakiraan. Cek media tanam sebelum menyiram dan pastikan aliran air lancar.';
-      }
-      const dateLabel=typeof tsWeatherDayLabel==='function'?tsWeatherDayLabel(daily.time[i],i):daily.time[i];
-      const weatherMeta=[weather,prob!==null?`Peluang hujan ${Math.round(prob)}%`:null,rain!==null?`${naraNumber(rain)} mm`:null,maxTemp!==null?`maks. ${naraNumber(maxTemp)}°C`:null].filter(Boolean).join(' · ');
-      items.push({date:daily.time[i],dateLabel,icon,title,advice,weatherMeta,weatherIcon});
-    }
-  }
-  return {items,available:items.length>0,stale,ageMs,fetchedAt,lastWater};
-}
-function naraCarePlanSummary(){
-  const plan=naraCarePlanModel();
-  if(!plan.available)return 'Aku belum menemukan prakiraan harian yang tersimpan. Untuk sementara, periksa kelembapan tanah, keadaan daun, dan drainase secara langsung. Catatan hujan/penyiraman terakhir tidak menggantikan pemeriksaan kondisi tanah saat ini.';
-  return 'Rencana perawatan berdasarkan prakiraan tersimpan: '+plan.items.map((x,i)=>`${i+1}. ${x.dateLabel}: ${x.title}. ${x.advice}`).join(' ')+' Ini panduan pemeriksaan, bukan jadwal siram otomatis. '+(plan.stale?'Data cuaca tersimpan berusia lebih dari 24 jam, jadi perbarui cuaca sebelum mengandalkannya.':'Tetap periksa kondisi aktual kebun sebelum bertindak.');
-}
-function naraRenderCarePlan(){
-  const host=$('naraCarePlanList');if(!host)return;
-  const plan=naraCarePlanModel();
-  const status=$('naraCarePlanStatus'),subtitle=$('naraCarePlanSubtitle'),note=$('naraCarePlanNote');
-  if(status)status.textContent=!plan.available?'Perlu cuaca':plan.stale?'Cuaca lama':'Panduan awal';
-  if(subtitle)subtitle.textContent=plan.stale?'Prakiraan tersimpan lebih dari 24 jam; perbarui cuaca sebelum mengandalkannya.':'Saran berbasis prakiraan tersimpan dan catatan air. Periksa kondisi kebun secara langsung.';
-  if(!plan.available){
-    host.innerHTML='<div class="nara-care-empty">Prakiraan harian belum tersedia di penyimpanan lokal. Nara tidak akan menebak cuaca. Untuk saat ini, periksa kelembapan tanah, keadaan daun, dan drainase sebelum menentukan tindakan.</div>';
-  }else{
-    host.innerHTML=plan.items.map(item=>`<article class="nara-care-day"><div class="nara-care-icon" aria-hidden="true">${item.icon}</div><div><div class="nara-care-day-title">${esc(item.dateLabel)} · ${esc(item.title)}</div><div class="nara-care-meta">${esc(item.weatherIcon)} ${esc(item.weatherMeta||'Rincian prakiraan tidak lengkap')}</div><div class="nara-care-advice">${esc(item.advice)}</div></div></article>`).join('');
-  }
-  let waterText='Catatan air terakhir belum tersedia. Catat hujan atau penyiraman setelah kejadian benar-benar terjadi.';
-  if(plan.lastWater){
-    const label=plan.lastWater.type==='rain'?'Hujan tercatat':'Penyiraman tercatat';
-    waterText=`${label}: ${plan.lastWater.date?fmt(plan.lastWater.date):'tanggal belum tersedia'}. Catatan ini bersifat umum untuk kebun; kelembapan tiap pot/bed dapat berbeda.`;
-  }
-  const ageText=plan.ageMs===null?'Waktu pembaruan prakiraan tidak diketahui.':`Prakiraan diambil sekitar ${Math.floor(plan.ageMs/3600000)} jam lalu.`;
-  if(note)note.textContent=waterText+' '+ageText+' Prakiraan bukan hujan aktual, dan rencana ini tidak mencatat atau menjalankan penyiraman otomatis.';
-}
-
 function naraBuildInsights(){
   const activeQty=data.reduce((n,p)=>n+(Array.isArray(p.plantingGroups)?p.plantingGroups.filter(groupHasActive).reduce((m,g)=>m+groupActiveQty(g),0):0),0);
   const measurements=naraAllMeasurements();
@@ -2509,7 +2414,6 @@ function naraRespond(question){
     const summaries=ms.slice(0,4).map(r=>{const rate=typeof ti41RateForMeasurement==='function'?ti41RateForMeasurement(foundPlant,r.event,r.measurement):null;return `${r.measurement.indicatorName||'Indikator'}: ${naraNumber(r.measurement.value)} ${r.measurement.unit||''} (${r.event.date||'tanpa tanggal'})${rate?`; laju rata-rata ${naraNumber(rate.rate)} ${r.measurement.unit||''}/hari dibanding ${rate.previousDate}`:''}`;});
     return `Untuk ${foundPlant.name}, pengukuran terbaru yang kutemukan bertanggal ${latestDate}. ${summaries.join('; ')}. Angka ini perlu ditafsirkan sesuai indikator dan cara ukurnya; belum cukup untuk menyatakan tanaman sehat atau bermasalah hanya dari angka.`;
   }
-  if(/rencana|jadwal|besok|beberapa hari|hari ke depan/.test(q))return naraCarePlanSummary();
   if(/prioritas|hari ini|apa yang perlu|kerjakan|tindakan/.test(q)){
     const items=(typeof getAutomaticAttentions==='function'?getAutomaticAttentions():[]).slice(0,4);
     if(!items.length)return 'Dari aturan offline yang tersedia, belum ada perhatian aktif yang muncul. Itu bukan berarti kebun pasti bebas masalah. Hari ini kamu bisa memeriksa kelembapan tanah, melihat sisi bawah daun, dan memperbarui pengukuran tanaman yang sedang dipantau.';
@@ -2539,7 +2443,7 @@ function naraSendMessage(question){
 }
 function renderNara(){
   if(!$('naraInsightList'))return;
-  naraRenderCarePlan();naraBuildInsights();naraRenderChat();
+  naraBuildInsights();naraRenderChat();
 }
 $('naraHeaderBtn').onclick=()=>showPage('nara');
 $('naraHomeOpenBtn').onclick=()=>showPage('nara');
@@ -2547,7 +2451,7 @@ $('naraRefreshBtn').onclick=()=>{renderNara();showToast('🌿 Insight Nara diper
 $('naraInsightList').addEventListener('click',e=>{const b=e.target.closest('[data-nara-plant-detail]');if(b)openPlantDetail(b.dataset.naraPlantDetail);});
 $('naraChatMessages').addEventListener('click',e=>{const b=e.target.closest('[data-nara-plant-detail]');if(b)openPlantDetail(b.dataset.naraPlantDetail);});
 $('naraChatForm').addEventListener('submit',e=>{e.preventDefault();const input=$('naraChatInput');const q=input.value.trim();if(!q)return;input.value='';naraSendMessage(q);});
-$('pageNara').addEventListener('click',e=>{const weather=e.target.closest('[data-nara-open-weather]');if(weather){showPage('home');setTimeout(()=> $('weatherCard')?.scrollIntoView({behavior:'smooth',block:'start'}),100);return;}const jump=e.target.closest('[data-nara-jump]');if(jump){const target=jump.dataset.naraJump==='chat'?'naraChatInput':'naraSectionInsights';$(target)?.scrollIntoView({behavior:'smooth',block:'start'});if(jump.dataset.naraJump==='chat')setTimeout(()=> $('naraChatInput')?.focus({preventScroll:true}),280);return;}const b=e.target.closest('[data-nara-prompt]');if(b){naraSendMessage(b.dataset.naraPrompt);$('naraChatHeading')?.scrollIntoView({behavior:'smooth',block:'start'});}});
+$('pageNara').addEventListener('click',e=>{const jump=e.target.closest('[data-nara-jump]');if(jump){const target=jump.dataset.naraJump==='chat'?'naraChatInput':'naraSectionInsights';$(target)?.scrollIntoView({behavior:'smooth',block:'start'});if(jump.dataset.naraJump==='chat')setTimeout(()=> $('naraChatInput')?.focus({preventScroll:true}),280);return;}const b=e.target.closest('[data-nara-prompt]');if(b){naraSendMessage(b.dataset.naraPrompt);$('naraChatHeading')?.scrollIntoView({behavior:'smooth',block:'start'});}});
 
 </script>
 
