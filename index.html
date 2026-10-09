@@ -350,6 +350,24 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 .attention-scroll{max-height:64vh;overflow:auto;padding-right:2px}
 @media(max-width:720px){.profile-zone-grid{grid-template-columns:1fr 1fr}.profile-zone-grid .zone-name{grid-column:1/-1}.profile-zone-grid .zone-remove-wrap{grid-column:1/-1}.bed-form-scroll{max-height:67vh}}
 </style>
+
+<style id="terra-weather-sync-v1">
+/* Terra Serenada Weather Sync — standalone card; existing cover/layout rules remain untouched. */
+.weather-card{padding:14px;margin-bottom:14px;overflow:hidden}
+.weather-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.weather-heading{min-width:0}.weather-heading b{font-size:15px}.weather-location{font-size:11px;color:var(--muted);margin-top:3px}
+.weather-refresh{flex:0 0 auto;padding:7px 10px;font-size:11px;min-height:36px}
+.weather-status{font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4}
+.weather-now{display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:10px;align-items:center;padding:13px 0 12px;border-bottom:1px solid var(--border)}
+.weather-now-icon{font-size:42px;line-height:1;text-align:center}.weather-now-copy{min-width:0}.weather-now-summary{font-size:13px;font-weight:800;line-height:1.3}.weather-temperature{font-size:31px;font-weight:850;letter-spacing:-1px;line-height:1.15;margin-top:2px}.weather-feels{font-size:10px;color:var(--muted);margin-top:3px}
+.weather-now-stats{display:grid;gap:6px;text-align:right}.weather-now-stats div{font-size:10px;color:var(--muted);white-space:nowrap}.weather-now-stats b{color:var(--text);font-size:11px}
+.weather-subhead{font-size:12px;font-weight:800;margin:12px 0 7px}.weather-hours{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
+.weather-hour{min-width:0;padding:8px 3px;background:var(--surface2);border-radius:11px;text-align:center}.weather-hour-time{font-size:10px;color:var(--muted)}.weather-hour-icon{font-size:18px;margin:5px 0}.weather-hour-temp{font-size:12px;font-weight:800}.weather-hour-rain{font-size:9px;color:#9dd9f4;margin-top:4px;white-space:nowrap}
+.weather-days{display:grid;gap:6px}.weather-day{display:grid;grid-template-columns:minmax(0,1fr) 28px auto;gap:8px;align-items:center;padding:8px 10px;background:var(--surface2);border-radius:10px}.weather-day-name{font-size:11px;font-weight:750}.weather-day-rain{font-size:10px;color:#9dd9f4;margin-top:2px}.weather-day-icon{font-size:18px;text-align:center}.weather-day-temp{font-size:11px;font-weight:800;white-space:nowrap}.weather-footnote{font-size:10px;color:var(--muted);line-height:1.45;margin-top:11px}.weather-footnote a{color:var(--accent);text-decoration:none}
+.weather-error{padding:12px;background:var(--surface2);border-radius:11px;font-size:12px;color:var(--muted);line-height:1.45;margin-top:10px}
+@media(max-width:390px){.weather-now{grid-template-columns:44px minmax(0,1fr) auto;gap:7px}.weather-now-icon{font-size:35px}.weather-temperature{font-size:28px}.weather-now-stats div{font-size:9px}.weather-hours{gap:4px}.weather-hour{padding:7px 1px}.weather-hour-time,.weather-hour-rain{font-size:8px}}
+</style>
+
 </head>
 <body>
 <div id="app">
@@ -376,6 +394,19 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
     </div>
     <div class="garden-status-bottom"><div class="garden-status-insight good" id="gardenStatusInsight">✓ Kebun terpantau baik hari ini.</div><button type="button" class="secondary stats-entry-btn" id="openStatisticsBtn">📊 Statistik</button></div>
   </section>
+
+  <section class="card weather-card" id="weatherCard" aria-labelledby="weatherTitle">
+    <div class="weather-head">
+      <div class="weather-heading"><b id="weatherTitle">🌦️ Cuaca di Kebun</b><div class="weather-location">📍 Katapiang · Batang Anai, Padang Pariaman</div></div>
+      <button type="button" class="secondary weather-refresh" id="weatherRefreshBtn">↻ Perbarui</button>
+    </div>
+    <div class="weather-status" id="weatherStatus" aria-live="polite">Menghubungkan ke sumber cuaca…</div>
+    <div id="weatherContent">
+      <div class="weather-now"><div class="weather-now-icon">🌤️</div><div class="weather-now-copy"><div class="weather-now-summary">Memuat cuaca…</div><div class="weather-temperature">--°</div></div></div>
+    </div>
+    <div class="weather-footnote">Prakiraan cuaca adalah estimasi model, bukan catatan hujan aktual. Catat hujan yang benar-benar terjadi melalui tombol <b>🌧️ Hujan</b> seperti biasa. Data: <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>.</div>
+  </section>
+
   <section class="stats">
     <div class="stat"><b id="statTotal">0</b><span>Total tanaman</span></div>
     <div class="stat"><b id="statRecent">0</b><span>Ditanam ≤ 7 hari</span></div>
@@ -1379,6 +1410,102 @@ function renderStatistics(){
   renderSvgLineChart($('plantingLineChart'),months,planting);renderSimpleMonthlyBars($('harvestMonthlyChart'),months,monthlyHarvest);renderActivityBars($('activityMonthlyChart'),months,[{values:planting},{values:flowering},{values:monthlyHarvest}]);
 }
 
+
+/* Terra Serenada Weather Sync v1 — fixed garden coordinates; weather never writes garden/rain events. */
+const TS_WEATHER_CACHE_KEY='terra-serenada-weather-cache-v1';
+const TS_WEATHER_LAT=-0.771044;
+const TS_WEATHER_LON=100.304485;
+let tsWeatherLastFetchAt=0;
+let tsWeatherBusy=false;
+function tsWeatherDescription(code){
+  const c=Number(code);
+  if(c===0)return ['Cerah','☀️'];
+  if(c===1)return ['Cerah berawan','🌤️'];
+  if(c===2)return ['Berawan sebagian','⛅'];
+  if(c===3)return ['Berawan','☁️'];
+  if(c===45||c===48)return ['Berkabut','🌫️'];
+  if([51,53,55].includes(c))return ['Gerimis','🌦️'];
+  if([56,57].includes(c))return ['Gerimis beku','🌧️'];
+  if([61,63,65].includes(c))return ['Hujan','🌧️'];
+  if([66,67].includes(c))return ['Hujan beku','🌧️'];
+  if([71,73,75,77].includes(c))return ['Salju','❄️'];
+  if([80,81,82].includes(c))return ['Hujan lokal','🌦️'];
+  if([85,86].includes(c))return ['Hujan salju','🌨️'];
+  if([95,96,99].includes(c))return ['Badai petir','⛈️'];
+  return ['Kondisi tidak diketahui','🌦️'];
+}
+function tsWeatherNum(v,digits=0){return Number.isFinite(Number(v))?Number(v).toLocaleString('id-ID',{maximumFractionDigits:digits,minimumFractionDigits:0}):'—'}
+function tsWeatherJakartaTime(iso,opts){
+  if(!iso)return '—';
+  let normalized=iso;
+  /* Open-Meteo returns local wall-clock strings without an offset; pin those to WIB so travel/timezone settings on the phone cannot shift the garden time. */
+  if(typeof iso==='string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(iso))normalized=iso+(iso.length===16?':00':'')+'+07:00';
+  const d=new Date(normalized);
+  if(Number.isNaN(d.getTime()))return '—';
+  return d.toLocaleString('id-ID',{timeZone:'Asia/Jakarta',...opts});
+}
+function tsWeatherDayLabel(date,index){
+  if(index===0)return 'Hari ini';
+  if(index===1)return 'Besok';
+  return tsWeatherJakartaTime(date+'T05:00:00+07:00',{weekday:'short',day:'numeric',month:'short'});
+}
+function tsWeatherRender(payload,stale=false){
+  const current=payload?.current,h=payload?.hourly,d=payload?.daily;
+  if(!current||!h||!d)throw new Error('Struktur data cuaca tidak lengkap');
+  const [summary,icon]=tsWeatherDescription(current.weather_code);
+  const fetchedAt=Number(payload._tsFetchedAt||0);
+  const sourceTime=tsWeatherJakartaTime(current.time,{hour:'2-digit',minute:'2-digit'});
+  const fetchText=fetchedAt?tsWeatherJakartaTime(fetchedAt,{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'waktu tidak diketahui';
+  $('weatherStatus').textContent=(stale?'⚠️ Offline / gagal memperbarui · ':'')+`Data cuaca model pukul ${sourceTime} WIB · diambil ${fetchText} WIB`;
+  const stats=`<div class="weather-now-stats"><div>Terasa <b>${tsWeatherNum(current.apparent_temperature,1)}°C</b></div><div>Kelembapan <b>${tsWeatherNum(current.relative_humidity_2m)}%</b></div><div>Angin <b>${tsWeatherNum(current.wind_speed_10m)} km/j</b></div></div>`;
+  const currentHtml=`<div class="weather-now"><div class="weather-now-icon" aria-hidden="true">${icon}</div><div class="weather-now-copy"><div class="weather-now-summary">${summary}</div><div class="weather-temperature">${tsWeatherNum(current.temperature_2m,1)}°C</div><div class="weather-feels">Suhu udara · prakiraan/model</div></div>${stats}</div>`;
+  let hours=[];
+  const after=String(current.time||'').slice(0,13);
+  for(let i=0;i<(h.time||[]).length;i++){
+    if(String(h.time[i]).slice(0,13)>=after){hours.push(i);if(hours.length>=5)break;}
+  }
+  const hourHtml=hours.length?`<div class="weather-subhead">Beberapa jam ke depan</div><div class="weather-hours">${hours.map(i=>{const [desc,ico]=tsWeatherDescription(h.weather_code?.[i]);return `<div class="weather-hour"><div class="weather-hour-time">${String(h.time[i]).slice(11,16)}</div><div class="weather-hour-icon" title="${desc}">${ico}</div><div class="weather-hour-temp">${tsWeatherNum(h.temperature_2m?.[i])}°</div><div class="weather-hour-rain">💧 ${h.precipitation_probability?.[i]==null?'—':tsWeatherNum(h.precipitation_probability[i])+'%'}</div></div>`}).join('')}</div>`:'<div class="weather-error">Prakiraan per jam belum tersedia.</div>';
+  const days=(d.time||[]).map((date,i)=>({date,i})).slice(0,4);
+  const dayHtml=days.length?`<div class="weather-subhead">Prakiraan 4 hari</div><div class="weather-days">${days.map(({date,i})=>{const [desc,ico]=tsWeatherDescription(d.weather_code?.[i]);return `<div class="weather-day"><div><div class="weather-day-name">${tsWeatherDayLabel(date,i)} · ${desc}</div><div class="weather-day-rain">💧 Peluang hujan ${d.precipitation_probability_max?.[i]==null?'—':tsWeatherNum(d.precipitation_probability_max[i])+'%'} · ${tsWeatherNum(d.precipitation_sum?.[i],1)} mm</div></div><div class="weather-day-icon" title="${desc}">${ico}</div><div class="weather-day-temp">${tsWeatherNum(d.temperature_2m_min?.[i])}° / ${tsWeatherNum(d.temperature_2m_max?.[i])}°</div></div>`}).join('')}</div>`:'<div class="weather-error">Prakiraan harian belum tersedia.</div>';
+  $('weatherContent').innerHTML=currentHtml+hourHtml+dayHtml;
+}
+async function tsWeatherLoad(force=false){
+  if(tsWeatherBusy)return;
+  if(document.hidden&&!force)return;
+  tsWeatherBusy=true;
+  const btn=$('weatherRefreshBtn');if(btn){btn.disabled=true;btn.textContent='… Memuat';}
+  $('weatherStatus').textContent='Mengambil data cuaca untuk lokasi kebun tetap…';
+  const params=new URLSearchParams({latitude:String(TS_WEATHER_LAT),longitude:String(TS_WEATHER_LON),current:'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,showers,weather_code,wind_speed_10m',hourly:'temperature_2m,precipitation_probability,precipitation,weather_code',daily:'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max',forecast_days:'4',timezone:'Asia/Jakarta',temperature_unit:'celsius',wind_speed_unit:'kmh',precipitation_unit:'mm'});
+  const ctrl=new AbortController();const timeout=setTimeout(()=>ctrl.abort(),12000);
+  try{
+    const response=await fetch('https://api.open-meteo.com/v1/forecast?'+params.toString(),{method:'GET',headers:{Accept:'application/json'},signal:ctrl.signal,cache:'no-store'});
+    if(!response.ok)throw new Error('Layanan cuaca merespons '+response.status);
+    const payload=await response.json();
+    if(payload.error)throw new Error(payload.reason||'Layanan cuaca tidak dapat memproses permintaan');
+    const fetchedAt=Date.now();payload._tsFetchedAt=fetchedAt;
+    tsWeatherRender(payload,false);
+    try{localStorage.setItem(TS_WEATHER_CACHE_KEY,JSON.stringify({fetchedAt,payload}));}catch(e){}
+    tsWeatherLastFetchAt=fetchedAt;
+  }catch(err){
+    let cache=null;try{cache=JSON.parse(localStorage.getItem(TS_WEATHER_CACHE_KEY)||'null')}catch(e){}
+    if(cache?.payload){try{tsWeatherRender(cache.payload,true);tsWeatherLastFetchAt=Number(cache.fetchedAt)||0;}catch(renderErr){$('weatherContent').innerHTML='<div class="weather-error">Data cuaca tersimpan tidak dapat dibaca. Periksa koneksi lalu coba lagi.</div>';$('weatherStatus').textContent='Cuaca belum tersedia.';}}
+    else{$('weatherStatus').textContent='Belum berhasil mengambil data cuaca.';$('weatherContent').innerHTML='<div class="weather-error">Pastikan perangkat terhubung ke internet, lalu tekan <b>Perbarui</b>. Fitur kebun dan pencatatan hujan tetap dapat digunakan.</div>';}
+  }finally{clearTimeout(timeout);tsWeatherBusy=false;if(btn){btn.disabled=false;btn.textContent='↻ Perbarui';}}
+}
+function tsWeatherMaybeRefresh(){
+  const home=$('pageHome');
+  if(document.hidden||!home?.classList.contains('active'))return;
+  if(!tsWeatherLastFetchAt||Date.now()-tsWeatherLastFetchAt>20*60*1000)tsWeatherLoad(false);
+}
+function tsWeatherInit(){
+  $('weatherRefreshBtn')?.addEventListener('click',()=>tsWeatherLoad(true));
+  let saved=null;try{saved=JSON.parse(localStorage.getItem(TS_WEATHER_CACHE_KEY)||'null')}catch(e){}
+  if(saved?.payload){try{tsWeatherRender(saved.payload,true);tsWeatherLastFetchAt=Number(saved.fetchedAt)||0;}catch(e){}}
+  tsWeatherLoad(true);
+  setInterval(()=>tsWeatherMaybeRefresh(),30*60*1000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)tsWeatherMaybeRefresh()});
+}
+
 function render(){
   const now=new Date();
   const recent=data.filter(x=>{const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(groupHasActive);return gs.length?Math.min(...gs.map(g=>daysBetween(g.date,now)))<=7:false}).length;
@@ -1534,7 +1661,7 @@ $('backupOpen').onclick=()=>{$('backupBtn').click();showToast('Backup JSON dibua
 $('exportOpen').onclick=()=>{$('exportBtn').click();showToast('CSV dibuat');};
 $('exportHarvestOpen').onclick=()=>{exportHarvests();showToast('CSV panen dibuat')};
 $('installHelp').onclick=()=>{showToast('Di Chrome: menu ⋮ → Tambahkan ke layar utama');};
-function showPage(n){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));const map={home:'pageHome',plants:'pagePlants',statistics:'pageStatistics',inhabitants:'pageInhabitants'};$(map[n]||'pageHome').classList.add('active');document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.nav===n));window.scrollTo({top:0,behavior:'smooth'});$('fabAdd').style.display=n==='inhabitants'?'block':(n==='plants'?'block':'none');$('fabAdd').setAttribute('aria-label',n==='inhabitants'?'Tambah Inhabitant':'Tambah tanaman');$('fabAdd').onclick=()=>n==='inhabitants'?openInhabitantModal():openForm();}
+function showPage(n){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));const map={home:'pageHome',plants:'pagePlants',statistics:'pageStatistics',inhabitants:'pageInhabitants'};$(map[n]||'pageHome').classList.add('active');document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.nav===n));window.scrollTo({top:0,behavior:'smooth'});if(n==='home'&&typeof tsWeatherMaybeRefresh==='function')tsWeatherMaybeRefresh();$('fabAdd').style.display=n==='inhabitants'?'block':(n==='plants'?'block':'none');$('fabAdd').setAttribute('aria-label',n==='inhabitants'?'Tambah Inhabitant':'Tambah tanaman');$('fabAdd').onclick=()=>n==='inhabitants'?openInhabitantModal():openForm();}
 
 // v1.0.6 FIX — detail tanaman lives outside #items, so its delegated handlers must be captured here.
 document.addEventListener('click',e=>{
@@ -1996,6 +2123,7 @@ ti41PatchBindings();
 document.querySelectorAll('[data-nav]').forEach(btn=>btn.onclick=()=>showPage(btn.dataset.nav));
 ti4NormalizeState();
 render();
+tsWeatherInit();
 initStorage().then(()=>{ti41EnsureGrowthIndicators();render();scheduleNotifications();});
 setTimeout(()=>optimizeStoredPhotos(),250);
 scheduleNotifications();
