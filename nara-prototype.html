@@ -2528,8 +2528,9 @@ function naraInsightHash(value){let h=2166136261;const text=String(value??'').to
 function naraInsightPriority(status,title,body,reason){
   const s=String(status||'').trim().toLocaleLowerCase('id-ID');
   if(s==='mendesak'||s.includes('mendesak'))return 'P1';
-  if(/^perkiraan panen/i.test(String(title||'')))return 'P3';
+  /* Status hasil pemeriksaan Nara lebih dahulu daripada judul. Perkiraan panen yang sudah masuk jendela pemeriksaan adalah P2, bukan otomatis P3. */
   if(['perlu diperiksa','perlu perhatian','perlu penyesuaian','risiko ketidakcocokan','risiko tinggi'].includes(s))return 'P2';
+  if(/^perkiraan panen/i.test(String(title||'')))return 'P3';
   if(['data belum lengkap','belum cukup data','perlu konfirmasi','pantau hubungan','kecocokan awal','kandidat awal','mulai pantau'].includes(s))return 'P3';
   if(s==='pantau kondisi'&&/dapat membuat air lebih cepat lewat|dapat meningkatkan risiko|perlu dipantau|mengering/.test(`${title||''} ${body||''}`.toLocaleLowerCase('id-ID')))return 'P3';
   if(['pantau kondisi','pertumbuhan','mulai pantau','terpantau'].includes(s))return 'P4';
@@ -2806,6 +2807,72 @@ function naraRenderCarePlan(){
   if(note)note.textContent=waterText+' '+ageText+' Prakiraan bukan hujan aktual, dan rencana ini tidak mencatat atau menjalankan penyiraman otomatis.';
 }
 
+/* Nara attention analysis v1.
+   Home continues to consume getAutomaticAttentions() and keeps its existing sort/filter/card limit.
+   These helpers are read-only: they do not rewrite factual records or mark actions as completed. */
+function naraAttentionSource(a){
+  if(a?.type==='harvest')return 'harvest';
+  if(a?.type==='water')return 'water';
+  if(a?.sourceEventId||['pest','disease'].includes(a?.type)||['pest','disease'].includes(a?.problemType))return 'pest-disease';
+  return 'manual';
+}
+function naraAttentionAssessment(a){
+  const p=data.find(x=>x.id===a?.plantId)||null;
+  const source=naraAttentionSource(a);
+  const event=p&&a?.sourceEventId?(Array.isArray(p.events)?p.events:[]).find(e=>e.id===a.sourceEventId):null;
+  const severity=a?.severity||event?.severity||'';
+  const severityText=severity?(ti4SeverityLabels?.[severity]||String(severity)):'belum dicatat';
+  /* For auto-generated pest/disease rows, getAutomaticAttentions() assigns urgent for Home's legacy rule.
+     That derived label is deliberately not treated as a user-entered urgency decision by Nara. */
+  const hasExplicitUrgency=!!a&&a.priority==='urgent'&&!a.sourceEventId;
+  let status=hasExplicitUrgency?'Mendesak':'Perlu diperiksa';
+  let icon='🔎',title='Catatan perhatian',body=String(a?.note||'Ada catatan perhatian yang perlu ditinjau.'),reason='Nara membaca catatan yang tersimpan. Urgensi dibedakan dari tingkat keparahan; penilaian tidak mengganti catatan atau status sumber.';
+  if(source==='harvest'){
+    icon='🧺';title=`Perkiraan panen${p?' · '+p.name:''}`;
+    const group=(Array.isArray(p?.plantingGroups)?p.plantingGroups:[]).find(g=>g.id===a.groupId)||null;
+    const expected=group&&p?groupHarvestDate(p,group):'';
+    if(expected){
+      const day0=new Date(`${today()}T00:00:00`),dayH=new Date(`${expected}T00:00:00`);
+      const days=Math.round((dayH-day0)/86400000);
+      body=days<0?`Perkiraan tanggal panen ${fmt(expected)} sudah lewat ${Math.abs(days)} hari.`:days===0?`Perkiraan tanggal panen ${fmt(expected)} jatuh hari ini.`:`Perkiraan tanggal panen ${fmt(expected)} tinggal ${days} hari.`;
+      if(group?.date)title+=` · kelompok mulai ${fmt(group.date)}`;
+      reason=`Sumber: tanggal mulai kelompok tanam ${group?.date?fmt(group.date):'tidak tersedia'} ditambah estimasi panen ${p?.harvestDays??'yang tercatat'} hari. Ini hanya perkiraan waktu, bukan bukti buah siap dipanen. Periksa indikator kematangan tanaman sebelum memutuskan panen.`;
+    }else{
+      body='Ada pengingat panen dari catatan yang tersedia, tetapi tanggal perkiraan panen tidak dapat dihitung ulang dari data kelompok tanam saat ini.';
+      reason='Tanggal panen perkiraan tidak dapat diverifikasi dari tanggal kelompok dan estimasi hari panen yang tersedia. Jangan anggap tanaman siap panen tanpa memeriksa indikator kematangan.';
+    }
+    status='Perlu diperiksa';
+  }else if(source==='water'){
+    icon='💧';title=`Periksa kebutuhan air${p?' · '+p.name:''}`;
+    const interval=p&&typeof waterInterval==='function'?waterInterval(p):null;
+    body=`${a?.note||'Interval penyiraman yang tersimpan telah tercapai.'} Ini pengingat berdasarkan jadwal.`;
+    reason=`Pemicu berasal dari interval penyiraman tersimpan${interval?` (${interval} hari)` :''} dan catatan air terakhir (${p?.lastWater||'tanggal tidak tersedia'}). Nara tidak mengukur kelembapan media; periksa kondisi tanah dan tanaman sebelum menyiram.`;
+    status='Perlu diperiksa';
+  }else if(source==='pest-disease'){
+    icon='🐛';const kind=(a?.problemType||event?.type||a?.type)==='disease'?'penyakit':'hama';
+    title=`Catatan ${kind}${p?' · '+p.name:''}`;
+    body=`${a?.note||event?.note||event?.label||`Ada catatan ${kind} yang perlu ditinjau.`} Tingkat keparahan tercatat: ${severityText}.`;
+    reason=hasExplicitUrgency
+      ?`Urgensi Mendesak berasal dari pilihan prioritas yang dicatat pengguna, bukan disimpulkan dari tingkat keparahan (${severityText}). Periksa ulang keadaan terkini sebelum bertindak.`
+      :`Sumber ini adalah catatan ${kind}${a?.date||event?.date?` tanggal ${a?.date||event?.date}`:''}. Tingkat keparahan (${severityText}) dan urgensi adalah dua hal berbeda. Aturan lama Home dapat memberi label Mendesak otomatis pada catatan hama/penyakit; label otomatis itu tidak cukup sebagai bukti urgensi bagi Nara. Periksa apakah gejala menyebar cepat, merusak jaringan penting, atau kondisinya memburuk sebelum menetapkan urgensi.`;
+    status=hasExplicitUrgency?'Mendesak':'Perlu diperiksa';
+  }else{
+    icon='📝';title=`Perhatian tercatat${p?' · '+p.name:''}`;
+    const sev=a?.severity?` Keparahan yang dicatat: ${severityText}.`:'';
+    body=`${a?.note||'Ada perhatian manual yang belum ditandai selesai.'}${sev}`;
+    reason=hasExplicitUrgency
+      ?`Prioritas Mendesak dipilih saat perhatian dicatat. Itu adalah penilaian urgensi terpisah dari keparahan${a?.severity?` (${severityText})`:''}; Nara tidak mengubah catatan tersebut.`
+      :`Ini perhatian yang dicatat manual dan masih aktif. Prioritas tersimpan tidak menunjukkan keadaan aktual terkini; periksa ulang objek terkait. Urgensi dan keparahan tetap dinilai sebagai dimensi terpisah.`;
+  }
+  const sourceLabel={harvest:'Perkiraan panen',water:'Jadwal kebutuhan air','pest-disease':'Catatan hama/penyakit',manual:'Perhatian manual'}[source];
+  return {source,sourceLabel,status,icon,title,body,reason,hasExplicitUrgency,severity,severityText};
+}
+function naraCollectAttentionSources(rows){
+  const buckets={harvest:[],water:[],'pest-disease':[],manual:[]};
+  for(const row of rows||[]){const source=naraAttentionSource(row);if(buckets[source])buckets[source].push({row,assessment:naraAttentionAssessment(row)});}
+  return buckets;
+}
+
 function naraBuildInsights(){
   naraInsightRegistry=[];
   const activeQty=data.reduce((n,p)=>n+(Array.isArray(p.plantingGroups)?p.plantingGroups.filter(groupHasActive).reduce((m,g)=>m+groupActiveQty(g),0):0),0);
@@ -2813,21 +2880,22 @@ function naraBuildInsights(){
   const plantsMeasured=new Set(measurements.map(r=>r.plant.id));
   const attentionRows=(typeof getAutomaticAttentions==='function'?getAutomaticAttentions():[]).slice();
   const seen=new Set();const attentionsUnique=attentionRows.filter(a=>{const k=a.id||`${a.plantId}|${a.type}|${a.note}`;if(seen.has(k))return false;seen.add(k);return true;});
+  /* Nara menganalisis empat sumber; Home tetap bebas memakai aturan tampilnya sendiri. */
+  const attentionSources=naraCollectAttentionSources(attentionsUnique);
+  const attentionAnalyses=Object.values(attentionSources).flat();
   $('naraMetrics').innerHTML=[
     naraMetric('Tanaman aktif',activeQty,`${data.length} jenis/entri tanaman`),
     naraMetric('Pengukuran',measurements.length,`${plantsMeasured.size} tanaman pernah diukur`),
-    naraMetric('Perlu perhatian',attentionsUnique.length,`${beds.length} Bed dianalisis dari profil tersimpan`)
+    naraMetric('Perlu perhatian',attentionsUnique.length,`${attentionSources.harvest.length} panen · ${attentionSources.water.length} air · ${attentionSources['pest-disease'].length} hama/penyakit · ${attentionSources.manual.length} manual`)
   ].join('');
   const cards=[];
-  const urgent=attentionsUnique.filter(a=>a.priority==='urgent');
-  const nonurgent=attentionsUnique.filter(a=>a.priority!=='urgent');
-  /* Tidak memotong jumlah Insight pada angka tetap; kartu dibuat dari temuan yang tersedia. */
-  for(const a of [...urgent,...nonurgent]){
-    const p=data.find(x=>x.id===a.plantId);const title=`${a.type==='harvest'?'Perkiraan panen':a.type==='water'?'Periksa kebutuhan air':a.type==='pest'||a.type==='disease'?'Masalah tanaman tercatat':'Catatan perhatian'}${p?' · '+p.name:''}`;
-    const txt=typeof attentionText==='function'?attentionText(a):(a.note||'Ada catatan yang perlu ditinjau.');
-    const body=a.type==='water'?`${txt} Periksa kondisi tanaman dan gunakan profil Bed sebagai konteks; jangan menyimpulkan kelembapan aktual hanya dari jadwal.`:txt;
+  const urgent=attentionAnalyses.filter(item=>item.assessment.status==='Mendesak');
+  const nonurgent=attentionAnalyses.filter(item=>item.assessment.status!=='Mendesak');
+  /* Tidak memotong jumlah Insight pada angka tetap; kartu dibuat dari sumber dan bukti yang tersedia. */
+  for(const entry of [...urgent,...nonurgent]){
+    const a=entry.row,assessment=entry.assessment,p=data.find(x=>x.id===a.plantId);
     const action=p?`<button type="button" class="secondary" data-nara-plant-detail="${esc(p.id)}">Lihat tanaman</button>`:'';
-    cards.push(naraInsight(a.priority==='urgent'?'⚠️':a.type==='water'?'💧':a.type==='harvest'?'🧺':'🔎',a.priority==='urgent'?'Mendesak':'Perlu diperiksa',title,body,'Berasal dari pengingat/aturan dan catatan Terra Serenada.',action));
+    cards.push(naraInsight(assessment.icon,assessment.status,assessment.title,assessment.body,`${assessment.sourceLabel}. ${assessment.reason}`,action));
   }
 
   /* Profil lingkungan per Bed: cahaya, media, drainase, vegetasi, dan catatan air khusus Bed. */
