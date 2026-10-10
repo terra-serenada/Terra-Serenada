@@ -1693,30 +1693,91 @@ function openPlantDetail(id){const x=data.find(a=>a.id===id);if(!x)return;const 
 function closePlantDetail(){$('plantDetailPage').classList.remove('show');document.body.style.overflow=''}
 
 
+/* Nara menghasilkan payload terstruktur untuk kartu Kondisi Kebun.
+   Home tetap mengatur tata letak dan memetakan nilai ke elemen sesuai kontrak tampilan yang ada. */
+function naraAnalyzeGardenCondition(){
+  const snapshot=naraRefreshGardenKnowledge();
+  const plants=Array.isArray(snapshot?.collections?.plants)?snapshot.collections.plants:(Array.isArray(data)?data:[]);
+  const harvestRows=Array.isArray(snapshot?.collections?.harvests)?snapshot.collections.harvests:(Array.isArray(harvests)?harvests:[]);
+  const now=new Date(),ym=today().slice(0,7);
+  const activePlants=plants.filter(plant=>(Array.isArray(plant.plantingGroups)?plant.plantingGroups:[]).some(groupHasActive));
+  const activeQty=activePlants.reduce((n,plant)=>n+(Array.isArray(plant.plantingGroups)?plant.plantingGroups.reduce((m,group)=>m+groupActiveQty(group),0):0),0);
+  const nearHarvestPlants=activePlants.filter(plant=>{
+    const groups=(Array.isArray(plant.plantingGroups)?plant.plantingGroups:[]).filter(groupHasActive);
+    return groups.some(group=>{const date=groupHarvestDate(plant,group);if(!date)return false;return Math.ceil((new Date(date+'T00:00:00')-now)/86400000)<=7;});
+  });
+  const floweringPlantIds=new Set();
+  for(const plant of plants){
+    for(const event of (Array.isArray(plant.events)?plant.events:[])){
+      if(event.type==='flowering'&&daysBetween(event.date,now)<=14)floweringPlantIds.add(plant.id);
+    }
+  }
+  const harvestThisMonth=harvestRows.filter(h=>String(h.date||'').slice(0,7)===ym);
+  /* getAutomaticAttentions() sudah menyertakan perhatian manual aktif; deduplikasi mencegah hitung ganda. */
+  const rawAttentionRows=typeof getAutomaticAttentions==='function'?getAutomaticAttentions():[];
+  const attentionMap=new Map();
+  rawAttentionRows.forEach((row,index)=>attentionMap.set(row.id||`${row.plantId||''}|${row.type||''}|${row.date||''}|${row.note||index}`,row));
+  const attentionRows=[...attentionMap.values()];
+  const attentionCount=attentionRows.length;
+  const metrics={plantsActive:activeQty,flowering:floweringPlantIds.size,harvestWindow:nearHarvestPlants.length,harvestedThisMonth:harvestThisMonth.length};
+  let summary='',tone='good';
+  if(attentionCount>0){summary=`⚠️ ${attentionCount} hal perlu diperhatikan.`;tone='attention';}
+  else if(metrics.flowering>0&&metrics.harvestWindow>0)summary=`🌼 ${metrics.flowering} tanaman berbunga · 🧺 ${metrics.harvestWindow} mendekati panen`;
+  else if(metrics.flowering>0)summary=`🌼 ${metrics.flowering} tanaman sedang berbunga.`;
+  else if(metrics.harvestWindow>0)summary=`🧺 ${metrics.harvestWindow} tanaman mendekati panen.`;
+  else summary='✓ Kebun terpantau baik hari ini.';
+
+  const sourceRefs=[];
+  const addRefs=predicate=>snapshot?.documents?.filter(predicate).forEach(doc=>sourceRefs.push(doc.id));
+  addRefs(doc=>doc.objectType==='plant'&&activePlants.some(plant=>plant.id===doc.objectId));
+  addRefs(doc=>doc.objectType==='planting-group'&&activePlants.some(plant=>plant.id===doc.plantId)&&groupHasActive(doc.record||{}));
+  addRefs(doc=>doc.objectType==='plant-event'&&doc.record?.type==='flowering'&&daysBetween(doc.record?.date,now)<=14);
+  addRefs(doc=>doc.objectType==='harvest'&&String(doc.record?.date||'').slice(0,7)===ym);
+  const activeAttentionIds=new Set(attentionRows.map(row=>String(row.id||'')));
+  addRefs(doc=>doc.objectType==='attention'&&activeAttentionIds.has(String(doc.objectId||'')));
+  const evidence={
+    sourceRefs:[...new Set(sourceRefs)],
+    rules:{
+      activePlants:'total jumlah aktif pada kelompok tanam milik entri tanaman yang memiliki kelompok aktif',
+      flowering:'jumlah tanaman unik dengan catatan berbunga dalam 14 hari terakhir',
+      harvestWindow:'jumlah entri tanaman aktif dengan estimasi panen dalam 7 hari atau tanggal estimasi yang telah lewat',
+      harvestedThisMonth:'jumlah catatan panen aktual pada bulan kalender berjalan',
+      attention:'jumlah perhatian otomatis/manual aktif setelah deduplikasi ID'
+    },
+    limitations:[
+      'Catatan berbunga menunjukkan peristiwa yang tercatat dalam 14 hari terakhir, bukan verifikasi bahwa bunga masih ada saat ini.',
+      'Jendela estimasi panen mengikuti aturan Beranda saat ini; angka ini bukan konfirmasi kesiapan panen aktual.',
+      'Pengingat air dan catatan hama/penyakit tidak dengan sendirinya membuktikan kondisi fisik terbaru.'
+    ]
+  };
+  return {view:'garden-condition',producedBy:'Nara',builtAt:snapshot?.builtAt||new Date().toISOString(),metrics,attention:{count:attentionCount,rows:attentionRows},status:{tone,label:attentionCount>0?'● PERLU PERHATIAN':'● TERPANTAU',summary},evidence};
+}
 function renderGardenStatus(){
-  const now=new Date();
-  const activePlants=data.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(groupHasActive));
-  const activeQty=activePlants.reduce((n,x)=>n+(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).reduce((m,g)=>m+groupActiveQty(g),0),0);
-  const nearHarvest=activePlants.filter(x=>{
-    const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(groupHasActive);
-    return gs.some(g=>{const hd=groupHarvestDate(x,g);if(!hd)return false;return Math.ceil((new Date(hd+'T00:00:00')-now)/86400000)<=7});
-  }).length;
-  const attention=getAutomaticAttentions().length+attentions.filter(a=>a.status!=='done').length;
-  const flowering=new Set();
-  data.forEach(x=>(Array.isArray(x.events)?x.events:[]).filter(e=>e.type==='flowering'&&daysBetween(e.date,now)<=14).forEach(()=>flowering.add(x.id)));
-  const ym=today().slice(0,7);
-  $('statusPlants').textContent=activeQty;
-  $('statusFlower').textContent=flowering.size;
-  $('statusHarvest').textContent=nearHarvest;
-  $('statusHarvestMonth').textContent=harvests.filter(h=>String(h.date||'').slice(0,7)===ym).length;
+  let view;
+  try{view=naraAnalyzeGardenCondition();}
+  catch(error){
+    console.warn('Nara Kondisi Kebun belum dapat menyusun payload; memakai fallback Home:',error);
+    /* Fallback menjaga kartu tetap berfungsi bila lapisan konteks Nara gagal dibangun. */
+    const now=new Date(),activePlants=data.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(groupHasActive));
+    const activeQty=activePlants.reduce((n,x)=>n+(Array.isArray(x.plantingGroups)?x.plantingGroups.reduce((m,g)=>m+groupActiveQty(g),0):0),0);
+    const nearHarvest=activePlants.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(groupHasActive).some(g=>{const date=groupHarvestDate(x,g);return date&&Math.ceil((new Date(date+'T00:00:00')-now)/86400000)<=7;})).length;
+    const flowering=new Set();data.forEach(x=>(Array.isArray(x.events)?x.events:[]).filter(e=>e.type==='flowering'&&daysBetween(e.date,now)<=14).forEach(()=>flowering.add(x.id)));
+    const rows=getAutomaticAttentions(),uniqueRows=[...new Map(rows.map((row,i)=>[row.id||`${row.plantId||''}|${row.type||''}|${row.date||''}|${row.note||i}`,row])).values()];
+    const attentionCount=uniqueRows.length,ym=today().slice(0,7),flowerCount=flowering.size,harvestCount=harvests.filter(h=>String(h.date||'').slice(0,7)===ym).length;
+    let summary=attentionCount?`⚠️ ${attentionCount} hal perlu diperhatikan.`:flowerCount&&nearHarvest?`🌼 ${flowerCount} tanaman berbunga · 🧺 ${nearHarvest} mendekati panen`:flowerCount?`🌼 ${flowerCount} tanaman sedang berbunga.`:nearHarvest?`🧺 ${nearHarvest} tanaman mendekati panen.`:'✓ Kebun terpantau baik hari ini.';
+    view={metrics:{plantsActive:activeQty,flowering:flowerCount,harvestWindow:nearHarvest,harvestedThisMonth:harvestCount},status:{tone:attentionCount?'attention':'good',label:attentionCount?'● PERLU PERHATIAN':'● TERPANTAU',summary},attention:{count:attentionCount,rows:uniqueRows},evidence:{sourceRefs:[],limitations:[]}};
+  }
+  /* Kontrak tampilan tetap milik Home; Nara hanya mengirim nilai dan bukti terstruktur. */
+  $('statusPlants').textContent=view.metrics.plantsActive;
+  $('statusFlower').textContent=view.metrics.flowering;
+  $('statusHarvest').textContent=view.metrics.harvestWindow;
+  $('statusHarvestMonth').textContent=view.metrics.harvestedThisMonth;
   const badge=$('gardenStatusBadge'),insight=$('gardenStatusInsight');
-  badge.textContent=attention>0?'● PERLU PERHATIAN':'● TERPANTAU';
-  insight.className='garden-status-insight '+(attention>0?'attention':'good');
-  if(attention>0) insight.textContent=`⚠️ ${attention} hal perlu diperhatikan.`;
-  else if(flowering.size>0&&nearHarvest>0) insight.textContent=`🌼 ${flowering.size} tanaman berbunga · 🧺 ${nearHarvest} mendekati panen`;
-  else if(flowering.size>0) insight.textContent=`🌼 ${flowering.size} tanaman sedang berbunga.`;
-  else if(nearHarvest>0) insight.textContent=`🧺 ${nearHarvest} tanaman mendekati panen.`;
-  else insight.textContent='✓ Kebun terpantau baik hari ini.';
+  badge.textContent=view.status.label;
+  insight.className='garden-status-insight '+view.status.tone;
+  insight.textContent=view.status.summary;
+  /* Hasil baca-saja ini dapat digunakan komponen Home berikutnya dalam tahap takeover bertahap. */
+  window.naraHomeGardenCondition=view;
 }
 
 function statsAvailableYears(){
@@ -2509,7 +2570,8 @@ function naraKnowledgeBuild(){
     harvestList=Array.isArray(harvests)?harvests:[],gardenEventList=Array.isArray(gardenEvents)?gardenEvents:[],
     inhabitantList=Array.isArray(inhabitants)?inhabitants:[],bedList=Array.isArray(beds)?beds:[],
     noteList=Array.isArray(gardenNotes)?gardenNotes:[],indicatorList=Array.isArray(growthIndicators)?growthIndicators:[];
-  const attentionRows=(naraKnowledgeSnapshot?.attentionRows|| (typeof getAutomaticAttentions==='function'?getAutomaticAttentions():[])).slice();
+  /* Baca perhatian terbaru setiap kali indeks disusun ulang; jangan gunakan daftar dari snapshot lama. */
+  const attentionRows=(typeof getAutomaticAttentions==='function'?getAutomaticAttentions():[]).slice();
   const add=(doc)=>{if(!doc||!doc.id)return;docs.push({...doc,text:String(doc.text||''),searchText:`${doc.title||''} ${doc.text||''}`.toLocaleLowerCase('id-ID')});};
   const relationNames=(ids)=>((ids||[]).map(id=>bedList.find(b=>b.id===id)?.name||id).filter(Boolean)).join(', ');
   const systemRules=[
@@ -2518,7 +2580,8 @@ function naraKnowledgeBuild(){
     {id:'rule:watering',title:'Aturan sistem · perhatian kebutuhan air',text:`Pengingat air adalah pengingat berbasis jadwal/catatan air dan interval yang dikonfigurasi; interval default kebun ${Number(gardenSettings?.waterDefaultEvery)||3} hari. Pengingat tidak membuktikan media sedang kering. Catatan hujan dan penyiraman harus dibedakan dari kelembapan aktual.`},
     {id:'rule:attention',title:'Aturan sistem · sumber perhatian',text:'Sumber perhatian otomatis mencakup estimasi panen, pengingat air, catatan hama/penyakit dari riwayat tanaman, dan perhatian manual. Aturan Home saat ini menandai catatan hama/penyakit otomatis sebagai prioritas Mendesak, mengurutkan prioritas mendesak lebih dahulu, dan menampilkan paling banyak enam kartu pada daftar perhatian. Nara tetap menilai urgensi secara terpisah dari tingkat keparahan; analisisnya tidak mengubah aturan tampilan Home.'},
     {id:'rule:relations',title:'Struktur dan relasi data Terra Serenada',text:'Entri tanaman menyimpan kelompok tanam, tanggal, umur estimasi panen, riwayat aktivitas, pengukuran, foto, dan pelajaran. Kelompok tanam dapat terkait dengan Bed dan zona cahaya. Catatan panen aktual tersimpan sebagai koleksi terpisah; perkiraan panen tidak sama dengan panen aktual. Profil Bed menyimpan zona cahaya, jenis/karakter media, drainase, dan indikator vegetasi. Inhabitant memiliki pengamatan yang dapat ditautkan ke satu atau beberapa tanaman. Peristiwa kebun memuat kejadian seperti hujan, penyiraman, penyiangan, dan penambahan media. Jurnal kebun dan perhatian tersimpan terpisah dari riwayat aktivitas tanaman.'},
-    {id:'rule:home-authority',title:'Aturan sistem · otoritas Home',text:'Home tetap menentukan pemilihan, urutan, filter, dan batas kartu Perlu Perhatian menurut aturan Home yang berlaku. Analisis Nara tidak boleh menimpa keputusan tampilan Home atau mengubah catatan sumber.'},
+    {id:'rule:home-authority',title:'Aturan sistem · otoritas Home',text:'Home tetap menentukan pemilihan, urutan, filter, dan batas kartu Perlu Perhatian menurut aturan Home yang berlaku. Untuk kartu Kondisi Kebun, Home meminta payload terstruktur dari Nara, lalu Home sendiri memetakan empat metrik ke slot tampilan yang sudah ada, menentukan badge dan ringkasan menurut aturan tampilan yang berlaku, serta mempertahankan tombol Statistik. Analisis Nara tidak boleh menimpa keputusan tampilan Home atau mengubah catatan sumber.'},
+    {id:'rule:home-garden-condition',title:'Aturan sistem · statistik Kondisi Kebun',text:'Kartu Kondisi Kebun menampilkan jumlah tanaman aktif sebagai total kuantitas aktif pada kelompok tanam milik entri tanaman yang memiliki kelompok aktif; berbunga sebagai jumlah tanaman unik dengan catatan berbunga dalam 14 hari terakhir; siap panen mengikuti aturan tampilan lama yaitu jumlah entri tanaman aktif dengan estimasi panen dalam 7 hari atau tanggal estimasi yang sudah lewat; panen bulan ini sebagai jumlah catatan panen aktual pada bulan kalender berjalan; status Perlu Perhatian aktif bila ada perhatian otomatis/manual aktif. Estimasi panen adalah perkiraan, bukan konfirmasi panen aktual. Home tetap mengendalikan label, urutan, format, dan posisi elemen kartu.'},
     {id:'rule:evidence',title:'Aturan Nara · fakta dan inferensi',text:'Fakta yang tercatat, aturan sistem, inferensi Nara, dan informasi yang belum diketahui harus dibedakan. Catatan aktivitas historis tidak otomatis berarti kondisi masih aktif. Tidak adanya catatan baru berarti kondisi terkini belum diketahui, bukan otomatis tidak berubah.'},
     {id:'rule:actions',title:'Aturan sistem · tindakan dan panen aktual',text:'Rekomendasi bukan bukti tindakan sudah dilakukan. Menandai perhatian selesai tidak dengan sendirinya mencatat panen aktual. Tindakan atau panen hanya boleh dianggap selesai jika dicatat melalui alur pencatatan yang sesuai.'},
     {id:'rule:storage-ai',title:'Batas sistem · penyimpanan dan AI online',text:'Prototype menggunakan data lokal pada perangkat/browser melalui penyimpanan perangkat dan cadangan lokal. AI online belum terhubung di prototype; analisis saat ini merupakan aturan offline atas data lokal yang tersedia.'}
