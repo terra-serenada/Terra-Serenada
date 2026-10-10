@@ -2992,7 +2992,9 @@ function naraRespondFromStoredInsights(question){
   const stop=new Set(['bagaimana','apakah','dengan','untuk','dari','pada','yang','saya','kamu','nara','kebun','tanaman','apa','antara','sudah','bisa','tolong','jelaskan','mengenai','tentang','ada','mungkin','tersebut','dalam','ini','itu','kondisi','sekarang','masih','kenapa','mengapa','milik','bagi','atau','dan','bukan','jadi','bila','kalau','punya','dapat','ditemukan']);
   const tokens=[...new Set(q.replace(/[^\p{L}\p{N}\s-]/gu,' ').split(/\s+/).filter(t=>t.length>=3&&!stop.has(t)))];
   if(!tokens.length)return '';
-  const candidates=naraInsightRegistry.filter(item=>item.priority==='P3'||item.priority==='P4'||item.known);
+  /* Chat boleh menjelaskan semua Insight yang sedang aktif maupun sudah diketahui.
+     Filter lama membuang P1/P2 aktif, sehingga kartu prioritas tidak bisa ditemukan lewat Chat. */
+  const candidates=naraInsightRegistry.slice();
   const interactionIntent=/(interaksi|hubungan|pendamping|berbagi bed|serangga|penyerbukan|inhabitant)/.test(q);
   const namedCritterTerms=['kumbang','koksi','lebah','kupu','semut','siput','cacing','burung','kadal','katak','laba-laba'].filter(term=>q.includes(term));
   const queriedPlants=(Array.isArray(data)?data:[]).filter(plant=>plant.name&&q.includes(String(plant.name).toLocaleLowerCase('id-ID')));
@@ -3015,9 +3017,94 @@ function naraRespondFromStoredInsights(question){
   if(!best||bestScore<3)return '';
   return `Aku menemukan wawasan tersimpan yang relevan: ${best.title} (${best.priority}, ${best.evidence}). ${best.body}${best.reason?` Dasar: ${best.reason}`:''} Ini berasal dari analisis data kebun yang tercatat; jika kondisinya dapat berubah, pengamatan terbaru tetap diperlukan.`;
 }
+/* Query resolver bersama untuk Chat: gunakan sumber data yang sama dengan analisis Insight.
+   Fungsi ini hanya membaca catatan; tidak mengubah status, riwayat, atau keputusan Home. */
+function naraRespondFromAttentionSources(question, foundPlant=null){
+  const q=String(question||'').toLocaleLowerCase('id-ID');
+  const harvestIntent=/(panen|memanen|dipanen|pemanenan)/.test(q)&&/(kapan|tanggal|perkiraan|waktu|jadwal|siap|panen|memanen|dipanen|pemanenan)/.test(q);
+  if(harvestIntent){
+    const plants=foundPlant?[foundPlant]:(Array.isArray(data)?data:[]);
+    const predictions=[];
+    for(const plant of plants){
+      const groups=Array.isArray(plant.plantingGroups)?plant.plantingGroups:[];
+      const active=groups.filter(groupHasActive);
+      for(const group of active){
+        const expected=groupHarvestDate(plant,group);
+        if(!expected)continue;
+        const delta=Math.round((new Date(`${expected}T00:00:00`)-new Date(`${today()}T00:00:00`))/86400000);
+        predictions.push({plant,group,expected,delta,active:true});
+      }
+    }
+    predictions.sort((a,b)=>a.expected.localeCompare(b.expected)||String(a.plant.name).localeCompare(String(b.plant.name)));
+    if(predictions.length){
+      const chosen=foundPlant?predictions:predictions.slice(0,8);
+      const details=chosen.map(x=>{
+        const when=x.delta<0?`tanggal estimasinya sudah lewat ${Math.abs(x.delta)} hari`:x.delta===0?'perkiraan tanggal panennya hari ini':`perkiraan tanggal panennya ${x.delta} hari lagi`;
+        return `${x.plant.name}${x.plant.variety?` · ${x.plant.variety}`:''}, kelompok mulai ${x.group.date?fmt(x.group.date):'tanggal tidak tersedia'}: estimasi panen ${fmt(x.expected)} (${when})`;
+      }).join('; ');
+      return `Berdasarkan data kelompok tanam yang tersimpan, ${details}. Ini adalah estimasi dari tanggal tanam + umur panen yang tercatat, bukan konfirmasi bahwa tanaman sudah siap dipanen atau bahwa panen sudah dilakukan. Periksa tanda kematangan yang sesuai dan catat panen setelah benar-benar dipanen.${!foundPlant&&predictions.length>chosen.length?` Ada ${predictions.length-chosen.length} kelompok lain dengan estimasi panen yang tidak ditampilkan di jawaban ringkas ini.`:''}`;
+    }
+    if(foundPlant){
+      const groups=Array.isArray(foundPlant.plantingGroups)?foundPlant.plantingGroups:[];
+      const withDates=groups.filter(g=>groupHarvestDate(foundPlant,g));
+      if(!groups.filter(groupHasActive).length&&withDates.length){
+        return `Aku menemukan ${foundPlant.name}, tetapi tidak ada kelompok tanam aktif yang tercatat saat ini. Kelompok dalam riwayat memiliki estimasi berdasarkan tanggal mulai dan umur panen: ${withDates.map(g=>`${fmt(g.date)} → ${fmt(groupHarvestDate(foundPlant,g))}`).join('; ')}. Tanggal tersebut tidak membuktikan kapan panen benar-benar dilakukan; periksa riwayat panen untuk konfirmasi.`;
+      }
+      return `Aku menemukan ${foundPlant.name}, tetapi belum bisa menghitung tanggal perkiraan panen dari data aktifnya. ${foundPlant.harvestDays===''||foundPlant.harvestDays==null?'Umur panen belum diatur pada data tanaman.':'Tanggal mulai kelompok tanam aktif belum tersedia atau belum dapat digunakan.'} Lengkapi data tersebut agar estimasi dapat dihitung. Aku tidak akan menebak tanggal panen.`;
+    }
+    return 'Aku belum menemukan estimasi panen yang bisa dihitung dari kelompok tanam aktif. Pastikan tanaman sudah memiliki kelompok tanam dengan tanggal mulai dan data umur panen.';
+  }
+
+  const pestIntent=/(hama|penyakit|stinkbug|kutu|ulat|serangan|gejala hama|gejala penyakit)/.test(q);
+  if(pestIntent){
+    const allRows=(typeof getAutomaticAttentions==='function'?getAutomaticAttentions():[])
+      .filter(a=>naraAttentionSource(a)==='pest-disease')
+      .filter(a=>!foundPlant||a.plantId===foundPlant.id);
+    const unique=[];const seen=new Set();
+    for(const row of allRows){const key=row.id||`${row.plantId}|${row.type}|${row.date}|${row.note}`;if(!seen.has(key)){seen.add(key);unique.push(row);}}
+    unique.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+    if(unique.length){
+      const chosen=foundPlant?unique:unique.slice(0,6);
+      const lines=chosen.map(row=>{
+        const plant=(Array.isArray(data)?data:[]).find(x=>x.id===row.plantId);
+        const a=typeof naraAttentionAssessment==='function'?naraAttentionAssessment(row):null;
+        const date=row.date?fmt(row.date):'tanggal tidak tersedia';
+        const title=a?.title||`Catatan hama/penyakit${plant?' · '+plant.name:''}`;
+        const body=a?.body||row.note||'Catatan perhatian aktif tersedia.';
+        const urgency=a?.status||'Perlu diperiksa';
+        const reason=a?.reason||'Dasar penilaian perlu diperiksa pada catatan sumber.';
+        return `${title} (${date}). ${body} Penilaian urgensi Nara: ${urgency}. Dasar: ${reason}`;
+      });
+      return `Aku menemukan ${unique.length} catatan hama/penyakit yang masih aktif dalam sumber perhatian${foundPlant?` untuk ${foundPlant.name}`:' di kebun'}:
+${lines.map((line,i)=>`${i+1}. ${line}`).join('\n')}
+
+Periksa kondisi aktual sekarang—misalnya apakah jumlah hama atau kerusakan bertambah. Keparahan yang tercatat dan urgensi adalah dua dimensi berbeda; aturan tampilan Home tidak diubah oleh jawaban ini.${!foundPlant&&unique.length>chosen.length?`
+Ada ${unique.length-chosen.length} catatan lain yang tidak ditampilkan di jawaban ringkas ini.`:''}`;
+    }
+    /* Jika tidak aktif, cari catatan historis secara eksplisit agar tidak disalahartikan sebagai masalah aktif. */
+    const history=[];
+    const plants=foundPlant?[foundPlant]:(Array.isArray(data)?data:[]);
+    for(const plant of plants){
+      for(const event of (Array.isArray(plant.events)?plant.events:[]).filter(e=>e.type==='pest'||e.type==='disease'))history.push({plant,date:event.date,note:event.note||event.label||'Catatan hama/penyakit',severity:event.severity||'',status:'riwayat aktivitas'});
+    }
+    for(const row of (Array.isArray(attentions)?attentions:[]).filter(a=>a.status==='done'&&naraAttentionSource(a)==='pest-disease'&&(!foundPlant||a.plantId===foundPlant.id))){
+      const plant=plants.find(x=>x.id===row.plantId)||data.find(x=>x.id===row.plantId);
+      if(plant)history.push({plant,date:row.date,note:row.note||'Catatan perhatian hama/penyakit',severity:row.severity||'',status:'perhatian ditandai selesai'});
+    }
+    history.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+    if(history.length){
+      const chosen=history.slice(0,4);
+      return `Aku tidak menemukan catatan hama/penyakit aktif${foundPlant?` untuk ${foundPlant.name}`:''}. Namun, ada catatan historis: ${chosen.map(h=>`${h.plant.name} (${h.date?fmt(h.date):'tanggal tidak tersedia'}) — ${h.note}${h.severity?`; keparahan tercatat ${ti4SeverityLabels?.[h.severity]||h.severity}`:''}; status sumber: ${h.status}`).join('; ')}. Status historis ini bukan bukti bahwa masalah masih terjadi ataupun sudah pulih sepenuhnya; amati kondisi tanaman saat ini.`;
+    }
+    return `Aku belum menemukan catatan hama/penyakit aktif atau historis yang cocok${foundPlant?` untuk ${foundPlant.name}`:' di data kebun yang tersedia'}. Ini tidak membuktikan tanaman bebas hama; catat organisme, bagian tanaman terdampak, tanggal, gejala, dan tingkat keparahan bila kamu mengamatinya.`;
+  }
+  return '';
+}
+
 function naraRespond(question){
   const q=String(question||'').toLocaleLowerCase('id-ID');
   const foundPlant=data.find(p=>p.name&&q.includes(String(p.name).toLocaleLowerCase('id-ID')));
+  const attentionAnswer=naraRespondFromAttentionSources(q,foundPlant);if(attentionAnswer)return attentionAnswer;
   const foundBed=(Array.isArray(beds)?beds:[]).slice().sort((a,b)=>String(b.name||'').length-String(a.name||'').length).find(b=>b.name&&q.includes(String(b.name).toLocaleLowerCase('id-ID')));
   if(foundBed&&/(cocok|ditanam|tanaman baru|rekomendasi|kecocokan)/.test(q)){
     const candidates=naraBedCandidateFits(foundBed);
