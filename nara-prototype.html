@@ -2491,6 +2491,137 @@ scheduleNotifications();
 
 /* Nara v0 prototype — read-only offline analysis over the existing Terra Serenada state. */
 const naraChatMessages=[];
+/* Nara Knowledge Layer v1 — indeks baca-saja atas data, relasi, dan aturan Terra Serenada.
+   Indeks dibangun ulang dari state aplikasi; ia bukan salinan persisten dan tidak mengubah catatan sumber. */
+let naraKnowledgeSnapshot={version:1,builtAt:null,documents:[],attentionRows:[],collections:{}};
+const NARA_KNOWLEDGE_MEDIA_KEYS=new Set(['photo','photos','photoRef','photoRefs','_photoDirty','image','imageData','base64','blob','thumbnail','coverPhoto']);
+function naraKnowledgeValue(value,depth=0){
+  if(value===null||value===undefined||depth>4)return '';
+  if(typeof value==='string')return value.length>2400?`${value.slice(0,2400)}…`:value;
+  if(typeof value==='number'||typeof value==='boolean')return String(value);
+  if(Array.isArray(value))return value.slice(0,60).map(v=>naraKnowledgeValue(v,depth+1)).filter(Boolean).join('; ');
+  if(typeof value==='object')return Object.entries(value).filter(([k,v])=>!NARA_KNOWLEDGE_MEDIA_KEYS.has(String(k))&&v!==null&&v!==undefined&&typeof v!=='function').map(([k,v])=>`${k}: ${naraKnowledgeValue(v,depth+1)}`).filter(Boolean).join('; ');
+  return '';
+}
+function naraKnowledgeBuild(){
+  const docs=[];
+  const plants=Array.isArray(data)?data:[],groupsAll=plants.flatMap(p=>(Array.isArray(p.plantingGroups)?p.plantingGroups:[]).map(g=>({plant:p,group:g}))),
+    harvestList=Array.isArray(harvests)?harvests:[],gardenEventList=Array.isArray(gardenEvents)?gardenEvents:[],
+    inhabitantList=Array.isArray(inhabitants)?inhabitants:[],bedList=Array.isArray(beds)?beds:[],
+    noteList=Array.isArray(gardenNotes)?gardenNotes:[],indicatorList=Array.isArray(growthIndicators)?growthIndicators:[];
+  const attentionRows=(naraKnowledgeSnapshot?.attentionRows|| (typeof getAutomaticAttentions==='function'?getAutomaticAttentions():[])).slice();
+  const add=(doc)=>{if(!doc||!doc.id)return;docs.push({...doc,text:String(doc.text||''),searchText:`${doc.title||''} ${doc.text||''}`.toLocaleLowerCase('id-ID')});};
+  const relationNames=(ids)=>((ids||[]).map(id=>bedList.find(b=>b.id===id)?.name||id).filter(Boolean)).join(', ');
+  const systemRules=[
+    {id:'rule:data-scope',title:'Sumber pengetahuan Terra Serenada',text:'Data kebun berasal dari koleksi tanaman, kelompok tanam, riwayat aktivitas dan pengukuran, pelajaran tanaman, panen, peristiwa kebun (termasuk hujan dan penyiraman), catatan perhatian, Inhabitants dan pengamatannya, Bed dan profilnya, jurnal kebun, indikator pertumbuhan, pengaturan, cache cuaca, serta memori/aturan tambahan Nara jika tersedia. Foto dapat tercatat sebagai aset, tetapi analisis offline ini tidak otomatis memahami isi foto.'},
+    {id:'rule:harvest-estimate',title:'Aturan sistem · estimasi panen',text:'Tanggal estimasi panen dihitung dari tanggal mulai kelompok tanam ditambah umur panen (hari) yang tercatat untuk tanaman. Estimasi bukan bukti kesiapan panen dan bukan catatan panen aktual. Panen aktual hanya berasal dari catatan panen.'},
+    {id:'rule:watering',title:'Aturan sistem · perhatian kebutuhan air',text:`Pengingat air adalah pengingat berbasis jadwal/catatan air dan interval yang dikonfigurasi; interval default kebun ${Number(gardenSettings?.waterDefaultEvery)||3} hari. Pengingat tidak membuktikan media sedang kering. Catatan hujan dan penyiraman harus dibedakan dari kelembapan aktual.`},
+    {id:'rule:attention',title:'Aturan sistem · sumber perhatian',text:'Sumber perhatian otomatis mencakup estimasi panen, pengingat air, catatan hama/penyakit dari riwayat tanaman, dan perhatian manual. Aturan Home saat ini menandai catatan hama/penyakit otomatis sebagai prioritas Mendesak, mengurutkan prioritas mendesak lebih dahulu, dan menampilkan paling banyak enam kartu pada daftar perhatian. Nara tetap menilai urgensi secara terpisah dari tingkat keparahan; analisisnya tidak mengubah aturan tampilan Home.'},
+    {id:'rule:relations',title:'Struktur dan relasi data Terra Serenada',text:'Entri tanaman menyimpan kelompok tanam, tanggal, umur estimasi panen, riwayat aktivitas, pengukuran, foto, dan pelajaran. Kelompok tanam dapat terkait dengan Bed dan zona cahaya. Catatan panen aktual tersimpan sebagai koleksi terpisah; perkiraan panen tidak sama dengan panen aktual. Profil Bed menyimpan zona cahaya, jenis/karakter media, drainase, dan indikator vegetasi. Inhabitant memiliki pengamatan yang dapat ditautkan ke satu atau beberapa tanaman. Peristiwa kebun memuat kejadian seperti hujan, penyiraman, penyiangan, dan penambahan media. Jurnal kebun dan perhatian tersimpan terpisah dari riwayat aktivitas tanaman.'},
+    {id:'rule:home-authority',title:'Aturan sistem · otoritas Home',text:'Home tetap menentukan pemilihan, urutan, filter, dan batas kartu Perlu Perhatian menurut aturan Home yang berlaku. Analisis Nara tidak boleh menimpa keputusan tampilan Home atau mengubah catatan sumber.'},
+    {id:'rule:evidence',title:'Aturan Nara · fakta dan inferensi',text:'Fakta yang tercatat, aturan sistem, inferensi Nara, dan informasi yang belum diketahui harus dibedakan. Catatan aktivitas historis tidak otomatis berarti kondisi masih aktif. Tidak adanya catatan baru berarti kondisi terkini belum diketahui, bukan otomatis tidak berubah.'},
+    {id:'rule:actions',title:'Aturan sistem · tindakan dan panen aktual',text:'Rekomendasi bukan bukti tindakan sudah dilakukan. Menandai perhatian selesai tidak dengan sendirinya mencatat panen aktual. Tindakan atau panen hanya boleh dianggap selesai jika dicatat melalui alur pencatatan yang sesuai.'},
+    {id:'rule:storage-ai',title:'Batas sistem · penyimpanan dan AI online',text:'Prototype menggunakan data lokal pada perangkat/browser melalui penyimpanan perangkat dan cadangan lokal. AI online belum terhubung di prototype; analisis saat ini merupakan aturan offline atas data lokal yang tersedia.'}
+  ];
+  for(const r of systemRules)add({...r,kind:'system-rule',source:'aturan sistem yang dijelaskan eksplisit',status:'current'});
+  add({id:'settings:garden',kind:'settings',objectType:'garden-settings',title:'Pengaturan kebun',source:'pengaturan sistem',status:'current',record:gardenSettings,text:naraKnowledgeValue(gardenSettings)});
+
+  for(const plant of plants){
+    const groups=Array.isArray(plant.plantingGroups)?plant.plantingGroups:[];
+    const activeGroups=groups.filter(groupHasActive);
+    const bedNames=[...new Set(groups.map(g=>ti4GroupBedName(g)).filter(Boolean))];
+    const body=[`Tanaman: ${plant.name||'nama belum tercatat'}`,plant.variety?`Varietas: ${plant.variety}`:'',plant.note?`Catatan umum: ${plant.note}`:'',plant.harvestDays!==undefined&&plant.harvestDays!==null&&plant.harvestDays!==''?`Umur panen tercatat: ${plant.harvestDays} hari`:'Umur panen: belum tercatat',`Kelompok tanam: ${groups.length} total, ${activeGroups.length} aktif`,bedNames.length?`Bed/lokasi dari kelompok: ${bedNames.join(', ')}`:'Bed/lokasi belum tersambung pada kelompok tanam',plant.cycle?`Siklus: ${plant.cycle}`:'',plant.qty!==undefined?`Jumlah agregat tercatat: ${plant.qty}`:'',plant.lessons?.length?`Pelajaran tersimpan: ${plant.lessons.length}`:'',plant.events?.length?`Aktivitas tersimpan: ${plant.events.length}`:'',(plant.photo||plant.photoRef)?'Foto utama tersimpan; isi foto belum dianalisis oleh aturan offline.':''].filter(Boolean).join('. ');
+    add({id:`plant:${plant.id}`,kind:'garden-record',objectType:'plant',objectId:plant.id,plantId:plant.id,title:`Tanaman · ${plant.name||plant.id}`,source:'catatan kebun',status:activeGroups.length?'memiliki kelompok aktif':'tidak ada kelompok aktif tercatat',relatedIds:[...groups.map(g=>g.id),...bedList.filter(b=>bedNames.includes(b.name)).map(b=>b.id)],record:plant,text:`${body}. Field lain yang tersimpan: ${naraKnowledgeValue({...plant,plantingGroups:undefined,events:undefined,lessons:undefined})}`});
+    for(const group of groups){
+      const estimated=groupHarvestDate(plant,group);const loc=ti4GroupBedName(group)||relationNames([group.bedId]);
+      const groupBody=[`Tanaman: ${plant.name}`,`Kelompok: ${group.id}`,group.date?`Mulai tanam: ${group.date}`:'Tanggal mulai: belum tercatat',`Status kelompok: ${group.status||'status mengikuti jumlah tanaman aktif/selesai/gagal'}`,`Jumlah aktif: ${groupActiveQty(group)}`,`Jumlah total: ${groupTotal(group)}`,loc?`Bed: ${loc}`:'Bed: belum tertaut',group.zoneId?`Zona cahaya ID: ${group.zoneId}`:'',estimated?`Estimasi panen: ${estimated}`:'Estimasi panen: belum dapat dihitung dari tanggal/umur panen tersedia'].filter(Boolean).join('. ');
+      add({id:`group:${group.id}`,kind:'garden-record',objectType:'planting-group',objectId:group.id,plantId:plant.id,title:`Kelompok tanam · ${plant.name} · ${group.date||'tanggal tidak tersedia'}`,source:'catatan kebun',status:groupHasActive(group)?'aktif':'riwayat/tidak aktif menurut status kelompok',relatedIds:[plant.id,group.bedId,group.zoneId].filter(Boolean),record:group,text:`${groupBody}. Field lain: ${naraKnowledgeValue(group)}`});
+    }
+    for(const event of (Array.isArray(plant.events)?plant.events:[])){
+      const measures=Array.isArray(event.measurements)?event.measurements:[];
+      const measureText=measures.map(m=>`${m.indicatorName||growthIndicators.find(i=>i.id===m.indicatorId)?.name||'indikator'}: ${m.value} ${m.unit||''}`).join('; ');
+      const mediaText=(event.photo||event.photoRef||event.photos?.length)?'Foto terlampir/tercatat; konten foto belum ditafsirkan oleh mesin aturan offline.':'';
+      const body=[`Tanaman: ${plant.name}`,event.date?`Tanggal: ${event.date}`:'Tanggal: tidak tercatat',`Jenis aktivitas: ${event.type||'tidak tercatat'}`,event.label?`Label: ${event.label}`:'',event.note?`Catatan: ${event.note}`:'',event.severity?`Keparahan tersimpan: ${event.severity}`:'',measureText?`Pengukuran: ${measureText}`:'',event.inhabitantTags?.length?`Inhabitant terkait: ${event.inhabitantTags.map(id=>inhabitantList.find(i=>i.id===id)?.name||id).join(', ')}`:'',mediaText].filter(Boolean).join('. ');
+      add({id:`plant-event:${plant.id}:${event.id||event.date||docs.length}`,kind:'garden-record',objectType:'plant-event',objectId:event.id||'',plantId:plant.id,title:`Aktivitas tanaman · ${plant.name} · ${event.label||event.type||'aktivitas'}${event.date?` · ${event.date}`:''}`,source:'riwayat tanaman',status:['pest','disease'].includes(event.type)?'kejadian historis; status aktif perlu diperiksa lewat perhatian':'catatan aktivitas historis',relatedIds:[plant.id,...(event.inhabitantTags||[])],record:event,text:`${body}. Field lain: ${naraKnowledgeValue(event)}`});
+    }
+    for(const lesson of (Array.isArray(plant.lessons)?plant.lessons:[]))add({id:`lesson:${plant.id}:${lesson.id||docs.length}`,kind:'garden-record',objectType:'plant-lesson',objectId:lesson.id||'',plantId:plant.id,title:`Pelajaran kebun · ${plant.name}${lesson.date?` · ${lesson.date}`:''}`,source:'catatan pengguna',status:'tersimpan',relatedIds:[plant.id],record:lesson,text:`Tanaman: ${plant.name}. ${lesson.date?`Tanggal: ${lesson.date}. `:''}${lesson.text||lesson.body||''}. Field lain: ${naraKnowledgeValue(lesson)}`});
+  }
+  for(const h of harvestList){const plant=plants.find(p=>p.id===h.plantId);add({id:`harvest:${h.id||docs.length}`,kind:'garden-record',objectType:'harvest',objectId:h.id||'',plantId:h.plantId||'',title:`Catatan panen · ${plant?.name||'tanaman tidak ditemukan'}${h.date?` · ${h.date}`:''}`,source:'catatan panen',status:'panen aktual tercatat',relatedIds:[h.plantId,h.groupId].filter(Boolean),record:h,text:`Tanaman: ${plant?.name||h.plantId||'tidak diketahui'}. ${h.date?`Tanggal panen: ${h.date}. `:''}Jumlah: ${h.qty??'tidak tercatat'} ${h.unit||''}. ${h.quality?`Kualitas: ${h.quality}. `:''}${h.note?`Catatan: ${h.note}. `:''}Field lain: ${naraKnowledgeValue(h)}`});}
+  for(const event of gardenEventList){const relBeds=Array.isArray(event.bedIds)?event.bedIds:(event.bedId?[event.bedId]:[]);add({id:`garden-event:${event.id||docs.length}`,kind:'garden-record',objectType:'garden-event',objectId:event.id||'',title:`Peristiwa kebun · ${event.label||event.type||'aktivitas'}${event.date?` · ${event.date}`:''}`,source:'catatan pengguna/kebun',status:'catatan peristiwa historis',relatedIds:relBeds,text:`Tanggal: ${event.date||'tidak tercatat'}. Jenis: ${event.type||'tidak tercatat'}. ${event.label?`Label: ${event.label}. `:''}${event.note?`Catatan: ${event.note}. `:''}${event.amount!==undefined?`Jumlah: ${event.amount}. `:''}Bed terkait: ${event.bedNames?.join(', ')||relationNames(relBeds)||'tidak tercatat'}. Field lain: ${naraKnowledgeValue(event)}`,record:event});}
+  for(const a of attentionRows){const plant=plants.find(p=>p.id===a.plantId);const source=typeof naraAttentionSource==='function'?naraAttentionSource(a):a.type||'perhatian';const assessment=typeof naraAttentionAssessment==='function'?naraAttentionAssessment(a):null;add({id:`attention:${a.id||docs.length}`,kind:'garden-record',objectType:'attention',objectId:a.id||'',plantId:a.plantId||'',title:`Perhatian · ${plant?.name||'tanaman tidak diketahui'} · ${a.type||'catatan'}`,source:`sumber perhatian: ${source}`,status:a.status||'aktif/diturunkan dari aturan otomatis',priority:a.priority||'tidak tersimpan',urgency:assessment?.status||'',relatedIds:[a.plantId,a.groupId,a.sourceEventId].filter(Boolean),record:a,text:`Tanaman: ${plant?.name||'tidak diketahui'}. Sumber: ${source}. ${a.date?`Tanggal: ${a.date}. `:''}Status sumber: ${a.status||'aktif/hasil aturan otomatis'}. Prioritas sumber: ${a.priority||'tidak tercatat'}. Penilaian urgensi Nara: ${assessment?.status||'belum dinilai'}. ${a.note||''} ${assessment?.reason||''} Field lain: ${naraKnowledgeValue(a)}`});}
+  for(const bed of bedList){const profile=bed.profile||{};const groups=groupsAll.filter(x=>(ti4GroupBedId(x.group)===bed.id)||(Array.isArray(x.group.locations)&&x.group.locations.includes(bed.name)));const planted=[...new Set(groups.filter(x=>groupHasActive(x.group)).map(x=>x.plant.name))];add({id:`bed:${bed.id}`,kind:'garden-record',objectType:'bed',objectId:bed.id,title:`Bed · ${bed.name}`,source:'profil kebun',status:'profil tersimpan',relatedIds:groups.map(x=>x.plant.id),record:bed,text:`Nama Bed: ${bed.name}. Tanaman aktif terkait: ${planted.join(', ')||'belum ada kelompok aktif yang tertaut'}. Profil dan zona: ${naraKnowledgeValue(profile)}. Field lain: ${naraKnowledgeValue(bed)}`});}
+  for(const inh of inhabitantList){const observations=Array.isArray(inh.events)?inh.events:[];add({id:`inhabitant:${inh.id}`,kind:'garden-record',objectType:'inhabitant',objectId:inh.id,title:`Inhabitant · ${inh.name}`,source:'catatan Inhabitant',status:inh.status||'status tidak tercatat',relatedIds:observations.flatMap(e=>e.plantIds||[]),record:inh,text:`Nama: ${inh.name}. Faksi: ${inh.faction||'tidak tercatat'}. Status: ${inh.status||'tidak tercatat'}. Catatan: ${inh.note||'tidak ada catatan umum'}. Pengamatan terkait: ${observations.length}. Field lain: ${naraKnowledgeValue({...inh,events:undefined})}`});
+    for(const ev of observations){const linked=(ev.plantIds||[]).map(id=>plants.find(p=>p.id===id)?.name||id);add({id:`inhabitant-event:${inh.id}:${ev.id||docs.length}`,kind:'garden-record',objectType:'inhabitant-observation',objectId:ev.id||'',title:`Pengamatan Inhabitant · ${inh.name}${ev.date?` · ${ev.date}`:''}`,source:'catatan pengguna',status:'pengamatan historis',relatedIds:[inh.id,...(ev.plantIds||[])],record:ev,text:`Inhabitant: ${inh.name}. Tanggal: ${ev.date||'tidak tercatat'}. Jenis: ${ev.type||'tidak tercatat'}. Tanaman terkait: ${linked.join(', ')||'tidak tercatat'}. Catatan: ${ev.note||'tidak ada catatan'}. Field lain: ${naraKnowledgeValue(ev)}`});}
+  }
+  for(const note of noteList){const rel=(note.plantIds||[]).map(id=>plants.find(p=>p.id===id)?.name||id);add({id:`garden-note:${note.id||docs.length}`,kind:'garden-record',objectType:'garden-note',objectId:note.id||'',title:`Jurnal kebun${note.title?` · ${note.title}`:''}${note.date||note.datetime?` · ${note.date||note.datetime}`:''}`,source:'catatan pengguna',status:note.status||'tersimpan',relatedIds:note.plantIds||note.bedIds||[],record:note,text:`${note.title?`Judul: ${note.title}. `:''}${note.date||note.datetime?`Tanggal: ${note.date||note.datetime}. `:''}${note.body||note.text||note.note||''}. Tanaman terkait: ${rel.join(', ')||'tidak tertaut'}; Bed terkait: ${note.bedNames?.join(', ')||relationNames(note.bedIds)||'tidak tertaut'}. Field lain: ${naraKnowledgeValue(note)}`});}
+  for(const indicator of indicatorList)add({id:`indicator:${indicator.id||docs.length}`,kind:'system-data',objectType:'growth-indicator',objectId:indicator.id||'',title:`Indikator pertumbuhan · ${indicator.name||indicator.id}`,source:indicator.builtIn?'indikator bawaan aplikasi':'indikator yang dibuat pengguna',status:'tersedia',record:indicator,text:naraKnowledgeValue(indicator)});
+  try{const cache=JSON.parse(localStorage.getItem(TS_WEATHER_CACHE_KEY)||'null');if(cache){add({id:'weather:cache',kind:'external-data-cache',objectType:'weather-cache',title:'Cache cuaca tersimpan',source:'cache layanan cuaca',status:cache.fetchedAt?`diambil ${new Date(Number(cache.fetchedAt)).toISOString()}`:'waktu pembaruan tidak diketahui',record:cache,text:`Cache prakiraan cuaca. Waktu diambil: ${cache.fetchedAt?new Date(Number(cache.fetchedAt)).toISOString():'tidak diketahui'}. Payload: ${naraKnowledgeValue(cache.payload)}`});}}catch{}
+  try{if(typeof NARA_PLANT_NEEDS!=='undefined'&&Array.isArray(NARA_PLANT_NEEDS)){for(const profile of NARA_PLANT_NEEDS)add({id:`plant-knowledge:${profile.key}`,kind:'horticulture-reference',objectType:'plant-need-profile',objectId:profile.key,title:`Referensi kebutuhan tanaman · ${profile.label}`,source:profile.source||'katalog kebutuhan tanaman prototype',status:'referensi umum; bukan pengamatan spesifik kebun',record:profile,text:`Tanaman: ${profile.label}. Alias: ${(profile.aliases||[]).join(', ')}. Kebutuhan cahaya minimum tercatat: ${profile.minSun} jam. Air: ${profile.water||'tidak dirinci'}. Media/tanah: ${profile.soil||'tidak dirinci'}. Sumber: ${profile.source||'tidak tercatat'}. URL sumber: ${profile.url||'tidak tersedia'}. Ini referensi umum, bukan bukti kondisi aktual Bed.`});}}catch{}
+  try{if(typeof naraAddonState!=='undefined'&&naraAddonState){add({id:'settings:nara',kind:'system-data',objectType:'nara-settings',title:'Pengaturan Nara',source:'pengaturan Nara prototype',status:'pengaturan aktif',record:naraAddonState.settings||{},text:`Pengaturan Nara: ${naraKnowledgeValue(naraAddonState.settings||{})}`});for(const m of (naraAddonState.memories||[]))add({id:`nara-memory:${m.id||docs.length}`,kind:'nara-memory',objectType:'nara-memory',objectId:m.id||'',title:`Memori Nara · ${m.title||'tanpa judul'}`,source:m.source||'memori prototype',status:m.status||'status tidak tercatat',record:m,text:`${m.title||''}. ${m.body||''}. Tanggal: ${m.date||'tidak tercatat'}. Status: ${m.status||'tidak tercatat'}.`});for(const r of (naraAddonState.rules||[]))add({id:`nara-rule:${r.id||docs.length}`,kind:'nara-rule',objectType:'nara-rule',objectId:r.id||'',title:`Aturan usulan Nara · ${r.title||'tanpa judul'}`,source:r.demo?'contoh prototipe':'usulan pengguna',status:r.status||'menunggu status',record:r,text:`${r.title||''}. ${r.body||''}. Dasar: ${r.reason||'belum dicatat'}. Status: ${r.status||'tidak tercatat'}.`});for(const d of (naraAddonState.decisions||[]))add({id:`nara-decision:${d.id||docs.length}`,kind:'nara-record',objectType:'nara-decision',objectId:d.id||'',title:`Riwayat keputusan Nara · ${d.title||d.type||'keputusan'}`,source:'riwayat keputusan prototype',status:d.status||'tercatat',record:d,text:naraKnowledgeValue(d)});for(const task of (naraAddonState.legacyTasks||[]))add({id:`nara-legacy-task:${task.id||docs.length}`,kind:'legacy-record',objectType:'legacy-care-record',objectId:task.id||'',title:`Catatan perawatan lama · ${task.title||task.name||'catatan'}`,source:'data kompatibilitas lama',status:task.status||'status sesuai rekaman lama',record:task,text:naraKnowledgeValue(task)});if(naraAddonState.insightStates&&Object.keys(naraAddonState.insightStates).length)add({id:'nara-insight-states',kind:'nara-state',objectType:'insight-states',title:'Status pengakuan Insight',source:'status antarmuka Nara',status:'kondisi yang telah diketahui',record:naraAddonState.insightStates,text:`Status Insight yang ditandai sudah diketahui: ${naraKnowledgeValue(naraAddonState.insightStates)}`});}}
+  catch{}
+  const countByKind={};for(const d of docs)countByKind[d.kind]=(countByKind[d.kind]||0)+1;
+  return {version:1,builtAt:new Date().toISOString(),documents:docs,attentionRows,collections:{plants,harvests:harvestList,gardenEvents:gardenEventList,attentions:Array.isArray(attentions)?attentions:[],attentionRows,inhabitants:inhabitantList,beds:bedList,gardenNotes:noteList,growthIndicators:indicatorList,gardenSettings},counts:{documents:docs.length,...countByKind},systemRules};
+}
+function naraRefreshGardenKnowledge(){
+  try{naraKnowledgeSnapshot=naraKnowledgeBuild();return naraKnowledgeSnapshot;}
+  catch(err){console.warn('Nara knowledge index could not be rebuilt:',err);return naraKnowledgeSnapshot;}
+}
+function naraKnowledgeTokens(question){
+  const stop=new Set(['bagaimana','apakah','dengan','untuk','dari','pada','yang','saya','kamu','nara','kebun','tanaman','apa','antara','sudah','bisa','tolong','jelaskan','mengenai','tentang','ada','mungkin','tersebut','dalam','ini','itu','kondisi','sekarang','masih','kenapa','mengapa','milik','bagi','atau','dan','bukan','jadi','bila','kalau','punya','dapat','ditemukan','tercatat','catatan','informasi','data','dong','ya','nih']);
+  return [...new Set(String(question||'').toLocaleLowerCase('id-ID').replace(/[^\p{L}\p{N}\s-]/gu,' ').split(/\s+/).filter(t=>t.length>=3&&!stop.has(t)))];
+}
+function naraKnowledgeSearch(question,options={}){
+  const snapshot=naraKnowledgeSnapshot?.documents?.length?naraKnowledgeSnapshot:naraRefreshGardenKnowledge();
+  const tokens=naraKnowledgeTokens(question),q=String(question||'').toLocaleLowerCase('id-ID');if(!tokens.length)return [];
+  const exactObjectIds=new Set([options.plant?.id,options.bed?.id,options.inhabitant?.id].filter(Boolean));
+  const exactObjectNames=[options.plant?.name,options.bed?.name,options.inhabitant?.name].filter(Boolean).map(v=>String(v).toLocaleLowerCase('id-ID'));
+  const results=[];
+  for(const doc of snapshot.documents){let score=0;const title=String(doc.title||'').toLocaleLowerCase('id-ID'),hay=doc.searchText||`${title} ${doc.text}`.toLocaleLowerCase('id-ID');
+    for(const token of tokens){if(title.includes(token))score+=token.length>=6?3:2;else if(hay.includes(token))score+=token.length>=6?2:1;}
+    if(title&&q.includes(title.replace(/^[^·]+·\s*/,'').trim()))score+=5;
+    if(exactObjectIds.has(doc.objectId)||exactObjectIds.has(doc.plantId)||(doc.relatedIds||[]).some(id=>exactObjectIds.has(id)))score+=3;
+    for(const name of exactObjectNames)if(name.length>=3&&hay.includes(name))score+=5;
+    if(/aturan|sistem|cara kerja|aplikasi|terra serenada/.test(q)&&doc.kind==='system-rule')score+=2;
+    if(score>0)results.push({doc,score});
+  }
+  return results.sort((a,b)=>b.score-a.score||String(b.doc.status||'').localeCompare(String(a.doc.status||''))).slice(0,options.limit||8);
+}
+function naraKnowledgePlantSummary(plant){
+  const snap=naraKnowledgeSnapshot?.collections? naraKnowledgeSnapshot:naraRefreshGardenKnowledge();
+  const groups=(Array.isArray(plant.plantingGroups)?plant.plantingGroups:[]).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  const active=groups.filter(groupHasActive),groupText=groups.slice(0,4).map(g=>{const expected=groupHarvestDate(plant,g);return `kelompok mulai ${g.date||'tanggal tidak tersedia'} (${groupHasActive(g)?'aktif':'riwayat/tidak aktif'}${expected?`, estimasi panen ${expected}`:''}${ti4GroupBedName(g)?`, Bed ${ti4GroupBedName(g)}`:''})`;});
+  const events=(Array.isArray(plant.events)?plant.events:[]).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,4).map(e=>`${e.date||'tanggal tidak tersedia'} · ${e.label||e.type||'aktivitas'}${e.note?`: ${e.note}`:''}`);
+  const ms=naraLatestMeasurements(plant).slice(0,3).map(r=>`${r.measurement.indicatorName||'indikator'} ${r.measurement.value} ${r.measurement.unit||''} (${r.event.date||'tanggal tidak tersedia'})`);
+  const harvested=(snap.collections.harvests||[]).filter(h=>h.plantId===plant.id).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,3).map(h=>`${h.date||'tanggal tidak tersedia'}: ${h.qty??'jumlah tidak tercatat'} ${h.unit||''}${h.quality?`, kualitas ${h.quality}`:''}`);
+  const lessons=(Array.isArray(plant.lessons)?plant.lessons:[]).slice(-3).map(l=>`${l.date||'tanggal tidak tersedia'}: ${l.text||l.body||''}`);
+  const attention=(snap.attentionRows||[]).filter(a=>a.plantId===plant.id).slice(0,4).map(a=>{const assessment=typeof naraAttentionAssessment==='function'?naraAttentionAssessment(a):null;return `${a.type||'perhatian'}${a.date?` (${a.date})`:''}: ${a.note||'tanpa detail'} [urgensi Nara: ${assessment?.status||'belum dinilai'}]`;});
+  const parts=[`Aku menemukan entri ${plant.name}${plant.variety?` · ${plant.variety}`:''}.`, `Umur panen tersimpan: ${plant.harvestDays!==undefined&&plant.harvestDays!==''?`${plant.harvestDays} hari`:'belum diatur'}.`, `Kelompok tanam: ${groups.length} total; ${active.length} aktif${groupText.length?` — ${groupText.join('; ')}`:''}.`, `Riwayat terbaru: ${events.join('; ')||'belum ada aktivitas yang tercatat'}.`, `Pengukuran terbaru: ${ms.join('; ')||'belum ada pengukuran pertumbuhan'}.`, `Catatan panen aktual: ${harvested.join('; ')||'belum ditemukan catatan panen untuk entri tanaman ini'}.`, `Pelajaran tersimpan: ${lessons.join('; ')||'belum ada'}.`, `Perhatian yang terbaca saat ini: ${attention.join('; ')||'tidak ada perhatian aktif yang terhubung pada pembacaan ini'}.`];
+  return `${parts.join(' ')} Data bersumber dari catatan Terra Serenada. Riwayat lama tidak membuktikan kondisi sekarang; tanggal estimasi juga tidak mengonfirmasi tanaman siap dipanen.`;
+}
+function naraKnowledgeSourcesForText(text,limit=6){
+  const snap=naraKnowledgeSnapshot?.documents?.length?naraKnowledgeSnapshot:naraRefreshGardenKnowledge();
+  const lower=String(text||'').toLocaleLowerCase('id-ID'),matchedIds=new Set(),scored=[];
+  const addRelated=(kind,id)=>{for(const doc of snap.documents){if(doc.objectType===kind&&doc.objectId===id||doc.plantId===id||(doc.relatedIds||[]).includes(id))matchedIds.add(doc.id);}};
+  for(const plant of (snap.collections?.plants||[]))if(plant.name&&String(plant.name).length>=3&&lower.includes(String(plant.name).toLocaleLowerCase('id-ID')))addRelated('plant',plant.id);
+  for(const bed of (snap.collections?.beds||[]))if(bed.name&&String(bed.name).length>=3&&lower.includes(String(bed.name).toLocaleLowerCase('id-ID')))addRelated('bed',bed.id);
+  for(const inhabitant of (snap.collections?.inhabitants||[]))if(inhabitant.name&&String(inhabitant.name).length>=3&&lower.includes(String(inhabitant.name).toLocaleLowerCase('id-ID')))addRelated('inhabitant',inhabitant.id);
+  const tokens=naraKnowledgeTokens(text);
+  for(const doc of snap.documents){let score=matchedIds.has(doc.id)?8:0;for(const token of tokens){if(doc.title.toLocaleLowerCase('id-ID').includes(token))score+=token.length>=6?2:1;else if(doc.searchText.includes(token))score+=token.length>=6?1:0.5;}if(score>0)scored.push({doc,score});}
+  const sorted=scored.sort((a,b)=>b.score-a.score);const result=[],seen=new Set();for(const x of sorted){if(seen.has(x.doc.id))continue;seen.add(x.doc.id);result.push(x.doc.id);if(result.length>=limit)break;}return result;
+}
+function naraRespondFromKnowledge(question,foundPlant=null,foundBed=null){
+  const q=String(question||'').toLocaleLowerCase('id-ID');
+  if(/terra serenada|data apa saja|sumber informasi|apa yang kamu ketahui tentang kebun|apa yang kamu tahu tentang kebun|apa yang kamu tahu tentang sistem/.test(q)){
+    const s=naraRefreshGardenKnowledge(),c=s.collections;
+    return `Aku membangun pemahaman dari data lokal Terra Serenada yang tersedia saat ini: ${c.plants.length} entri tanaman, ${c.harvests.length} catatan panen, ${c.gardenEvents.length} peristiwa kebun, ${c.attentions.length} catatan perhatian tersimpan dan ${c.attentionRows.length} perhatian aktif/otomatis yang terbaca, ${c.inhabitants.length} Inhabitants, ${c.beds.length} Bed, ${c.gardenNotes.length} jurnal kebun, serta ${c.growthIndicators.length} indikator pertumbuhan. Di dalam entri tanaman juga ada kelompok tanam, aktivitas, pengukuran, pelajaran, dan relasi terkait. Aku juga membaca pengaturan, cache cuaca, aturan sistem yang didokumentasikan, dan memori/aturan tambahan Nara jika tersedia. Indeks konteks saat ini memuat ${s.counts.documents} dokumen sumber. Data ini berasal dari penyimpanan lokal pada perangkat/browser; foto tidak otomatis dipahami oleh analisis offline, dan AI online belum terhubung.`;
+  }
+  if(foundPlant&&/(tentang|ringkas|rangkum|riwayat|catatan|apa yang kamu tahu|apa yang diketahui|informasi|semua|jelaskan)/.test(q))return naraKnowledgePlantSummary(foundPlant);
+  const hits=naraKnowledgeSearch(question,{plant:foundPlant,bed:foundBed,limit:6});if(!hits.length||hits[0].score<4)return '';
+  const best=hits[0].doc;
+  const relevant=hits.filter(x=>x.score>=Math.max(3,hits[0].score-3)).slice(0,5);
+  return `Aku mencari di indeks konteks Terra Serenada dan menemukan informasi yang paling relevan. ${relevant.map((x,i)=>`${i+1}. ${x.doc.title}${x.doc.status?` [${x.doc.status}]`:''}: ${String(x.doc.text||'').slice(0,620)}`).join('\n')}\n\nSumber utama: ${best.source||best.kind}. Ini merujuk pada informasi yang tersimpan; jika berupa riwayat lama, status sekarang perlu diperiksa. Bila maksud pertanyaanmu lebih spesifik, sebutkan objek atau catatan yang ingin ditelusuri.`;
+}
+
 function naraNumber(n){return Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:2});}
 function naraAllMeasurements(){
   const rows=[];
@@ -2565,7 +2696,8 @@ function naraInsight(icon,status,title,body,reason,actions=''){
   const whyHtml=reason?`<details class="nara-why"><summary>Mengapa Nara menyimpulkan ini?</summary><p class="nara-reason"><b>Dasar:</b> ${esc(reason)}</p>${evidenceHtml}</details>`:`<details class="nara-why"><summary>Mengapa Nara menyimpulkan ini?</summary>${evidenceHtml}</details>`;
   const knownButton=(priority==='P1'||priority==='P2')?`<button type="button" class="secondary nara-insight-known-btn" data-nara-insight-known="${esc(key)}" data-nara-insight-fingerprint="${esc(fingerprint)}">Sudah diketahui</button>`:'';
   const html=`<article class="nara-insight" data-nara-insight-key="${esc(key)}" data-nara-insight-fingerprint="${esc(fingerprint)}" data-nara-priority="${priority}"><div class="nara-insight-top"><div class="nara-insight-icon">${icon}</div><div class="nara-insight-copy"><span class="nara-pill ${cls}">${esc(status)}</span><span class="nara-insight-priority">${priority}</span><div class="nara-insight-title">${esc(title)}</div></div></div><p>${esc(body)}</p>${whyHtml}${actions||knownButton?`<div class="nara-actions">${actions}${knownButton}</div>`:''}</article>`;
-  naraInsightRegistry.push({key,fingerprint,priority,status,title,body,reason,evidence,known,html});
+  const sourceRefs=typeof naraKnowledgeSourcesForText==='function'?naraKnowledgeSourcesForText(`${title} ${body} ${reason}`,6):[];
+  naraInsightRegistry.push({key,fingerprint,priority,status,title,body,reason,evidence,known,html,sourceRefs});
   return html;
 }
 
@@ -2874,6 +3006,7 @@ function naraCollectAttentionSources(rows){
 }
 
 function naraBuildInsights(){
+  naraRefreshGardenKnowledge();
   naraInsightRegistry=[];
   const activeQty=data.reduce((n,p)=>n+(Array.isArray(p.plantingGroups)?p.plantingGroups.filter(groupHasActive).reduce((m,g)=>m+groupActiveQty(g),0):0),0);
   const measurements=naraAllMeasurements();
@@ -3015,7 +3148,8 @@ function naraRespondFromStoredInsights(question){
     if(score>bestScore){best=item;bestScore=score;}
   }
   if(!best||bestScore<3)return '';
-  return `Aku menemukan wawasan tersimpan yang relevan: ${best.title} (${best.priority}, ${best.evidence}). ${best.body}${best.reason?` Dasar: ${best.reason}`:''} Ini berasal dari analisis data kebun yang tercatat; jika kondisinya dapat berubah, pengamatan terbaru tetap diperlukan.`;
+  const sourceTitles=(best.sourceRefs||[]).map(id=>naraKnowledgeSnapshot.documents.find(doc=>doc.id===id)?.title).filter(Boolean).slice(0,4);
+  return `Aku menemukan wawasan tersimpan yang relevan: ${best.title} (${best.priority}, ${best.evidence}). ${best.body}${best.reason?` Dasar: ${best.reason}`:''}${sourceTitles.length?` Sumber data terkait: ${sourceTitles.join('; ')}.`:''} Ini berasal dari analisis data kebun yang tercatat; jika kondisinya dapat berubah, pengamatan terbaru tetap diperlukan.`;
 }
 /* Query resolver bersama untuk Chat: gunakan sumber data yang sama dengan analisis Insight.
    Fungsi ini hanya membaca catatan; tidak mengubah status, riwayat, atau keputusan Home. */
@@ -3057,7 +3191,7 @@ function naraRespondFromAttentionSources(question, foundPlant=null){
 
   const pestIntent=/(hama|penyakit|stinkbug|kutu|ulat|serangan|gejala hama|gejala penyakit)/.test(q);
   if(pestIntent){
-    const allRows=(typeof getAutomaticAttentions==='function'?getAutomaticAttentions():[])
+    const allRows=(naraKnowledgeSnapshot?.attentionRows||(typeof getAutomaticAttentions==='function'?getAutomaticAttentions():[]))
       .filter(a=>naraAttentionSource(a)==='pest-disease')
       .filter(a=>!foundPlant||a.plantId===foundPlant.id);
     const unique=[];const seen=new Set();
@@ -3103,9 +3237,10 @@ Ada ${unique.length-chosen.length} catatan lain yang tidak ditampilkan di jawaba
 
 function naraRespond(question){
   const q=String(question||'').toLocaleLowerCase('id-ID');
-  const foundPlant=data.find(p=>p.name&&q.includes(String(p.name).toLocaleLowerCase('id-ID')));
+  naraRefreshGardenKnowledge();
+  const foundPlant=(naraKnowledgeSnapshot.collections?.plants||data).find(p=>p.name&&q.includes(String(p.name).toLocaleLowerCase('id-ID')));
   const attentionAnswer=naraRespondFromAttentionSources(q,foundPlant);if(attentionAnswer)return attentionAnswer;
-  const foundBed=(Array.isArray(beds)?beds:[]).slice().sort((a,b)=>String(b.name||'').length-String(a.name||'').length).find(b=>b.name&&q.includes(String(b.name).toLocaleLowerCase('id-ID')));
+  const foundBed=(naraKnowledgeSnapshot.collections?.beds|| (Array.isArray(beds)?beds:[])).slice().sort((a,b)=>String(b.name||'').length-String(a.name||'').length).find(b=>b.name&&q.includes(String(b.name).toLocaleLowerCase('id-ID')));
   if(foundBed&&/(cocok|ditanam|tanaman baru|rekomendasi|kecocokan)/.test(q)){
     const candidates=naraBedCandidateFits(foundBed);
     if(!candidates.length)return `Untuk Bed ${foundBed.name}, aku belum bisa memberi kandidat yang cukup berdasar profil saat ini. Lengkapi zona cahaya, jenis media, dan drainase terlebih dahulu. Aku tidak mengukur kelembapan secara langsung; perkiraan air hanya menggunakan profil dan riwayat yang tercatat.`;
@@ -3155,11 +3290,9 @@ function naraRespond(question){
     const ms=naraAllMeasurements();const measured=new Set(ms.map(r=>r.plant.id));const missing=data.filter(p=>(Array.isArray(p.plantingGroups)?p.plantingGroups.some(groupHasActive):false)&&!measured.has(p.id));
     return `Saat ini aplikasi menyimpan ${data.length} entri tanaman, ${harvests.length} catatan panen, ${gardenEvents.length} peristiwa kebun, ${ms.length} baris pengukuran, dan ${gardenNotes.length} catatan jurnal kebun. ${missing.length?`${missing.length} entri tanaman aktif belum memiliki pengukuran.`:'Pengukuran ditemukan pada semua entri tanaman aktif yang terbaca.'} Agar analisis lebih kuat, catat indikator yang sama dengan satuan dan cara ukur konsisten, tanggal yang tepat, serta gejala yang diamati.`;
   }
-  if(foundPlant){
-    const latestEvents=(Array.isArray(foundPlant.events)?foundPlant.events:[]).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,3);
-    return `Aku menemukan ${foundPlant.name}${foundPlant.variety?' · '+foundPlant.variety:''}. ${latestEvents.length?'Tiga aktivitas terakhir yang tercatat: '+latestEvents.map(e=>`${e.label||e.type||'Aktivitas'} (${e.date||'tanpa tanggal'})`).join('; ')+'.':'Belum ada riwayat aktivitas khusus yang kutemukan.'} Untuk analisis yang lebih spesifik, tanyakan tentang pertumbuhan, pengukuran, kebutuhan air, atau catatan aktivitasnya.`;
-  }
-  return `Aku memahami pertanyaanmu: “${question}”. Dalam prototype ini aku hanya menggunakan aturan offline dan data lokal yang tersedia; AI online belum terhubung, jadi aku belum bisa melakukan penalaran mendalam. Coba tanya tentang prioritas hari ini, pertumbuhan, air dan hujan, atau kelengkapan data.`;
+  const knowledgeAnswer=naraRespondFromKnowledge(question,foundPlant,foundBed);if(knowledgeAnswer)return knowledgeAnswer;
+  if(foundPlant)return naraKnowledgePlantSummary(foundPlant);
+  return `Aku memahami pertanyaanmu: “${question}”. Aku akan mencari catatan, relasi objek, aturan sistem, dan hasil analisis yang relevan pada konteks Terra Serenada yang tersedia di perangkat ini. Untuk pertanyaan yang belum dapat dicocokkan dengan data tertentu, sebutkan nama tanaman, Bed, Inhabitant, tanggal, atau jenis catatan agar pencarian lebih tepat. AI online belum terhubung; jawabanku masih memakai aturan offline dan data lokal.`;
 }
 function naraSendMessage(question){
   const q=String(question||'').trim();if(!q)return;
