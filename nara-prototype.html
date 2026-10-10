@@ -443,6 +443,17 @@ body.nara-active .nav-item.active{color:#d8edb9}
 .nara-insight-list{display:grid;gap:9px}
 .nara-insight{padding:13px;border:1px solid rgba(167,193,131,.25);border-radius:17px;background:linear-gradient(135deg,rgba(29,44,25,.93),rgba(13,22,13,.95));box-shadow:0 8px 23px rgba(0,0,0,.18);backdrop-filter:blur(12px)}
 .nara-insight-icon{background:rgba(139,173,98,.19);border:1px solid rgba(166,200,124,.22)}.nara-insight-title{color:#f5f0d7}.nara-insight p{color:#e0e4d1}.nara-reason{color:#b4c1a5!important}.nara-pill{background:rgba(134,177,92,.2);color:#d0e7ae}.nara-pill.warn{background:rgba(156,111,43,.26);color:#f3d590}.nara-pill.alert{background:rgba(148,66,53,.24);color:#ffb2a4}
+.nara-insight-priority{display:inline-flex;align-items:center;border:1px solid rgba(224,191,112,.28);border-radius:999px;padding:3px 6px;margin:0 0 5px 5px;font-size:9px;font-weight:850;color:#ead79f;background:rgba(69,54,24,.35)}
+.nara-why{margin-top:8px;border-top:1px solid rgba(173,198,137,.17);padding-top:7px}
+.nara-why summary{cursor:pointer;list-style:none;font-size:10px;font-weight:750;color:#d3dfa9}
+.nara-why summary::-webkit-details-marker{display:none}
+.nara-why summary::before{content:'＋';display:inline-block;width:16px;color:#e8c878}
+.nara-why[open] summary::before{content:'−'}
+.nara-why .nara-reason{margin-top:7px!important}
+.nara-insight-known-btn{border-style:dashed!important;opacity:.9}
+.nara-empty small{display:block;margin-top:7px;color:#bac8a9;font-size:10px}
+.nara-insight[data-nara-priority="P1"]{border-color:rgba(218,116,94,.65)}
+.nara-insight[data-nara-priority="P2"]{border-color:rgba(220,178,82,.44)}
 .nara-actions button{background:rgba(82,112,56,.30);border-color:rgba(159,191,119,.3);color:#e8efdc}
 .nara-chat-heading{margin-top:25px}.nara-tag{border-color:rgba(224,191,112,.3);background:rgba(69,54,24,.42);color:#e7ce94}
 .nara-chat-card{padding:13px;border-radius:20px;border:1px solid rgba(163,192,128,.32);background:linear-gradient(145deg,rgba(31,45,27,.95),rgba(12,21,12,.96));box-shadow:0 13px 28px rgba(0,0,0,.22);backdrop-filter:blur(12px)}
@@ -2511,9 +2522,50 @@ function naraWeatherSummary(){
   }catch{return 'Data cuaca tersimpan belum dapat dibaca.';}
 }
 function naraMetric(label,value,detail){return `<div class="nara-metric"><span>${esc(label)}</span><b>${esc(value)}</b><span>${esc(detail)}</span></div>`;}
+/* Insight generated from saved garden data are rebuilt on each analysis pass. This avoids persisting stale conclusions as if they were permanent facts. */
+let naraInsightRegistry=[];
+function naraInsightHash(value){let h=2166136261;const text=String(value??'').toLocaleLowerCase('id-ID').normalize('NFKC');for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
+function naraInsightPriority(status,title,body,reason){
+  const s=String(status||'').trim().toLocaleLowerCase('id-ID');
+  if(s==='mendesak'||s.includes('mendesak'))return 'P1';
+  if(/^perkiraan panen/i.test(String(title||'')))return 'P3';
+  if(['perlu diperiksa','perlu perhatian','perlu penyesuaian','risiko ketidakcocokan','risiko tinggi'].includes(s))return 'P2';
+  if(['data belum lengkap','belum cukup data','perlu konfirmasi','pantau hubungan','kecocokan awal','kandidat awal','mulai pantau'].includes(s))return 'P3';
+  if(s==='pantau kondisi'&&/dapat membuat air lebih cepat lewat|dapat meningkatkan risiko|perlu dipantau|mengering/.test(`${title||''} ${body||''}`.toLocaleLowerCase('id-ID')))return 'P3';
+  if(['pantau kondisi','pertumbuhan','mulai pantau','terpantau'].includes(s))return 'P4';
+  return 'P4';
+}
+function naraInsightEvidence(status,title,body,reason){
+  const text=`${status||''} ${title||''} ${body||''} ${reason||''}`.toLocaleLowerCase('id-ID');
+  if(/belum cukup data|data belum lengkap|belum dapat dipastikan|belum ditemukan|belum ada pengukuran|profil kebutuhan.*belum tersedia|informasi.*belum tersedia/.test(text))return 'Belum cukup';
+  if(/tingkat keyakinan[^.]{0,55}(?:kuat|tinggi)|bukti kuat|pengamatan langsung terkonfirmasi/.test(text))return 'Kuat';
+  if(/awal.?sedang|tingkat keyakinan[^.]{0,55}sedang|bukti pendukung[^.]{0,40}(?:konsisten|kuat)/.test(text))return 'Sedang';
+  return 'Indikasi awal';
+}
+function naraInsightFingerprint(priority,status,body,reason){
+  /* Relative age wording changes every day; omit it while preserving explicit event/forecast dates. */
+  const stable=value=>String(value||'').toLocaleLowerCase('id-ID')
+    .replace(/\b(?:hari ini|\d+\s+hari lalu)\b/g,'[umur relatif]')
+    .replace(/\b(?:sekitar )?\d+\s+jam lalu\b/g,'[umur prakiraan]')
+    .replace(/\bdiperbarui sekitar \d+\s+menit lalu\b/g,'[umur pembaruan]')
+    .replace(/\s+/g,' ').trim();
+  return naraInsightHash([priority,status,stable(body),stable(reason)].join('|'));
+}
+function naraInsightStoredState(key){try{return naraAddonState?.insightStates?.[key]||null;}catch(e){return null;}}
 function naraInsight(icon,status,title,body,reason,actions=''){
+  const priority=naraInsightPriority(status,title,body,reason);
+  const key='nara-insight-'+naraInsightHash(title);
+  const fingerprint=naraInsightFingerprint(priority,status,body,reason);
+  const stored=naraInsightStoredState(key);
+  const known=!!(stored&&stored.state==='known'&&stored.fingerprint===fingerprint);
   const cls=['Mendesak','Risiko ketidakcocokan'].includes(status)?'alert':['Perlu diperiksa','Perlu penyesuaian','Perlu perhatian','Data belum lengkap','Belum cukup data'].includes(status)?'warn':'';
-  return `<article class="nara-insight"><div class="nara-insight-top"><div class="nara-insight-icon">${icon}</div><div class="nara-insight-copy"><span class="nara-pill ${cls}">${esc(status)}</span><div class="nara-insight-title">${esc(title)}</div></div></div><p>${esc(body)}</p>${reason?`<p class="nara-reason"><b>Dasar:</b> ${esc(reason)}</p>`:''}${actions?`<div class="nara-actions">${actions}</div>`:''}</article>`;
+  const evidence=naraInsightEvidence(status,title,body,reason);
+  const evidenceHtml=`<p class="nara-reason"><b>Tingkat dukungan bukti:</b> ${esc(evidence)}. Ini adalah label kualitatif berdasarkan informasi yang tersedia, bukan persentase probabilitas.</p>`;
+  const whyHtml=reason?`<details class="nara-why"><summary>Mengapa Nara menyimpulkan ini?</summary><p class="nara-reason"><b>Dasar:</b> ${esc(reason)}</p>${evidenceHtml}</details>`:`<details class="nara-why"><summary>Mengapa Nara menyimpulkan ini?</summary>${evidenceHtml}</details>`;
+  const knownButton=(priority==='P1'||priority==='P2')?`<button type="button" class="secondary nara-insight-known-btn" data-nara-insight-known="${esc(key)}" data-nara-insight-fingerprint="${esc(fingerprint)}">Sudah diketahui</button>`:'';
+  const html=`<article class="nara-insight" data-nara-insight-key="${esc(key)}" data-nara-insight-fingerprint="${esc(fingerprint)}" data-nara-priority="${priority}"><div class="nara-insight-top"><div class="nara-insight-icon">${icon}</div><div class="nara-insight-copy"><span class="nara-pill ${cls}">${esc(status)}</span><span class="nara-insight-priority">${priority}</span><div class="nara-insight-title">${esc(title)}</div></div></div><p>${esc(body)}</p>${whyHtml}${actions||knownButton?`<div class="nara-actions">${actions}${knownButton}</div>`:''}</article>`;
+  naraInsightRegistry.push({key,fingerprint,priority,status,title,body,reason,evidence,known,html});
+  return html;
 }
 
 /* Nara Ecosystem Insight v24 — all assessments remain evidence-limited and offline. */
@@ -2755,6 +2807,7 @@ function naraRenderCarePlan(){
 }
 
 function naraBuildInsights(){
+  naraInsightRegistry=[];
   const activeQty=data.reduce((n,p)=>n+(Array.isArray(p.plantingGroups)?p.plantingGroups.filter(groupHasActive).reduce((m,g)=>m+groupActiveQty(g),0):0),0);
   const measurements=naraAllMeasurements();
   const plantsMeasured=new Set(measurements.map(r=>r.plant.id));
@@ -2849,12 +2902,50 @@ function naraBuildInsights(){
   const water=typeof latestGardenWater==='function'?latestGardenWater():null;
   cards.push(naraInsight('🌦️','Pantau kondisi','Air dan cuaca',`${water?`Catatan air terakhir di tingkat kebun: ${water.type==='rain'?'hujan':'penyiraman'} tanggal ${water.date||'tanpa tanggal'}. `:'Belum ada catatan hujan/penyiraman tingkat kebun yang terbaca. '}${naraWeatherSummary()}`, 'Riwayat air per Bed digunakan di kartu karakter lingkungan. Catatan aktual dan prakiraan cuaca diperlakukan terpisah; prakiraan bukan hujan aktual.'));
   if(!cards.length)cards.push(naraInsight('🌱','Terpantau','Belum ada prioritas otomatis','Belum ditemukan perhatian aktif oleh aturan yang saat ini tersedia. Ini bukan jaminan semua tanaman sehat; lanjutkan observasi rutin.','Analisis terbatas pada data yang tercatat di aplikasi.'));
-  $('naraInsightList').innerHTML=cards.join('');
+  const priorityRows=naraInsightRegistry.filter(item=>item.priority==='P1'||item.priority==='P2');
+  const deferredRows=naraInsightRegistry.filter(item=>item.priority==='P3'||item.priority==='P4');
+  const visiblePriority=priorityRows.filter(item=>!item.known);
+  const knownPriority=priorityRows.filter(item=>item.known);
+  $('naraMetrics').innerHTML=[
+    naraMetric('Tanaman aktif',activeQty,`${data.length} jenis/entri tanaman`),
+    naraMetric('Pengukuran',measurements.length,`${plantsMeasured.size} tanaman pernah diukur`),
+    naraMetric('Insight prioritas',visiblePriority.length,`${knownPriority.length} sudah diketahui · ${deferredRows.length} wawasan tersedia lewat Chat`)
+  ].join('');
+  $('naraInsightList').innerHTML=visiblePriority.map(item=>item.html).join('')||`<div class="nara-empty">Tidak ada Insight prioritas baru yang membutuhkan perhatian berdasarkan data saat ini.<small>${knownPriority.length?`${knownPriority.length} kondisi yang sudah diketahui tetap tersimpan sebagai konteks. `:''}${deferredRows.length?`${deferredRows.length} wawasan nonprioritas dapat digali lewat Chat Nara. `:''}Ini bukan jaminan seluruh kebun bebas masalah.</small></div>`;
 }
 function naraRenderChat(){
   const host=$('naraChatMessages');if(!host)return;
   const messages=naraChatMessages.length?naraChatMessages:[{role:'ai',text:'Hai! Aku Nara, sahabat berkebunmu. Aku bisa membaca ringkasan catatan kebun yang tersedia di aplikasi ini. Untuk prototype, jawabanku masih berbasis aturan offline—AI online belum terhubung.'}];
   host.innerHTML=messages.map(m=>`<div class="nara-bubble ${m.role==='user'?'user':'ai'}">${esc(m.text)}</div>`).join('');
+}
+function naraRespondFromStoredInsights(question){
+  const q=String(question||'').toLocaleLowerCase('id-ID');
+  if(!naraInsightRegistry.length)return '';
+  const stop=new Set(['bagaimana','apakah','dengan','untuk','dari','pada','yang','saya','kamu','nara','kebun','tanaman','apa','antara','sudah','bisa','tolong','jelaskan','mengenai','tentang','ada','mungkin','tersebut','dalam','ini','itu','kondisi','sekarang','masih','kenapa','mengapa','milik','bagi','atau','dan','bukan','jadi','bila','kalau','punya','dapat','ditemukan']);
+  const tokens=[...new Set(q.replace(/[^\p{L}\p{N}\s-]/gu,' ').split(/\s+/).filter(t=>t.length>=3&&!stop.has(t)))];
+  if(!tokens.length)return '';
+  const candidates=naraInsightRegistry.filter(item=>item.priority==='P3'||item.priority==='P4'||item.known);
+  const interactionIntent=/(interaksi|hubungan|pendamping|berbagi bed|serangga|penyerbukan|inhabitant)/.test(q);
+  const namedCritterTerms=['kumbang','koksi','lebah','kupu','semut','siput','cacing','burung','kadal','katak','laba-laba'].filter(term=>q.includes(term));
+  const queriedPlants=(Array.isArray(data)?data:[]).filter(plant=>plant.name&&q.includes(String(plant.name).toLocaleLowerCase('id-ID')));
+  const queriedInhabitants=(Array.isArray(inhabitants)?inhabitants:[]).filter(item=>item.name&&q.includes(String(item.name).toLocaleLowerCase('id-ID')));
+  let best=null,bestScore=0;
+  for(const item of candidates){
+    const hay=`${item.title} ${item.status} ${item.body} ${item.reason}`.toLocaleLowerCase('id-ID');
+    const titleLower=String(item.title||'').toLocaleLowerCase('id-ID');
+    if(interactionIntent&&namedCritterTerms.length&&!namedCritterTerms.some(term=>titleLower.includes(term)))continue;
+    if(interactionIntent&&queriedInhabitants.length&&!queriedInhabitants.some(inhabitant=>titleLower.includes(String(inhabitant.name).toLocaleLowerCase('id-ID'))))continue;
+    if(interactionIntent&&queriedPlants.length&&!queriedPlants.some(plant=>hay.includes(String(plant.name).toLocaleLowerCase('id-ID'))))continue;
+    let score=0;
+    for(const token of tokens){if(hay.includes(token))score+=token.length>=6?2:1;}
+    if(interactionIntent&&/interaksi tercatat|tanaman berbagi bed|pantau hubungan/.test(`${item.title} ${item.status}`.toLocaleLowerCase('id-ID')))score+=2;
+    for(const plant of queriedPlants)if(hay.includes(String(plant.name).toLocaleLowerCase('id-ID')))score+=3;
+    for(const bed of (Array.isArray(beds)?beds:[]))if(bed.name&&q.includes(String(bed.name).toLocaleLowerCase('id-ID'))&&hay.includes(String(bed.name).toLocaleLowerCase('id-ID')))score+=3;
+    for(const inhabitant of queriedInhabitants)if(hay.includes(String(inhabitant.name).toLocaleLowerCase('id-ID')))score+=3;
+    if(score>bestScore){best=item;bestScore=score;}
+  }
+  if(!best||bestScore<3)return '';
+  return `Aku menemukan wawasan tersimpan yang relevan: ${best.title} (${best.priority}, ${best.evidence}). ${best.body}${best.reason?` Dasar: ${best.reason}`:''} Ini berasal dari analisis data kebun yang tercatat; jika kondisinya dapat berubah, pengamatan terbaru tetap diperlukan.`;
 }
 function naraRespond(question){
   const q=String(question||'').toLocaleLowerCase('id-ID');
@@ -2866,10 +2957,22 @@ function naraRespond(question){
     return `Untuk Bed ${foundBed.name}, kandidat pembanding awal dari katalog yang tersedia: ${candidates.slice(0,4).map(x=>`${x.profile.label} — ${x.fit.status.toLocaleLowerCase('id-ID')} (${x.fit.details.join(', ')})`).join('; ')}. Ini penyaringan awal, bukan jaminan berhasil. Data suhu/musim, kebutuhan ruang, hara, dan interaksi dengan tanaman yang sudah ada juga perlu dipertimbangkan.`;
   }
   if(foundBed&&/(lembap|kelembapan|air|siram|hujan|cahaya|drainase|media|lingkungan|kondisi)/.test(q))return `Ringkasan Bed ${foundBed.name}: ${naraBedEnvironmentText(foundBed)} Aku memperkirakan kecenderungan dari data, bukan mengukur kelembapan aktual.`;
-  if(/interaksi|inhabitant|serangga|penyerbukan|tanaman pendamping|tanaman berbagi bed/.test(q)){
+  if(/interaksi|inhabitant|serangga|penyerbukan|tanaman pendamping|tanaman berbagi bed|hubungan/.test(q)){
+    const storedInsight=naraRespondFromStoredInsights(q);if(storedInsight)return storedInsight;
     const observations=(Array.isArray(inhabitants)?inhabitants:[]).flatMap(i=>(Array.isArray(i.events)?i.events:[]).filter(e=>Array.isArray(e.plantIds)&&e.plantIds.length).map(e=>({inhabitant:i,event:e,plants:e.plantIds.map(id=>data.find(p=>p.id===id)?.name).filter(Boolean)})));
     if(!observations.length)return 'Aku belum menemukan catatan interaksi Inhabitant–tanaman yang terhubung. Catat Inhabitant, tanaman terkait, tanggal, dan perilaku yang benar-benar terlihat. Kehadiran saja tidak membuktikan manfaat atau kerugian.';
-    return `Aku menemukan ${observations.length} catatan interaksi Inhabitant–tanaman. Catatan terbaru: ${observations.slice().sort((a,b)=>String(b.event.date||'').localeCompare(String(a.event.date||'')))[0] && (()=>{const x=observations.slice().sort((a,b)=>String(b.event.date||'').localeCompare(String(a.event.date||'')))[0];return `${x.inhabitant.name} · ${x.plants.join(', ')} · ${x.event.date||'tanggal tidak tersedia'} · ${typeof observationLabel==='function'?observationLabel(x.event.type):x.event.type||'observasi'}${x.event.note?`: ${x.event.note}`:''}`})()}. Aku membedakan yang tercatat dari dugaan; kunjungan tidak membuktikan penyerbukan, dan perilaku memangsa perlu menyebut mangsanya agar dampaknya dapat dinilai.`;
+    const namedPlants=(Array.isArray(data)?data:[]).filter(p=>p.name&&q.includes(String(p.name).toLocaleLowerCase('id-ID')));
+    const namedInhabitants=(Array.isArray(inhabitants)?inhabitants:[]).filter(i=>i.name&&q.includes(String(i.name).toLocaleLowerCase('id-ID')));
+    const critterWords=['kumbang','koksi','lebah','kupu','semut','siput','cacing','burung','kadal','katak','laba-laba'].filter(term=>q.includes(term));
+    const relevant=observations.filter(x=>{
+      if(namedPlants.length&&!namedPlants.some(p=>x.plants.includes(p.name)))return false;
+      if(namedInhabitants.length&&!namedInhabitants.some(i=>i.id===x.inhabitant.id))return false;
+      if(critterWords.length&&!critterWords.some(term=>String(x.inhabitant.name||'').toLocaleLowerCase('id-ID').includes(term)))return false;
+      return true;
+    });
+    if(!relevant.length)return `Aku belum menemukan catatan interaksi yang cocok dengan objek yang kamu tanyakan${namedPlants.length?` (${namedPlants.map(p=>p.name).join(', ')})`:''}${critterWords.length?` dan Inhabitant yang kamu sebutkan (${critterWords.join(', ')})`:''}. Aku tidak akan memakai pengamatan dari organisme atau tanaman lain sebagai bukti untuk kasus ini.`;
+    const latest=relevant.slice().sort((a,b)=>String(b.event.date||'').localeCompare(String(a.event.date||'')))[0];
+    return `Aku menemukan ${relevant.length} catatan interaksi yang relevan. Catatan terbaru: ${latest.inhabitant.name} · ${latest.plants.join(', ')} · ${latest.event.date||'tanggal tidak tersedia'} · ${typeof observationLabel==='function'?observationLabel(latest.event.type):latest.event.type||'observasi'}${latest.event.note?`: ${latest.event.note}`:''}. Catatan ini membuktikan adanya pengamatan yang tersimpan, bukan otomatis dampak yang menguntungkan atau merugikan. Kunjungan tidak membuktikan penyerbukan, dan perilaku memangsa perlu mengidentifikasi mangsanya.`;
   }
   if(foundPlant&&(/tumbuh|pertumbuhan|ukur|ukuran|sulur|daun|bunga|kondisi/.test(q))){
     const ms=naraLatestMeasurements(foundPlant);
@@ -2878,11 +2981,15 @@ function naraRespond(question){
     const summaries=ms.slice(0,4).map(r=>{const rate=typeof ti41RateForMeasurement==='function'?ti41RateForMeasurement(foundPlant,r.event,r.measurement):null;return `${r.measurement.indicatorName||'Indikator'}: ${naraNumber(r.measurement.value)} ${r.measurement.unit||''} (${r.event.date||'tanpa tanggal'})${rate?`; laju rata-rata ${naraNumber(rate.rate)} ${r.measurement.unit||''}/hari dibanding ${rate.previousDate}`:''}`;});
     return `Untuk ${foundPlant.name}, pengukuran terbaru yang kutemukan bertanggal ${latestDate}. ${summaries.join('; ')}. Angka ini perlu ditafsirkan sesuai indikator dan cara ukurnya; belum cukup untuk menyatakan tanaman sehat atau bermasalah hanya dari angka.`;
   }
-  if(/rencana|jadwal|besok|beberapa hari|hari ke depan/.test(q))return naraCarePlanSummary();
   if(/prioritas|hari ini|apa yang perlu|kerjakan|tindakan/.test(q)){
-    const items=(typeof getAutomaticAttentions==='function'?getAutomaticAttentions():[]).slice(0,4);
-    if(!items.length)return 'Dari aturan offline yang tersedia, belum ada perhatian aktif yang muncul. Itu bukan berarti kebun pasti bebas masalah. Hari ini kamu bisa memeriksa kelembapan tanah, melihat sisi bawah daun, dan memperbarui pengukuran tanaman yang sedang dipantau.';
-    return 'Ini prioritas yang tercatat dari aturan Terra Serenada:\n'+items.map((a,i)=>`${i+1}. ${plantName(a.plantId)} — ${typeof attentionText==='function'?attentionText(a):(a.note||'perlu diperiksa')}`).join('\n')+'\n\nAnggap ini daftar pemeriksaan, bukan diagnosis otomatis. Periksa kondisi nyata sebelum bertindak.';
+    const items=naraInsightRegistry.filter(item=>(item.priority==='P1'||item.priority==='P2')&&!item.known).sort((a,b)=>a.priority.localeCompare(b.priority));
+    if(!items.length)return 'Saat ini tidak ada Insight prioritas baru yang muncul dari data yang tersedia. Kondisi yang sudah diketahui tetap disimpan sebagai konteks, dan ketiadaan peringatan bukan jaminan seluruh kebun bebas masalah.';
+    return 'Ini semua Insight prioritas yang saat ini muncul dari analisis data kebun:\n'+items.map((item,i)=>`${i+1}. ${item.priority} · ${item.title} — ${item.body} (Dukungan bukti: ${item.evidence})`).join('\n')+'\n\nPeriksa kondisi nyata dan dasar setiap Insight sebelum bertindak; dugaan tidak sama dengan diagnosis terkonfirmasi.';
+  }
+  if(/rencana|jadwal|besok|beberapa hari|hari ke depan/.test(q))return naraCarePlanSummary();
+  if(/insight|wawasan tersimpan|apa yang nara ingat|apa yang kamu ingat|memori tentang|riwayat/.test(q)){
+    const storedInsight=naraRespondFromStoredInsights(q);if(storedInsight)return storedInsight;
+    return 'Aku belum menemukan Insight tersimpan yang cocok secara spesifik dengan pertanyaan itu. Sebutkan nama tanaman, Bed, atau Inhabitant agar aku bisa mencari konteks yang lebih tepat.';
   }
   if(/air|siram|hujan|cuaca|basah|lembap/.test(q)){
     const latest=typeof latestGardenWater==='function'?latestGardenWater():null;
@@ -2913,6 +3020,11 @@ function renderNara(){
 $('naraHomeOpenBtn').onclick=()=>showPage('nara');
 $('naraRefreshBtn').onclick=()=>{renderNara();showToast('🌿 Insight Nara diperbarui dari data lokal');};
 $('naraInsightList').addEventListener('click',e=>{
+  const known=e.target.closest('[data-nara-insight-known]');if(known){
+    const key=known.dataset.naraInsightKnown,fingerprint=known.dataset.naraInsightFingerprint;
+    try{if(!naraAddonState.insightStates||typeof naraAddonState.insightStates!=='object')naraAddonState.insightStates={};naraAddonState.insightStates[key]={state:'known',fingerprint,knownAt:new Date().toISOString()};if(!naraAddonSaveState())return;renderNara();naraAddonNotify('Insight disimpan sebagai kondisi yang sudah diketahui. Ini bukan penanda bahwa masalah telah selesai.');}catch(err){naraAddonNotify('Insight belum dapat disimpan; coba perbarui halaman dan ulangi.');}
+    return;
+  }
   const plant=e.target.closest('[data-nara-plant-detail]');if(plant){openPlantDetail(plant.dataset.naraPlantDetail);return;}
   const bed=e.target.closest('[data-nara-bed-profile]');if(bed){if(typeof openBedEdit==='function')openBedEdit(bed.dataset.naraBedProfile);return;}
   const inhabitant=e.target.closest('[data-nara-inhabitant-detail]');if(inhabitant){if(typeof openInhabitantDetail==='function')openInhabitantDetail(inhabitant.dataset.naraInhabitantDetail);return;}
@@ -2930,14 +3042,14 @@ $('pageNara').addEventListener('click',e=>{const weather=e.target.closest('[data
    Insight, Chat, rencana perawatan, dan data kebun tetap dikelola Nara Face. */
 const NARA_ADDON_STORAGE_KEY = 'terra-serenada-nara-integrated-prototype-v1';
 const NARA_ADDON_SETTINGS_DEFAULT = {notifications:true,quietStart:'22:00',quietEnd:'07:00',approvalRequired:true,routineMemory:true,importantMemory:true,onlineAI:false};
-function naraAddonBaseState(){return {settings:{...NARA_ADDON_SETTINGS_DEFAULT},memories:[],rules:[],decisions:[],legacyTasks:[]};}
+function naraAddonBaseState(){return {settings:{...NARA_ADDON_SETTINGS_DEFAULT},memories:[],rules:[],decisions:[],legacyTasks:[],insightStates:{}};}
 function naraAddonLoadState(){
   try{
     let raw=localStorage.getItem(NARA_ADDON_STORAGE_KEY),migrated=false;
     if(!raw){raw=localStorage.getItem('terra-serenada-nara-prototype-v1');migrated=!!raw;}
     if(!raw)return naraAddonBaseState();
     const old=JSON.parse(raw),base=naraAddonBaseState();
-    const state={settings:{...NARA_ADDON_SETTINGS_DEFAULT,...(old.settings||{}),approvalRequired:true},memories:Array.isArray(old.memories)?old.memories:[],rules:Array.isArray(old.rules)?old.rules:[],decisions:Array.isArray(old.decisions)?old.decisions:[],legacyTasks:Array.isArray(old.legacyTasks)?old.legacyTasks:(Array.isArray(old.tasks)?old.tasks:[])};
+    const state={settings:{...NARA_ADDON_SETTINGS_DEFAULT,...(old.settings||{}),approvalRequired:true},memories:Array.isArray(old.memories)?old.memories:[],rules:Array.isArray(old.rules)?old.rules:[],decisions:Array.isArray(old.decisions)?old.decisions:[],legacyTasks:Array.isArray(old.legacyTasks)?old.legacyTasks:(Array.isArray(old.tasks)?old.tasks:[]),insightStates:old.insightStates&&typeof old.insightStates==='object'&&!Array.isArray(old.insightStates)?old.insightStates:{}};
     if(migrated){try{localStorage.setItem(NARA_ADDON_STORAGE_KEY,JSON.stringify(state));}catch(e){}}
     return state;
   }catch(e){return naraAddonBaseState();}
