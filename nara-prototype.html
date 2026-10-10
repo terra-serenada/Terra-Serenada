@@ -2512,8 +2512,180 @@ function naraWeatherSummary(){
 }
 function naraMetric(label,value,detail){return `<div class="nara-metric"><span>${esc(label)}</span><b>${esc(value)}</b><span>${esc(detail)}</span></div>`;}
 function naraInsight(icon,status,title,body,reason,actions=''){
-  const cls=status==='Mendesak'?'alert':status==='Perlu diperiksa'?'warn':'';
+  const cls=['Mendesak','Risiko ketidakcocokan'].includes(status)?'alert':['Perlu diperiksa','Perlu penyesuaian','Perlu perhatian','Data belum lengkap','Belum cukup data'].includes(status)?'warn':'';
   return `<article class="nara-insight"><div class="nara-insight-top"><div class="nara-insight-icon">${icon}</div><div class="nara-insight-copy"><span class="nara-pill ${cls}">${esc(status)}</span><div class="nara-insight-title">${esc(title)}</div></div></div><p>${esc(body)}</p>${reason?`<p class="nara-reason"><b>Dasar:</b> ${esc(reason)}</p>`:''}${actions?`<div class="nara-actions">${actions}</div>`:''}</article>`;
+}
+
+/* Nara Ecosystem Insight v24 — all assessments remain evidence-limited and offline. */
+const NARA_PLANT_NEEDS = [
+  {key:'garlic',label:'Bawang putih',aliases:['bawang putih','garlic'],minSun:6,water:'Kelembapan relatif stabil, tetapi media harus berdrainase baik.',soil:'Media gembur dan berdrainase baik; media berpasir dapat lebih cepat kehilangan air.',source:'University of Minnesota Extension',url:'https://extension.umn.edu/garden-and-home/yard-and-garden/gardening-minnesota/growing-garlic'},
+  {key:'strawberry',label:'Stroberi',aliases:['stroberi','strawberry'],minSun:6,water:'Kebutuhan air relatif konsisten; hindari genangan dan daun/buah yang lama basah.',soil:'Media berdrainase baik dan tidak menahan genangan.',source:'University of Minnesota Extension',url:'https://extension.umn.edu/garden-and-home/yard-and-garden/gardening-minnesota/growing-strawberries-home-garden'},
+  {key:'cherry-tomato',label:'Tomat ceri',aliases:['tomat ceri','tomat cherry','cherry tomato','tomato'],minSun:6,water:'Air teratur sesuai kondisi tanaman; hindari media terus-menerus tergenang.',soil:'Media subur dan berdrainase baik; tanaman memerlukan ruang serta aliran udara.',source:'University of Illinois Extension',url:'https://extension.illinois.edu/blogs/good-growing/2020-04-29-how-grow-tomatoes'},
+  {key:'basil',label:'Kemangi / basil',aliases:['kemangi','basil'],minSun:6,water:'Menyukai media lembap tetapi berdrainase baik; kebutuhan aktual dipengaruhi cuaca dan wadah.',soil:'Media berdrainase baik dan kaya bahan organik.',source:'University of Maryland Extension',url:'https://www.extension.umd.edu/resource/growing-basil-home-garden'}
+];
+const NARA_INTENSITY_LABELS={'very-bright':'terik','bright':'terang','medium':'sedang','dim':'redup'};
+const NARA_SOIL_LABELS={'native':'tanah asli','fill':'tanah timbunan','hard':'tanah keras/padat','sandy':'tanah berpasir','loose':'tanah gembur','organic':'kaya bahan organik','unknown':'tidak diketahui'};
+const NARA_DRAINAGE_LABELS={'very-fast':'sangat cepat','fast':'cepat','medium':'sedang','slow':'lambat','very-slow':'sangat lambat'};
+function naraPlantNeedForName(value){
+  const name=String(value||'').toLocaleLowerCase('id-ID');
+  return NARA_PLANT_NEEDS.find(profile=>profile.aliases.some(alias=>name.includes(alias)))||null;
+}
+function naraZoneHours(zone){
+  if(!zone?.start||!zone?.end)return null;
+  const minutes=value=>{const parts=String(value).split(':').map(Number);return parts.length===2&&parts.every(Number.isFinite)?parts[0]*60+parts[1]:null};
+  const start=minutes(zone.start),end=minutes(zone.end);if(start===null||end===null)return null;
+  let delta=end-start;if(delta<0)delta+=24*60;return delta/60;
+}
+function naraBedLightZones(bed){
+  return (typeof ti4ZonesForBed==='function'?ti4ZonesForBed(bed):Array.isArray(bed?.profile?.zones)?bed.profile.zones:[])
+    .map(z=>({...z,hours:naraZoneHours(z),intensityLabel:NARA_INTENSITY_LABELS[z.intensity]||'belum diatur'}))
+    .filter(z=>z.hours!==null).sort((a,b)=>b.hours-a.hours);
+}
+function naraBedActivePlants(bed){
+  const map=new Map();
+  for(const plant of (Array.isArray(data)?data:[])){
+    for(const group of (Array.isArray(plant.plantingGroups)?plant.plantingGroups:[])){
+      if(typeof groupHasActive==='function'&&!groupHasActive(group))continue;
+      const groupBedId=typeof ti4GroupBedId==='function'?ti4GroupBedId(group):'';
+      const groupBedName=typeof ti4GroupBedName==='function'?ti4GroupBedName(group):'';
+      if(groupBedId!==bed.id&&groupBedName!==bed.name)continue;
+      if(!map.has(plant.id))map.set(plant.id,{plant,groups:[]});
+      map.get(plant.id).groups.push(group);
+    }
+  }
+  return [...map.values()];
+}
+function naraBedRecordedWater(bed){
+  const rows=[];
+  for(const event of (Array.isArray(gardenEvents)?gardenEvents:[])){
+    if(!['water','rain'].includes(event.type))continue;
+    const ids=Array.isArray(event.bedIds)?event.bedIds:[];
+    const names=Array.isArray(event.bedNames)?event.bedNames:[];
+    let applies=ids.includes(bed.id)||names.includes(bed.name);
+    if(event.type==='rain'&&!ids.length&&!names.length&&(!event.scope||event.scope==='all-beds'))applies=true;
+    if(applies&&event.date)rows.push(event);
+  }
+  return rows.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')))[0]||null;
+}
+function naraDaysSince(date){
+  if(!date||!/^\d{4}-\d{2}-\d{2}$/.test(String(date)))return null;
+  const past=new Date(`${date}T00:00:00`);if(Number.isNaN(past.getTime()))return null;
+  const now=new Date();now.setHours(0,0,0,0);return Math.max(0,Math.floor((now-past)/86400000));
+}
+function naraBedVegetationSignals(bed){
+  const dryTerms=['kering','layu','menggulung','lemas','ujung daun cokelat','daun menggulung','media kering'];
+  const wetTerms=['genangan','tergenang','basah terus','busuk akar','akar busuk','lembap berlebih','jamur pada media'];
+  const rows=[];
+  for(const item of naraBedActivePlants(bed)){
+    const events=(Array.isArray(item.plant.events)?item.plant.events:[]).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+    for(const event of events){
+      const text=`${event.label||''} ${event.note||''}`.trim();if(!text)continue;
+      const lower=text.toLocaleLowerCase('id-ID');
+      const mentioned=term=>{
+        if(!lower.includes(term))return false;
+        const escaped=term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+        const negated=new RegExp(`(?:tidak|belum|tanpa|bukan)(?:\\s+\\w+){0,2}\\s+${escaped}`,'i');
+        return !negated.test(lower);
+      };
+      const cues=[...dryTerms.filter(mentioned).map(term=>({term,side:'kering'})),...wetTerms.filter(mentioned).map(term=>({term,side:'berlebih/genangan'}))];
+      if(cues.length)rows.push({plant:item.plant.name,date:event.date||'',text,cues});
+      if(rows.length>=8)break;
+    }
+    if(rows.length>=8)break;
+  }
+  return rows;
+}
+function naraBedMoistureOutlook(bed){
+  const p=bed?.profile||{};
+  const soilKeys=[...(Array.isArray(p.soilConditions)?p.soilConditions:[])];
+  if(p.soilType&&!soilKeys.includes(p.soilType))soilKeys.push(p.soilType);
+  const soil=soilKeys.find(x=>x&&x!=='unknown')||'';
+  const drainage=p.drainage||'';
+  const indicators=Array.isArray(p.moistureIndicators)?p.moistureIndicators:[];
+  const moistClues=indicators.filter(x=>['fern','moss','fungus','dense-understory'].includes(x));
+  let title='Kecenderungan kelembapan belum jelas';
+  let status='Data belum lengkap';
+  let body='Profil media atau drainase belum cukup untuk memperkirakan kecenderungan menahan air. Nara tidak dapat memastikan media sedang basah atau kering tanpa data langsung.';
+  let confidence='Rendah';
+  if(['slow','very-slow'].includes(drainage)){
+    title='Risiko air tertahan perlu diperhatikan';status='Perlu diperiksa';confidence=soil&&drainage?'Awal–sedang':'Awal';
+    body=`Drainase tercatat ${NARA_DRAINAGE_LABELS[drainage]}${soil?` dan media ${NARA_SOIL_LABELS[soil]||soil}`:''}${moistClues.length?'; indikator vegetasi seperti paku, lumut, jamur, atau vegetasi bawah lebat juga tercatat':''}. Kombinasi ini dapat meningkatkan risiko air bertahan lebih lama, tetapi tidak membuktikan zona akar sedang terlalu basah.`;
+  }else if(['very-fast','fast'].includes(drainage)&&(soil==='sandy'||soil==='hard'||soil==='loose')){
+    title='Media berpotensi lebih cepat kehilangan air';status='Pantau kondisi';confidence=soil&&drainage?'Awal–sedang':'Awal';
+    body=`Drainase tercatat ${NARA_DRAINAGE_LABELS[drainage]} dan media ${NARA_SOIL_LABELS[soil]||soil}. Kondisi ini dapat membuat air lebih cepat lewat atau mengering pada cuaca panas; itu belum memastikan kelembapan aktual maupun kebutuhan menyiram.`;
+  }else if(drainage&&soil){
+    title='Karakter media dan drainase terbaca';status='Pantau kondisi';confidence='Awal';
+    body=`Media tercatat ${NARA_SOIL_LABELS[soil]||soil} dengan drainase ${NARA_DRAINAGE_LABELS[drainage]||drainage}. Data ini membantu memperkirakan perilaku air, tetapi tidak cukup untuk menetapkan media sedang basah atau kering.`;
+  }
+  const water=naraBedRecordedWater(bed);
+  const days=water?naraDaysSince(water.date):null;
+  let waterText=water?`${water.type==='rain'?'Hujan':'Penyiraman'} tercatat untuk Bed ini ${days===0?'hari ini':days===1?'1 hari lalu':days!==null?`${days} hari lalu`:`pada ${water.date}`}${days===null?'':` (${water.date})`}. Catatan ini memberi konteks waktu, bukan ukuran kelembapan saat ini.`:'Belum ada catatan hujan/penyiraman yang dapat dihubungkan secara khusus ke Bed ini.';
+  if(moistClues.length)body+=` Indikator vegetasi yang terkait mikroklimat lembap tercatat: ${moistClues.join(', ')}; indikator ini juga dipengaruhi naungan dan bahan organik.`;
+  const vegetationSignals=naraBedVegetationSignals(bed);
+  if(vegetationSignals.length){
+    const examples=vegetationSignals.slice(0,3).map(x=>`${x.plant}${x.date?` (${x.date})`:''}: ${x.cues.map(c=>c.term).join(', ')}`).join('; ');
+    body+=` Catatan gejala yang mungkin relevan dengan air ditemukan pada riwayat tanaman: ${examples}. Gejala tersebut tidak spesifik dan tidak membuktikan penyebabnya.`;
+  }
+  let forecastText='';
+  if(typeof naraCarePlanModel==='function'){
+    const plan=naraCarePlanModel();
+    if(plan.available&&plan.items.length){const next=plan.items[0];forecastText=` Prakiraan tersimpan berikutnya: ${next.dateLabel}, ${next.title}${next.weatherMeta?` (${next.weatherMeta})`:''}${plan.stale?' — data prakiraan lebih dari 24 jam dan perlu diperbarui':''}. Prakiraan memengaruhi perkiraan risiko, bukan bukti cuaca aktual di Bed.`;}
+    else forecastText=' Prakiraan cuaca tersimpan belum tersedia; Nara tidak menebak hujan atau panas yang akan terjadi.';
+  }
+  waterText+=forecastText;
+  return {title,status,body,confidence,water,waterText,soil,drainage,indicators,vegetationSignals};
+}
+function naraAssessPlantFit(profileOrName,bed,group=null){
+  const profile=typeof profileOrName==='string'?naraPlantNeedForName(profileOrName):profileOrName;
+  if(!profile||!bed)return {profile,status:'Belum cukup data',known:0,conflicts:[],details:['Profil kebutuhan tanaman belum tersedia.']};
+  const p=bed.profile||{},zones=naraBedLightZones(bed);
+  const selected=group?.zoneId?zones.find(z=>z.id===group.zoneId):null;
+  const zone=selected||zones[0]||null;
+  const soilValues=[...(Array.isArray(p.soilConditions)?p.soilConditions:[])];if(p.soilType&&!soilValues.includes(p.soilType))soilValues.push(p.soilType);
+  const soil=soilValues.find(x=>x&&x!=='unknown')||'';
+  const drainage=p.drainage||'';
+  const known=(zone?1:0)+(drainage?1:0)+(soil?1:0);
+  const conflicts=[],details=[];
+  if(zone){
+    details.push(`${zone.name||'Zona cahaya'} sekitar ${naraNumber(zone.hours)} jam dengan intensitas ${zone.intensityLabel}`);
+    if(zone.hours<profile.minSun||zone.intensity==='dim'||(zone.intensity==='medium'&&profile.minSun>=6))conflicts.push('Cahaya: zona terpilih/paling terang mungkin kurang untuk kebutuhan cahaya tanaman.');
+  }else details.push('Zona cahaya belum tercatat.');
+  if(drainage){
+    details.push(`Drainase ${NARA_DRAINAGE_LABELS[drainage]||drainage}`);
+    if(['slow','very-slow'].includes(drainage))conflicts.push('Drainase lambat dapat meningkatkan risiko air tertahan untuk tanaman yang memerlukan media berdrainase baik.');
+  }else details.push('Drainase belum tercatat.');
+  if(soil){
+    details.push(`Media ${NARA_SOIL_LABELS[soil]||soil}`);
+    if(soil==='hard')conflicts.push('Media keras/padat perlu diperiksa karena dapat menghambat perkembangan akar dan aliran air.');
+    if(soil==='sandy'&&['fast','very-fast'].includes(drainage))conflicts.push('Media berpasir dengan drainase cepat dapat lebih mudah kehilangan air; pemantauan air perlu disesuaikan.');
+  }else details.push('Jenis media belum tercatat.');
+  let status='Belum cukup data';
+  if(known>=2){
+    if(conflicts.length>=2)status='Risiko ketidakcocokan';
+    else if(conflicts.length===1)status='Perlu penyesuaian';
+    else status=known>=3?'Cukup sesuai':'Cocok bersyarat';
+  }
+  const summary=known<2?'Data Bed belum cukup untuk membandingkan kebutuhan cahaya, media, dan drainase dengan cukup baik.':conflicts.length?conflicts.join(' '):`Data yang tersedia tidak menunjukkan konflik lingkungan utama pada indikator awal. Ini kecocokan awal, bukan jaminan tanaman akan berhasil.`;
+  return {profile,status,known,conflicts,details,zone,soil,drainage,summary};
+}
+function naraKnownPairContext(a,b){
+  const keys=[naraPlantNeedForName(a?.plant?.name)?.key,naraPlantNeedForName(b?.plant?.name)?.key].filter(Boolean).sort();
+  if(keys.join('|')==='garlic|strawberry')return {text:'Ada penelitian pada kondisi lapangan/rumah kaca tertentu yang melaporkan penurunan tungau laba-laba pada stroberi ketika ditumpangsarikan dengan bawang putih. Hasil itu tidak memastikan manfaat yang sama di Bed ini; catatan hama sebelum dan sesudah tetap diperlukan.',source:'https://pubmed.ncbi.nlm.nih.gov/27085718/',label:'Studi bawang putih–stroberi'};
+  if(keys.join('|')==='basil|cherry-tomato')return {text:'Panduan Penn State Master Gardener mencantumkan basil sebagai tanaman pendamping tomat dan menyebut potensi pengacauan hama tertentu. Jangan menganggap manfaat itu pasti terjadi di Bed ini; pantau hama dan kondisi kedua tanaman.',source:'https://extension.psu.edu/herb-garden-plants-basil',label:'Panduan basil sebagai tanaman pendamping'};
+  return null;
+}
+function naraBedEnvironmentText(bed){
+  const zones=naraBedLightZones(bed),p=bed?.profile||{},soilValues=[...(Array.isArray(p.soilConditions)?p.soilConditions:[])];if(p.soilType&&!soilValues.includes(p.soilType))soilValues.push(p.soilType);
+  const soil=soilValues.filter(v=>v&&v!=='unknown').map(v=>NARA_SOIL_LABELS[v]||v);
+  const water=naraBedMoistureOutlook(bed);
+  const lightText=zones.length?zones.map(z=>`${z.name||'Zona cahaya'} ${naraNumber(z.hours)} jam · intensitas ${z.intensityLabel}`).join('; '):'Zona cahaya belum tercatat';
+  return `Cahaya: ${lightText}. Media: ${soil.length?soil.join(', '):'belum cukup data'}. Drainase: ${NARA_DRAINAGE_LABELS[p.drainage]||'belum diatur'}. Perkiraan: ${water.title.toLocaleLowerCase('id-ID')}. ${water.body} ${water.waterText}`;
+}
+function naraBedCandidateFits(bed){
+  const existing=new Set(naraBedActivePlants(bed).map(x=>naraPlantNeedForName(x.plant.name)?.key).filter(Boolean));
+  return NARA_PLANT_NEEDS.filter(profile=>!existing.has(profile.key)).map(profile=>({profile,fit:naraAssessPlantFit(profile,bed)}))
+    .filter(x=>x.fit.known>=2&&!!x.fit.zone&&!!x.fit.drainage)
+    .sort((a,b)=>{const rank={'Cukup sesuai':0,'Cocok bersyarat':1,'Perlu penyesuaian':2,'Risiko ketidakcocokan':3,'Belum cukup data':4};return (rank[a.fit.status]??5)-(rank[b.fit.status]??5)||b.fit.known-a.fit.known;});
 }
 function naraCarePlanModel(){
   let cache=null;
@@ -2591,31 +2763,91 @@ function naraBuildInsights(){
   $('naraMetrics').innerHTML=[
     naraMetric('Tanaman aktif',activeQty,`${data.length} jenis/entri tanaman`),
     naraMetric('Pengukuran',measurements.length,`${plantsMeasured.size} tanaman pernah diukur`),
-    naraMetric('Perlu perhatian',attentionsUnique.length,'berdasarkan aturan yang ada')
+    naraMetric('Perlu perhatian',attentionsUnique.length,`${beds.length} Bed dianalisis dari profil tersimpan`)
   ].join('');
   const cards=[];
   const urgent=attentionsUnique.filter(a=>a.priority==='urgent');
   const nonurgent=attentionsUnique.filter(a=>a.priority!=='urgent');
-  for(const a of [...urgent,...nonurgent].slice(0,5)){
+  /* Tidak memotong jumlah Insight pada angka tetap; kartu dibuat dari temuan yang tersedia. */
+  for(const a of [...urgent,...nonurgent]){
     const p=data.find(x=>x.id===a.plantId);const title=`${a.type==='harvest'?'Perkiraan panen':a.type==='water'?'Periksa kebutuhan air':a.type==='pest'||a.type==='disease'?'Masalah tanaman tercatat':'Catatan perhatian'}${p?' · '+p.name:''}`;
     const txt=typeof attentionText==='function'?attentionText(a):(a.note||'Ada catatan yang perlu ditinjau.');
-    const body=a.type==='water'?`${txt} Periksa kelembapan tanah dan kondisi tanaman sebelum memutuskan menyiram.`:txt;
+    const body=a.type==='water'?`${txt} Periksa kondisi tanaman dan gunakan profil Bed sebagai konteks; jangan menyimpulkan kelembapan aktual hanya dari jadwal.`:txt;
     const action=p?`<button type="button" class="secondary" data-nara-plant-detail="${esc(p.id)}">Lihat tanaman</button>`:'';
     cards.push(naraInsight(a.priority==='urgent'?'⚠️':a.type==='water'?'💧':a.type==='harvest'?'🧺':'🔎',a.priority==='urgent'?'Mendesak':'Perlu diperiksa',title,body,'Berasal dari pengingat/aturan dan catatan Terra Serenada.',action));
   }
+
+  /* Profil lingkungan per Bed: cahaya, media, drainase, vegetasi, dan catatan air khusus Bed. */
+  if(!beds.length){
+    cards.push(naraInsight('📍','Data belum lengkap','Bed kebun belum terdaftar','Nara perlu profil Bed untuk menghubungkan cahaya, media tanam, drainase, dan tanaman yang tumbuh bersama. Tambahkan Bed dari Kelola Bed agar analisis lingkungan dapat dimulai.','Belum ada Bed yang tersimpan.',`<button type="button" class="secondary" data-nara-open-beds>Kelola Bed</button>`));
+  }
+  for(const bed of beds){
+    const p=bed.profile||{},zones=naraBedLightZones(bed),soilValues=[...(Array.isArray(p.soilConditions)?p.soilConditions:[])];if(p.soilType&&!soilValues.includes(p.soilType))soilValues.push(p.soilType);
+    const soil=soilValues.filter(v=>v&&v!=='unknown'),moisture=naraBedMoistureOutlook(bed),lightSummary=zones.length?zones.map(z=>`${z.name||'Zona'} ${naraNumber(z.hours)} jam (${z.intensityLabel})`).join('; '):'zona cahaya belum dicatat';
+    const profileMissing=[];if(!zones.length)profileMissing.push('zona cahaya');if(!soil.length)profileMissing.push('jenis media');if(!p.drainage)profileMissing.push('drainase');
+    const body=`Cahaya tercatat: ${lightSummary}. Media: ${soil.length?soil.map(v=>NARA_SOIL_LABELS[v]||v).join(', '):'belum diketahui'}. Drainase: ${NARA_DRAINAGE_LABELS[p.drainage]||'belum diatur'}. ${moisture.body} ${moisture.waterText}`;
+    const reason=`Dasar: profil Bed tersimpan${p.moistureIndicators?.length?`; indikator vegetasi: ${p.moistureIndicators.join(', ')}`:''}${p.moistureOther?`; catatan vegetasi tambahan: ${p.moistureOther}`:''}. Tingkat keyakinan perkiraan kelembapan: ${moisture.confidence}. ${moisture.confidence==='Rendah'?'Profil media/drainase belum lengkap.':'Kesimpulan hanya tentang kecenderungan, bukan pengukuran kelembapan langsung.'}${profileMissing.length?` Data yang perlu dilengkapi: ${profileMissing.join(', ')}.`:''}`;
+    const status=profileMissing.length>=2?'Data belum lengkap':moisture.status;
+    cards.push(naraInsight(moisture.status==='Perlu diperiksa'?'💧':'🌿',status,`Karakter lingkungan · ${bed.name}`,body,reason,`<button type="button" class="secondary" data-nara-bed-profile="${esc(bed.id)}">Periksa profil Bed</button>`));
+
+    const planted=naraBedActivePlants(bed);
+    if(planted.length){
+      const fits=planted.map(item=>({item,profile:naraPlantNeedForName(item.plant.name),fit:naraAssessPlantFit(naraPlantNeedForName(item.plant.name),bed,item.groups[0])}));
+      const known=fits.filter(x=>x.profile);
+      const summaries=fits.map(x=>x.profile?`${x.item.plant.name}: ${x.fit.status.toLocaleLowerCase('id-ID')}`:`${x.item.plant.name}: profil kebutuhan belum tersedia`).join('; ');
+      const rationale=known.length?known.map(x=>`${x.profile.label}: ${x.fit.summary} Kebutuhan umum dalam katalog: ${x.profile.water} ${x.profile.soil}`).join(' '):'Katalog profil kebutuhan tanaman awal belum mengenali nama tanaman yang terdaftar di Bed ini. Nara belum dapat menilai kecocokan spesifik tanpa profil kebutuhan yang sesuai.';
+      const plantActions=planted.slice(0,5).map(x=>`<button type="button" class="secondary" data-nara-plant-detail="${esc(x.plant.id)}">${esc(x.plant.name)}</button>`).join('');
+      const profileSources=known.map(x=>`<a class="secondary" href="${x.profile.url}" target="_blank" rel="noopener noreferrer">Panduan ${x.profile.label}</a>`).join('');
+      cards.push(naraInsight('🌱',known.some(x=>x.fit.status==='Risiko ketidakcocokan')?'Perlu penyesuaian':'Kecocokan awal',`Kecocokan vegetasi · ${bed.name}`,`${planted.length} jenis tanaman tercatat aktif di Bed ini. Ringkasan awal: ${summaries}. Penilaian ini memeriksa kebutuhan cahaya, media dan drainase yang tersedia; bukan jaminan tumbuh subur.`,rationale,`${plantActions}<button type="button" class="secondary" data-nara-bed-profile="${esc(bed.id)}">Lihat profil Bed</button>${profileSources}`));
+
+      if(planted.length>=2){
+        const pairContext=[];
+        for(let i=0;i<planted.length;i++)for(let j=i+1;j<planted.length;j++){const context=naraKnownPairContext(planted[i],planted[j]);if(context)pairContext.push(context);}
+        let pairingBody=`${planted.map(x=>x.plant.name).join(', ')} tercatat berbagi Bed ${bed.name}. Kedekatan lokasi membuat kondisi cahaya, air, ruang akar, dan naungan layak dibandingkan, tetapi tidak membuktikan satu tanaman menguntungkan atau merugikan tanaman lain.`;
+        if(pairContext.length)pairingBody+=' '+pairContext.map(x=>x.text).join(' ');
+        const sourceLinks=pairContext.map(x=>`<a class="secondary" href="${x.source}" target="_blank" rel="noopener noreferrer">${x.label}</a>`).join('');
+        const pairActions=planted.slice(0,5).map(x=>`<button type="button" class="secondary" data-nara-plant-detail="${esc(x.plant.id)}">${esc(x.plant.name)}</button>`).join('');
+        cards.push(naraInsight('🪴','Pantau hubungan',`Tanaman berbagi Bed · ${bed.name}`,pairingBody,'Hubungan antartanaman tetap dianggap belum pasti kecuali ada pengamatan atau bukti spesifik. Catat perubahan yang benar-benar terlihat—misalnya naungan, hama, pertumbuhan, atau kondisi daun.',`${pairActions}<button type="button" class="secondary" data-nara-bed-profile="${esc(bed.id)}">Lihat Bed</button>${sourceLinks}`));
+      }
+    }
+
+    const candidates=naraBedCandidateFits(bed).filter(x=>x.fit.status!=='Risiko ketidakcocokan').slice(0,3);
+    if(candidates.length){
+      const text=candidates.map(x=>`${x.profile.label} — ${x.fit.status.toLocaleLowerCase('id-ID')}`).join('; ');
+      const candidateSources=candidates.map(x=>`<a class="secondary" href="${x.profile.url}" target="_blank" rel="noopener noreferrer">Panduan ${x.profile.label}</a>`).join('');
+      cards.push(naraInsight('🧭','Kandidat awal',`Tanaman yang dapat dipertimbangkan · ${bed.name}`,`Berdasarkan profil awal yang tersedia, kandidat untuk ditinjau lebih lanjut: ${text}. Ini belum menjadi rekomendasi tanam final; kebutuhan suhu, musim, ukuran dewasa, hara, dan kompatibilitas dengan vegetasi yang ada masih perlu diperhitungkan.`,`Profil pembanding awal hanya mencakup bawang putih, stroberi, tomat ceri, dan kemangi/basil. Panduan umum: tanaman ini umumnya memerlukan paparan cahaya memadai dan media yang tidak tergenang.`,`<button type="button" class="secondary" data-nara-bed-profile="${esc(bed.id)}">Tinjau karakter Bed</button>${candidateSources}`));
+    }
+  }
+
+  /* Hubungan Inhabitant–tanaman: gunakan observasi sumber, bukan duplikasi event tanaman. */
+  for(const inhabitant of (Array.isArray(inhabitants)?inhabitants:[])){
+    const linked=(Array.isArray(inhabitant.events)?inhabitant.events:[]).filter(e=>Array.isArray(e.plantIds)&&e.plantIds.some(id=>data.some(p=>p.id===id)));
+    if(!linked.length)continue;
+    const ordered=linked.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+    const plantIds=[...new Set(linked.flatMap(e=>e.plantIds||[]))].filter(id=>data.some(p=>p.id===id));
+    const plantNames=plantIds.map(id=>data.find(p=>p.id===id)?.name).filter(Boolean);
+    const latest=ordered[0],latestLabel=typeof observationLabel==='function'?observationLabel(latest.type):latest.type||'observasi';
+    const recentNotes=ordered.slice(0,2).map(e=>`${e.date||'tanggal tidak tercatat'} · ${typeof observationLabel==='function'?observationLabel(e.type):e.type||'observasi'}${e.note?`: ${e.note}`:''}`).join(' | ');
+    let caution='Catatan ini membuktikan adanya pengamatan yang tersimpan, bukan otomatis hubungan yang bermanfaat atau merugikan. Peran ekologis belum dapat dipastikan bila mangsa, tindakan, atau dampaknya tidak dicatat.';
+    if(latest.type==='visiting')caution='Kunjungan tercatat, tetapi kunjungan saja belum membuktikan penyerbukan berhasil. Catat apakah serangga menyentuh bagian bunga dan apakah kemudian terbentuk buah.';
+    if(latest.type==='predating')caution='Perilaku memangsa tercatat. Manfaatnya bagi tanaman bergantung pada apa yang dimangsa; catat identitas mangsa dan perubahan jumlah hama sebelum menyimpulkan perannya.';
+    const plantActions=plantIds.slice(0,5).map(id=>{const plant=data.find(p=>p.id===id);return plant?`<button type="button" class="secondary" data-nara-plant-detail="${esc(id)}">${esc(plant.name)}</button>`:''}).join('');
+    cards.push(naraInsight('🐞','Perlu konfirmasi',`Interaksi tercatat · ${inhabitant.name}`,`${inhabitant.name} memiliki ${linked.length} pengamatan yang menghubungkan Inhabitant dan tanaman: ${plantNames.join(', ')}. Catatan terbaru: ${recentNotes}.`,caution,`<button type="button" class="secondary" data-nara-inhabitant-detail="${esc(inhabitant.id)}">Lihat Inhabitant</button>${plantActions}`));
+  }
+
   const notMeasured=data.filter(p=>!plantsMeasured.has(p.id)&&Array.isArray(p.plantingGroups)?p.plantingGroups.some(groupHasActive):false);
   if(notMeasured.length){
-    const names=notMeasured.slice(0,3).map(p=>p.name).join(', ');
-    const action=notMeasured.slice(0,3).map(p=>`<button type="button" class="secondary" data-nara-plant-detail="${esc(p.id)}">${esc(p.name)}</button>`).join('');
-    cards.push(naraInsight('📏','Data belum lengkap','Tanaman aktif tanpa pengukuran tersimpan',`${notMeasured.length} entri tanaman aktif belum memiliki pengukuran pertumbuhan di riwayatnya. Pertimbangkan memilih indikator yang mudah diukur dan mencatatnya secara konsisten.`,names,action));
+    const names=notMeasured.map(p=>p.name).join(', ');
+    const action=notMeasured.slice(0,5).map(p=>`<button type="button" class="secondary" data-nara-plant-detail="${esc(p.id)}">${esc(p.name)}</button>`).join('');
+    cards.push(naraInsight('📏','Data belum lengkap','Tanaman aktif tanpa pengukuran tersimpan',`${notMeasured.length} entri tanaman aktif belum memiliki pengukuran pertumbuhan di riwayatnya. Pengukuran sederhana dan konsisten membantu Nara membedakan kesan sesaat dari tren.`,names,action));
   }else if(measurements.length){
     const validRates=measurements.filter(r=>typeof ti41RateForMeasurement==='function'&&ti41RateForMeasurement(r.plant,r.event,r.measurement));
-    cards.push(naraInsight('📈','Pertumbuhan', 'Pengukuran mulai bisa dibandingkan',`${measurements.length} pengukuran tersimpan pada ${plantsMeasured.size} tanaman. ${validRates.length} baris pengukuran memiliki catatan terdahulu yang dapat dipakai menghitung laju.`, 'Laju hanya dihitung pada indikator yang sama dan tanggal yang berbeda. Nilai laju bukan penilaian sehat/tidak sehat dengan sendirinya.'));
+    cards.push(naraInsight('📈','Pertumbuhan','Pengukuran mulai bisa dibandingkan',`${measurements.length} pengukuran tersimpan pada ${plantsMeasured.size} tanaman. ${validRates.length} baris pengukuran memiliki catatan terdahulu yang dapat dipakai menghitung laju.`, 'Laju hanya dihitung pada indikator yang sama dan tanggal yang berbeda. Nilai laju bukan penilaian sehat/tidak sehat dengan sendirinya.'));
   }else{
-    cards.push(naraInsight('📏','Mulai pantau','Belum ada pengukuran pertumbuhan', 'Nara belum bisa membandingkan tren pertumbuhan. Tambahkan pengukuran pada Perjalanan Tanaman untuk mulai membangun riwayat.', 'Belum ditemukan event pengukuran dengan indikator dan nilai.'));
+    cards.push(naraInsight('📏','Mulai pantau','Belum ada pengukuran pertumbuhan','Nara belum bisa membandingkan tren pertumbuhan. Tambahkan pengukuran pada Perjalanan Tanaman untuk mulai membangun riwayat.','Belum ditemukan event pengukuran dengan indikator dan nilai.'));
   }
   const water=typeof latestGardenWater==='function'?latestGardenWater():null;
-  cards.push(naraInsight('🌦️','Pantau kondisi','Air dan cuaca',`${water?`Catatan air terakhir: ${water.type==='rain'?'hujan':'penyiraman'} tanggal ${water.date||'tanpa tanggal'}. `:'Belum ada catatan hujan/penyiraman yang terbaca. '}${naraWeatherSummary()}`, 'Catatan aktual dan prakiraan cuaca diperlakukan terpisah. Periksa tanah secara langsung sebelum mengubah jadwal siram.'));
+  cards.push(naraInsight('🌦️','Pantau kondisi','Air dan cuaca',`${water?`Catatan air terakhir di tingkat kebun: ${water.type==='rain'?'hujan':'penyiraman'} tanggal ${water.date||'tanpa tanggal'}. `:'Belum ada catatan hujan/penyiraman tingkat kebun yang terbaca. '}${naraWeatherSummary()}`, 'Riwayat air per Bed digunakan di kartu karakter lingkungan. Catatan aktual dan prakiraan cuaca diperlakukan terpisah; prakiraan bukan hujan aktual.'));
   if(!cards.length)cards.push(naraInsight('🌱','Terpantau','Belum ada prioritas otomatis','Belum ditemukan perhatian aktif oleh aturan yang saat ini tersedia. Ini bukan jaminan semua tanaman sehat; lanjutkan observasi rutin.','Analisis terbatas pada data yang tercatat di aplikasi.'));
   $('naraInsightList').innerHTML=cards.join('');
 }
@@ -2627,6 +2859,18 @@ function naraRenderChat(){
 function naraRespond(question){
   const q=String(question||'').toLocaleLowerCase('id-ID');
   const foundPlant=data.find(p=>p.name&&q.includes(String(p.name).toLocaleLowerCase('id-ID')));
+  const foundBed=(Array.isArray(beds)?beds:[]).slice().sort((a,b)=>String(b.name||'').length-String(a.name||'').length).find(b=>b.name&&q.includes(String(b.name).toLocaleLowerCase('id-ID')));
+  if(foundBed&&/(cocok|ditanam|tanaman baru|rekomendasi|kecocokan)/.test(q)){
+    const candidates=naraBedCandidateFits(foundBed);
+    if(!candidates.length)return `Untuk Bed ${foundBed.name}, aku belum bisa memberi kandidat yang cukup berdasar profil saat ini. Lengkapi zona cahaya, jenis media, dan drainase terlebih dahulu. Aku tidak mengukur kelembapan secara langsung; perkiraan air hanya menggunakan profil dan riwayat yang tercatat.`;
+    return `Untuk Bed ${foundBed.name}, kandidat pembanding awal dari katalog yang tersedia: ${candidates.slice(0,4).map(x=>`${x.profile.label} — ${x.fit.status.toLocaleLowerCase('id-ID')} (${x.fit.details.join(', ')})`).join('; ')}. Ini penyaringan awal, bukan jaminan berhasil. Data suhu/musim, kebutuhan ruang, hara, dan interaksi dengan tanaman yang sudah ada juga perlu dipertimbangkan.`;
+  }
+  if(foundBed&&/(lembap|kelembapan|air|siram|hujan|cahaya|drainase|media|lingkungan|kondisi)/.test(q))return `Ringkasan Bed ${foundBed.name}: ${naraBedEnvironmentText(foundBed)} Aku memperkirakan kecenderungan dari data, bukan mengukur kelembapan aktual.`;
+  if(/interaksi|inhabitant|serangga|penyerbukan|tanaman pendamping|tanaman berbagi bed/.test(q)){
+    const observations=(Array.isArray(inhabitants)?inhabitants:[]).flatMap(i=>(Array.isArray(i.events)?i.events:[]).filter(e=>Array.isArray(e.plantIds)&&e.plantIds.length).map(e=>({inhabitant:i,event:e,plants:e.plantIds.map(id=>data.find(p=>p.id===id)?.name).filter(Boolean)})));
+    if(!observations.length)return 'Aku belum menemukan catatan interaksi Inhabitant–tanaman yang terhubung. Catat Inhabitant, tanaman terkait, tanggal, dan perilaku yang benar-benar terlihat. Kehadiran saja tidak membuktikan manfaat atau kerugian.';
+    return `Aku menemukan ${observations.length} catatan interaksi Inhabitant–tanaman. Catatan terbaru: ${observations.slice().sort((a,b)=>String(b.event.date||'').localeCompare(String(a.event.date||'')))[0] && (()=>{const x=observations.slice().sort((a,b)=>String(b.event.date||'').localeCompare(String(a.event.date||'')))[0];return `${x.inhabitant.name} · ${x.plants.join(', ')} · ${x.event.date||'tanggal tidak tersedia'} · ${typeof observationLabel==='function'?observationLabel(x.event.type):x.event.type||'observasi'}${x.event.note?`: ${x.event.note}`:''}`})()}. Aku membedakan yang tercatat dari dugaan; kunjungan tidak membuktikan penyerbukan, dan perilaku memangsa perlu menyebut mangsanya agar dampaknya dapat dinilai.`;
+  }
   if(foundPlant&&(/tumbuh|pertumbuhan|ukur|ukuran|sulur|daun|bunga|kondisi/.test(q))){
     const ms=naraLatestMeasurements(foundPlant);
     if(!ms.length)return `Aku belum menemukan pengukuran pertumbuhan untuk ${foundPlant.name}. Aku bisa membaca catatan tanam dan aktivitasnya, tetapi belum bisa menyimpulkan tren tanpa pengukuran berulang.`;
@@ -2668,7 +2912,12 @@ function renderNara(){
 }
 $('naraHomeOpenBtn').onclick=()=>showPage('nara');
 $('naraRefreshBtn').onclick=()=>{renderNara();showToast('🌿 Insight Nara diperbarui dari data lokal');};
-$('naraInsightList').addEventListener('click',e=>{const b=e.target.closest('[data-nara-plant-detail]');if(b)openPlantDetail(b.dataset.naraPlantDetail);});
+$('naraInsightList').addEventListener('click',e=>{
+  const plant=e.target.closest('[data-nara-plant-detail]');if(plant){openPlantDetail(plant.dataset.naraPlantDetail);return;}
+  const bed=e.target.closest('[data-nara-bed-profile]');if(bed){if(typeof openBedEdit==='function')openBedEdit(bed.dataset.naraBedProfile);return;}
+  const inhabitant=e.target.closest('[data-nara-inhabitant-detail]');if(inhabitant){if(typeof openInhabitantDetail==='function')openInhabitantDetail(inhabitant.dataset.naraInhabitantDetail);return;}
+  const bedsButton=e.target.closest('[data-nara-open-beds]');if(bedsButton&&typeof openBedsModal==='function')openBedsModal();
+});
 $('naraChatMessages').addEventListener('click',e=>{const b=e.target.closest('[data-nara-plant-detail]');if(b)openPlantDetail(b.dataset.naraPlantDetail);});
 $('naraChatForm').addEventListener('submit',e=>{e.preventDefault();const input=$('naraChatInput');const q=input.value.trim();if(!q)return;input.value='';naraSendMessage(q);});
 $('pageNara').addEventListener('click',e=>{const weather=e.target.closest('[data-nara-open-weather]');if(weather){showPage('home');setTimeout(()=> $('weatherCard')?.scrollIntoView({behavior:'smooth',block:'start'}),100);return;}const jump=e.target.closest('[data-nara-jump]');if(jump){const target=jump.dataset.naraJump==='chat'?'naraChatInput':'naraSectionInsights';$(target)?.scrollIntoView({behavior:'smooth',block:'start'});if(jump.dataset.naraJump==='chat')setTimeout(()=> $('naraChatInput')?.focus({preventScroll:true}),280);return;}const b=e.target.closest('[data-nara-prompt]');if(b){naraSendMessage(b.dataset.naraPrompt);$('naraChatHeading')?.scrollIntoView({behavior:'smooth',block:'start'});}});
