@@ -384,6 +384,15 @@ function teacherAnswerProvidesAge(answer){
   return scopedAge||explicitUnknown;
 }
 function withTeacherGardenFixture(overrides,run){const before=garden;garden={...garden,...overrides};try{return run()}finally{garden=before}}
+function isBedCountQuestion(text){
+  const n=langNormalize(text);
+  // Match the requested object, not merely any mention of a Bed. In particular,
+  // “berapa jumlah bed” is a global Bed count, while “jumlah tanaman di Bed Shadow” is not.
+  const directCount=/\b(?:ada\s+)?berapa(?:\s+banyak)?(?:\s+jumlah)?\s+(?:(?:seluruh|semua|aktif|yang\s+ada)\s+)*(?:bed|beds|petak)\b/.test(n);
+  const nounFirstCount=/\b(?:jumlah|total|banyaknya)(?:\s+jumlah)?\s+(?:(?:seluruh|semua|aktif|yang\s+ada)\s+)*(?:bed|beds|petak)\b/.test(n);
+  const bedsAvailable=/\b(?:bed|beds|petak)\s+(?:yang\s+)?(?:ada|tersedia|dimiliki)\b/.test(n)&&/\b(berapa|jumlah|total|banyak)\b/.test(n);
+  return directCount||nounFirstCount||bedsAvailable;
+}
 function teacherDiagnose(question,answer,correction=''){
   const q=String(question||'').trim(),a=teacherAnswerText(answer),nq=langNormalize(q),na=langNormalize(a),nc=langNormalize(correction);
   if(!q||!a)return null;
@@ -400,10 +409,12 @@ function teacherDiagnose(question,answer,correction=''){
   const namedTargets=matchNamedEntities(q);
   const hasQuantityCue=/\b(berapa|jumlah|total|banyak|akumulasi)\b/.test(nq);
   const excludesQuantityAttribute=/\b(umur|usia|berapa lama|kapan|tanggal|pukul|jam berapa|suhu|derajat)\b/.test(nq);
-  const hasQuantityObjectCue=/\b(tanam|ditanam|penanaman|tanaman|buah|dipanen|panen|aktif|kelompok|catatan|kejadian|pengamatan|individu|ekor|biji|buah)\b/.test(nq)||namedTargets.some(e=>e.type==='plant'||e.type==='inhabitant'||e.type==='bed');
-  const quantityQuestion=hasQuantityCue&&!excludesQuantityAttribute&&hasQuantityObjectCue;
-  const broadReportForCount=/\b(analisis\s+[\p{L}]+|kesimpulan sementara|perlu diprioritaskan|penyiraman)\b/u.test(na);
-  if(quantityQuestion&&broadReportForCount)return {category:'quantity_operation_alignment',severity:'high',confidence:'high',title:'Pertanyaan jumlah dijawab dengan laporan umum',reason:'Pertanyaan meminta kuantitas untuk objek tertentu, tetapi jawaban memakai format analisis umum. Walaupun angka mungkin muncul di dalam laporan, jawaban belum memprioritaskan hasil hitung yang diminta.',principle:'Ubah maksud kuantitatif menjadi operasi yang tepat, pilih objek dan periode yang cocok, lalu berikan hasil hitung langsung di awal. Tambahkan perhatian, penyiraman, atau konteks lain hanya jika relevan atau diminta.',question:q,answer:a,correction};
+  const bedCountQuestion=isBedCountQuestion(q);
+  const hasQuantityObjectCue=/\b(tanam|ditanam|penanaman|tanaman|buah|dipanen|panen|aktif|kelompok|catatan|kejadian|pengamatan|individu|ekor|biji|buah|bed|beds|petak)\b/.test(nq)||namedTargets.some(e=>e.type==='plant'||e.type==='inhabitant'||e.type==='bed');
+  const quantityQuestion=hasQuantityCue&&!excludesQuantityAttribute&&(hasQuantityObjectCue||bedCountQuestion);
+  const broadReportForCount=/\b(analisis\s+[\p{L}]+|kesimpulan sementara|perlu diprioritaskan|penyiraman|profil dan hubungan antar[-\s]+bed|profil antar[-\s]+bed)\b/u.test(na);
+  const directBedCount=/\b(?:ada|tercatat|jumlah|total|sebanyak)\s+\d+\s+(?:bed|beds|petak)\b/.test(na);
+  if(quantityQuestion&&((bedCountQuestion&&!directBedCount)||broadReportForCount))return {category:'quantity_operation_alignment',severity:'high',confidence:'high',title:'Pertanyaan jumlah dijawab dengan laporan umum',reason:bedCountQuestion?'Pertanyaan meminta jumlah seluruh Bed, tetapi jawaban berisi profil atau hubungan antar-Bed tanpa menyatakan jumlah Bed secara langsung.':'Pertanyaan meminta kuantitas untuk objek tertentu, tetapi jawaban memakai format analisis umum. Walaupun angka mungkin muncul di dalam laporan, jawaban belum memprioritaskan hasil hitung yang diminta.',principle:'Ubah maksud kuantitatif menjadi operasi yang tepat, pilih objek dan periode yang cocok, lalu berikan hasil hitung langsung di awal. Untuk pertanyaan jumlah Bed, hitung daftar Bed yang benar-benar tercatat; jangan menggantinya dengan profil lingkungan. Tambahkan konteks lain hanya jika relevan atau diminta.',question:q,answer:a,correction};
   const entityMatch=namedTargets.find(e=>e.type==='inhabitant');
   if(entityMatch){
     const answerEntities=matchNamedEntities(a).filter(e=>e.type==='inhabitant');
@@ -460,6 +471,10 @@ function teacherTestCases(category){
   const nenas={id:'teacher-nenas',name:'Nenas',plantingGroups:[{id:'ng1',date:'2026-08-01',qty:4,activeQty:4,status:'active'},{id:'ng2',date:'2026-08-15',qty:3,activeQty:3,status:'active'}]};
   add('Pertanyaan jumlah tanaman spesifik terdeteksi meski tidak menyebut kata tanaman',withTeacherGardenFixture({plants:[nenas]},()=>teacherDiagnose('Berapa jumlah nenas di kebun saya?','ANALISIS NENAS. KESIMPULAN SEMENTARA: 2 kelompok tanam aktif dengan total sekitar 7 tanaman aktif. PERLU DIPRIORITASKAN: tidak ada catatan perhatian. PENYIRAMAN: terakhir tercatat 09 Okt 2026.')?.category==='quantity_operation_alignment'));
   add('Jawaban jumlah langsung tidak ditandai sebagai gagal',withTeacherGardenFixture({plants:[nenas]},()=>teacherDiagnose('Berapa jumlah nenas di kebun saya?','Di kebunmu tercatat 7 tanaman Nenas aktif pada 2 kelompok tanam.')===null));
+  const genericBedReport='PROFIL DAN HUBUNGAN ANTAR-BED\n\nVeggie · tanaman terkait 4 — Bayam, Labu, Lengkuas, Kacang Tanah. Profil lingkungan: drainase cepat.';
+  add('AI Guru mendeteksi jumlah Bed yang dijawab dengan profil umum',withTeacherGardenFixture({beds:[{id:'tb1',name:'Veggie'}]},()=>teacherDiagnose('berapa jumlah bed di kebun saya',genericBedReport)?.category==='quantity_operation_alignment'));
+  add('AI Guru mengenali frasa “berapa jumlah Bed” saat jawaban berupa profil Bed',withTeacherGardenFixture({beds:[{id:'tb1',name:'Veggie'}]},()=>isBedCountQuestion('berapa jumlah bed di kebun saya')&&teacherDiagnose('berapa jumlah bed di kebun saya',genericBedReport)?.category==='quantity_operation_alignment'));
+  add('Jawaban jumlah Bed yang eksplisit tidak salah didiagnosis',teacherDiagnose('berapa jumlah bed di kebun saya','Di kebunmu tercatat 2 Bed: Veggie dan Herbs.')===null);
  }else if(category==='entity_evidence_alignment'){
   const koksi={id:'koksi-test',name:'Kumbang Koksi',faction:'Serangga',events:[{date:'2026-10-10',type:'first',label:'Pertama ditemukan',note:'sedang kawin di atas daun',plantNames:['Terung']}]};
   const other={id:'stink-test',name:'Stinkbug',events:[{date:'2026-10-10',type:'seen',note:'menghisap tunas muda'}]};
@@ -489,6 +504,8 @@ function teacherRegressionTests(){return [
  {name:'Forecast cuaca tidak disamakan dengan riwayat',passed:isFutureWeatherQuestion('Apakah besok akan hujan?')&&!isFutureWeatherQuestion('Kapan hujan terakhir tercatat?')},
  {name:'Umur tanaman tidak terpenuhi oleh angka durasi penyiraman',passed:teacherDiagnose('Sudah berapa umur Stroberi?','ANALISIS STROBERI. Penyiraman terakhir tercatat 09 Okt 2026 (2 hari lalu).')?.category==='attribute_alignment'},
  {name:'Jumlah spesies di kebun dikenali meskipun tanpa kata tanaman',passed:withTeacherGardenFixture({plants:[{id:'reg-nenas',name:'Nenas',plantingGroups:[{date:'2026-08-01',qty:2,activeQty:2,status:'active'}]}]},()=>teacherDiagnose('Berapa jumlah nenas di kebun saya?','ANALISIS NENAS. KESIMPULAN SEMENTARA: total sekitar 2 tanaman aktif. PENYIRAMAN: tercatat 2 hari lalu.')?.category==='quantity_operation_alignment')},
+ {name:'Jumlah Bed global menjawab operasi hitung dengan sumber daftar Bed',passed:withTeacherGardenFixture({plants:[],beds:[{id:'reg-bed1',name:'Veggie'},{id:'reg-bed2',name:'Herbs'}]},()=>{const p=buildReasoningPlan('berapa jumlah bed di kebun saya',[],todayISO()),r=executeReasoningPlan(p);return p.domain==='garden_beds'&&r.text.includes('2 Bed')&&r.sources.length===3})},
+ {name:'Jawaban profil antar-Bed didiagnosis sebagai gagal menjawab jumlah',passed:teacherDiagnose('berapa jumlah bed di kebun saya','PROFIL DAN HUBUNGAN ANTAR-BED\nVeggie · tanaman terkait 4')?.category==='quantity_operation_alignment'},
  {name:'Organisme yang salah tidak dijadikan bukti',passed:withTeacherGardenFixture({inhabitants:[{id:'reg-koksi',name:'Kumbang Koksi'},{id:'reg-stink',name:'Stinkbug'}]},()=>teacherDiagnose('Apakah ada Kumbang Koksi?','Ya, ada catatan stinkbug pada tanaman.')?.category==='entity_evidence_alignment')}
 ];}
 function teacherAddCandidate(diagnosis){
@@ -867,6 +884,7 @@ function answerEventPlan(plan,gardenData=garden){
 function buildReasoningPlan(text, entities=null, referenceDate=todayISO()){
   const q=String(text||'').trim(),n=langNormalize(q),provided=Array.isArray(entities)?entities:[],found=provided.length?provided:matchNamedEntities(q);
   const plantEntity=found.find(e=>e.type==='plant'),bedEntity=found.find(e=>e.type==='bed'),inhabitantEntity=found.find(e=>e.type==='inhabitant');
+  if(isBedCountQuestion(q))return {domain:'garden_beds',operation:'count',metric:'bed_count',target:null,period:parseQueryPeriod(q,referenceDate),query:q,source:'Daftar Bed',responseStyle:'direct',questionTask:'quantity',reason:'Hitung jumlah Bed yang tercatat di daftar Bed kebun. Jangan mengganti operasi hitung dengan laporan profil atau relasi antar-Bed.'};
   const ageCue=!/\bumur panen\b/.test(n)&&(/\b(umur|usia)\b/.test(n)||/\bberapa lama.{0,30}\b(ditanam|sejak tanam|sejak ditanam)\b/.test(n));
   if(plantEntity&&ageCue)return {domain:'plant',operation:'age',metric:'planting_age_days',target:{type:'plant',id:plantEntity.obj?.id||plantEntity.id||'',name:plantEntity.name,obj:plantEntity.obj||null},period:{start:'',end:'',label:'tanggal saat ini',kind:'all_time'},referenceDate:validDate(referenceDate)?String(referenceDate).slice(0,10):todayISO(),query:q,source:'Riwayat penanaman',responseStyle:'direct',questionTask:'age',reason:'Cari tanggal tanam kelompok yang masih aktif untuk tanaman yang disebut, hitung umur berdasarkan tanggal acuan, dan jangan menggantinya dengan jumlah tanaman atau ringkasan kondisi.'};
   const specificInhabitant=inhabitantEntity&&isSpecificInhabitantQuestion(q);
@@ -1145,6 +1163,19 @@ function answerInhabitantPlan(plan,gardenData=garden){
 }
 function executeReasoningPlan(plan){
   if(!plan)return null;
+  if(plan.domain==='garden_beds'&&plan.operation==='count'){
+    const seen=new Set(),beds=[];
+    for(const [index,bed] of asArray(garden.beds).entries()){
+      const name=String(bed?.name||'').trim(),id=bed?.id;
+      const key=id!==undefined&&id!==null&&String(id)!==''?`id:${String(id)}`:name?`name:${canonicalEntityText(name)}`:`unnamed:${index}`;
+      if(seen.has(key))continue;seen.add(key);beds.push(bed);
+    }
+    const sources=[evidence('Daftar Bed',`${beds.length} Bed tercatat pada data kebun yang dimuat`,'','Daftar Bed')];
+    for(const bed of beds){const profile=typeof bedProfile==='function'?bedProfile(bed):[];sources.push(evidence('Bed tercatat',`${bed?.name||'Bed tanpa nama'}${profile?.length?' · '+profile.join('; '):''}`,bed?.createdAt||bed?.updatedAt||'','Daftar Bed'));}
+    if(!beds.length)return createResponse('Belum ada Bed yang tercatat pada sumber data kebun yang sedang dimuat. Ini berarti daftar Bed yang tersedia kosong; periksa koneksi atau impor data jika kamu yakin Bed sudah dibuat.',sources,'Daftar Bed kosong');
+    const names=beds.map(b=>String(b?.name||'Bed tanpa nama').trim());
+    return createResponse(`Di kebunmu tercatat ${beds.length} Bed${names.length?': '+names.join(', '):''}. Hitungan ini berdasarkan daftar Bed yang tersedia pada data yang dimuat.`,sources,beds.length>1?'Bukti dari daftar Bed':'Bukti dari daftar Bed');
+  }
   if(plan.domain==='plant'&&plan.operation==='age')return answerPlantAge(plan);
   if(plan.domain==='inhabitant')return answerInhabitantPlan(plan);
   if(plan.domain==='event')return answerEventPlan(plan);
@@ -1176,6 +1207,11 @@ function runReasoningEngineEvaluation(){
   ];
   const tests=[];const add=(name,run)=>{let passed=false,detail='';try{const result=run();passed=!!result.pass;detail=result.detail||'';}catch(err){detail=String(err?.message||err);}tests.push({name,passed,detail});};
   add('Pertanyaan jumlah yang ada di kebun memilih jumlah aktif, bukan ringkasan umum',()=>{const p=buildReasoningPlan('Berapa jumlah jahe yang ada di kebun saya?',fakeEntity,today);return {pass:classifyAnswerTask('Berapa jumlah jahe yang ada di kebun saya?',p)==='quantity'&&p.domain==='planting'&&p.operation==='active_count'&&p.responseStyle==='direct',detail:`${p.domain}/${p.operation}/${p.responseStyle}`};});
+  add('Pertanyaan jumlah seluruh Bed memilih operasi hitung dan memulangkan bukti yang dipakai',()=>withTeacherGardenFixture({plants:[],beds:[{id:'bed-v',name:'Veggie'},{id:'bed-h',name:'Herbs'}]},()=>{const p=buildReasoningPlan('berapa jumlah bed di kebun saya',[],today),r=executeReasoningPlan(p);return {pass:p.domain==='garden_beds'&&p.operation==='count'&&r.text.includes('2 Bed')&&r.text.includes('Veggie')&&r.text.includes('Herbs')&&r.sources.length>=3&&r.sources.some(x=>x.label==='Daftar Bed'),detail:`${p.domain}/${p.operation}; sumber ${r.sources.length}; ${r.text}`};}));
+  add('Variasi “berapa jumlah Bed” dikenali sebagai hitung jumlah Bed',()=>({pass:isBedCountQuestion('berapa jumlah bed di kebun saya')&&buildReasoningPlan('berapa jumlah bed di kebun saya',[],today).domain==='garden_beds',detail:String(isBedCountQuestion('berapa jumlah bed di kebun saya'))}));
+  add('Variasi “ada berapa Bed” dikenali sebagai hitung jumlah Bed',()=>({pass:isBedCountQuestion('ada berapa bed di kebun saya')&&buildReasoningPlan('ada berapa bed di kebun saya',[],today).domain==='garden_beds',detail:String(isBedCountQuestion('ada berapa bed di kebun saya'))}));
+  add('Jumlah tanaman di Bed tertentu tidak tertukar menjadi jumlah seluruh Bed',()=>({pass:!isBedCountQuestion('berapa jumlah tanaman di Bed Shadow?'),detail:String(isBedCountQuestion('berapa jumlah tanaman di Bed Shadow?'))}));
+  add('Daftar Bed kosong dijelaskan tanpa mengarang angka',()=>withTeacherGardenFixture({plants:[],beds:[]},()=>{const p=buildReasoningPlan('berapa jumlah bed di kebun saya',[],today),r=executeReasoningPlan(p);return {pass:p.domain==='garden_beds'&&/belum ada bed/i.test(r.text)&&r.sources.length===1,detail:r.text};}));
   add('Pertanyaan di mana tanaman berada memilih jawaban lokasi',()=>({pass:classifyAnswerTask('Jahe ada di mana?',{domain:'general'})==='location',detail:classifyAnswerTask('Jahe ada di mana?',{domain:'general'})}));
   add('Pertanyaan status aktif tidak diperlakukan sebagai analisis panjang',()=>({pass:classifyAnswerTask('Apakah Jahe masih aktif?',{domain:'general'})==='status',detail:classifyAnswerTask('Apakah Jahe masih aktif?',{domain:'general'})}));
   add('Pertanyaan jumlah tanaman di Bed menargetkan jawaban langsung',()=>{const e=[{type:'bed',name:'Shadow',id:'bed-shadow',obj:{id:'bed-shadow',name:'Shadow'}}];const p=buildReasoningPlan('Berapa jumlah tanaman di Bed Shadow?',e,today);return {pass:p.domain==='bed'&&p.operation==='count_plants'&&p.responseStyle==='direct',detail:`${p.domain}/${p.operation}/${p.responseStyle}`};});
