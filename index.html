@@ -366,8 +366,33 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 .weather-days{display:grid;gap:6px}.weather-day{display:grid;grid-template-columns:minmax(0,1fr) 28px auto;gap:8px;align-items:center;padding:8px 10px;background:var(--surface2);border-radius:10px}.weather-day-name{font-size:11px;font-weight:750}.weather-day-rain{font-size:10px;color:#9dd9f4;margin-top:2px}.weather-day-icon{font-size:18px;text-align:center}.weather-day-temp{font-size:11px;font-weight:800;white-space:nowrap}.weather-footnote{font-size:10px;color:var(--muted);line-height:1.45;margin-top:11px}.weather-footnote a{color:var(--accent);text-decoration:none}
 .weather-error{padding:12px;background:var(--surface2);border-radius:11px;font-size:12px;color:var(--muted);line-height:1.45;margin-top:10px}
 @media(max-width:390px){.weather-now{grid-template-columns:44px minmax(0,1fr) auto;gap:7px}.weather-now-icon{font-size:35px}.weather-temperature{font-size:28px}.weather-now-stats div{font-size:9px}.weather-hours{gap:4px}.weather-hour{padding:7px 1px}.weather-hour-time,.weather-hour-rain{font-size:8px}}
+
+/* Theme restoration: the app can switch palettes inside browser and Android WebView. */
+html[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f3f6ef;
+  --surface:#ffffff;
+  --surface2:#e9f0e4;
+  --text:#263326;
+  --muted:#687666;
+  --border:#d2ddcd;
+  --accent:#4e803b;
+  --accent-dark:#355c2a;
+  --accent2:#dcead4;
+  --danger:#b94036;
+  --shadow:0 6px 22px rgba(48,72,43,.09);
+  --nav:rgba(250,252,247,.96);
+}
+html[data-theme="light"] .group-status-chip{border-color:rgba(42,66,35,.12);background:rgba(42,66,35,.035)}
+html[data-theme="light"] .toast{background:#263326;color:#fff}
+html[data-theme="light"] .garden-cover-menu button{background:rgba(250,252,247,.95);color:#263326;border-color:rgba(42,66,35,.18)}
 </style>
 
+<script>
+/* Apply the saved palette early to avoid a bright/dark flash on app startup. */
+try { document.documentElement.dataset.theme = localStorage.getItem('terra-serenada-theme-v1') === 'light' ? 'light' : 'dark'; }
+catch (e) { document.documentElement.dataset.theme = 'dark'; }
+</script>
 </head>
 <body>
 <div id="app">
@@ -569,7 +594,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
     <button class="secondary" id="exportOpen">📊 Ekspor data CSV</button>
     <button class="secondary" id="exportHarvestOpen">🧺 Ekspor catatan panen</button>
     <button class="secondary" id="backupOpen">💾 Backup semua data</button>
-    <div class="secondary" aria-label="Tema aplikasi">🌙 Mode gelap · default</div>
+    <button type="button" class="secondary" id="themeToggleBtn" aria-label="Ganti tema aplikasi">🌙 Mode gelap · aktif — ketuk untuk mode terang</button>
     <button class="secondary" id="installHelp">📱 Cara pasang di layar utama</button>
   </div><div class="actions"><button class="secondary" id="settingsClose">Tutup</button></div></div></div>
 <div class="modal" id="groupModal"><div class="card modalbox form"><h2 id="groupFormTitle">🌱 Tanam Susulan</h2>
@@ -1632,7 +1657,23 @@ function scheduleNotifications(){const reminders=[],now=new Date(),stamp=today()
 $('notifyBtn').onclick=requestNotifications;
 if('serviceWorker' in navigator && location.protocol!=='file:') navigator.serviceWorker.register('./sw.js').catch(()=>{});
 function setTodayLabel(){const d=new Date();const t=d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});if($('todayLabel'))$('todayLabel').textContent=t;if($('gardenCoverDate'))$('gardenCoverDate').textContent=t}
-document.documentElement.style.colorScheme='light dark';
+const TS_THEME_KEY='terra-serenada-theme-v1';
+function applyAppTheme(theme,notify=false){
+  const next=theme==='light'?'light':'dark';
+  document.documentElement.dataset.theme=next;
+  try{localStorage.setItem(TS_THEME_KEY,next)}catch(e){console.warn('Tema tidak dapat disimpan:',e)}
+  const meta=document.querySelector('meta[name="theme-color"]');
+  if(meta)meta.setAttribute('content',next==='light'?'#f3f6ef':'#0d120d');
+  const button=$('themeToggleBtn');
+  if(button){
+    button.textContent=next==='dark'?'🌙 Mode gelap · aktif — ketuk untuk mode terang':'☀️ Mode terang · aktif — ketuk untuk mode gelap';
+    button.setAttribute('aria-label',next==='dark'?'Tema aktif mode gelap. Ketuk untuk mode terang':'Tema aktif mode terang. Ketuk untuk mode gelap');
+    button.setAttribute('aria-pressed',next==='light'?'true':'false');
+  }
+  if(notify)showToast(next==='dark'?'🌙 Mode gelap diaktifkan':'☀️ Mode terang diaktifkan');
+}
+applyAppTheme(document.documentElement.dataset.theme||'dark');
+$('themeToggleBtn').onclick=()=>applyAppTheme(document.documentElement.dataset.theme==='dark'?'light':'dark',true);
 setTodayLabel();
 $('fabAdd').onclick=()=>openForm();
 $('openStatisticsBtn').onclick=()=>showPage('statistics');
