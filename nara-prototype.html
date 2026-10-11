@@ -188,6 +188,8 @@ function plantBedNames(p){return [...new Set(activeGroups(p).flatMap(groupBedNam
 function plantById(id){return garden.plants.find(p=>p?.id===id)||null}
 function plantLabel(p){return [p?.name,p?.variety].filter(Boolean).join(' · ')||'Tanaman tanpa nama'}
 function groupActiveQty(g){const v=g?.activeQty??g?.remainingQty??g?.qty??g?.totalQty??0;return Math.max(0,Number(v)||0)}
+function groupInitialQty(g){const v=g?.totalQty??g?.qty??g?.initialQty??g?.plantedQty;const n=v==null?null:Number(v);return Number.isFinite(n)&&n>=0?n:null}
+function groupCurrentQty(g){if(['completed','failed'].includes(g?.status)||['completed','failed'].includes(g?.cycleStatus))return 0;const v=g?.activeQty??g?.remainingQty;if(v!=null){const n=Number(v);return Number.isFinite(n)?Math.max(0,n):null}const total=groupInitialQty(g);if(total==null)return null;if(g?.completedQty!=null||g?.failedQty!=null)return Math.max(0,total-(Number(g?.completedQty)||0)-(Number(g?.failedQty)||0));return total}
 function plantEvents(p){return sortDesc(asArray(p?.events))}
 function attentionStatus(a){return a?.status||((a?.completedAt||a?.completedDate)?'done':'active')}
 function plantAttentions(p,includeDone=true){return sortDesc(garden.attentions.filter(a=>a&&a.plantId===p?.id&&(includeDone||attentionStatus(a)!=='done')))}
@@ -518,6 +520,17 @@ function buildReasoningPlan(text, entities=null, referenceDate=todayISO()){
     else if(/\b(berapa|jumlah|total|banyak)\b/.test(n)){operation='count';metric='record_count';}
     return {domain:'harvest',operation,metric,target:plantEntity?{type:'plant',id:plantEntity.obj?.id||plantEntity.id||'',name:plantEntity.name,obj:plantEntity.obj||null}:null,period,unit:unit||'',query:q,source:'Catatan panen',reason:operation==='sum'?'Saring catatan panen berdasarkan tanaman dan periode, validasi satuan, lalu jumlahkan kuantitas yang sebanding.':operation==='count'?'Saring catatan panen sesuai tanaman dan periode, lalu hitung jumlah catatan.':operation==='latest'?'Pilih catatan panen aktual dengan tanggal terbaru.':operation==='list'?'Ambil daftar catatan panen yang cocok.':operation==='forecast'?'Gunakan estimasi dari data kelompok tanam, bukan riwayat panen aktual.':'Ringkas catatan riwayat dan estimasi tanpa mencampur keduanya.'};
   }
+  const plantingCue=/\b(ditanam|menanam|penanaman|tanam susulan|tanam)\b/.test(n);
+  const currentPlantCue=/\b(aktif|masih hidup|hidup|tersisa|sisa tanaman|jumlah tanaman sekarang|tanaman sekarang|saat ini)\b/.test(n);
+  const plantingListCue=/\b(riwayat penanaman|daftar penanaman|riwayat tanam|daftar tanam|semua kelompok tanam)\b/.test(n);
+  const plantingGroupCountCue=/\b(berapa kali|berapa kelompok|jumlah kelompok|berapa gelombang|berapa kali penanaman)\b/.test(n);
+  if((plantEntity||!bedEntity)&&(plantingCue||plantingListCue||plantingGroupCountCue||((plantEntity||/\b(tanaman|bayam|tomat|terung|terung|ubi|singkong)\b/.test(n))&&currentPlantCue))&&(isQuantityQuestion(q)||plantingListCue||plantingGroupCountCue)){
+    let operation='sum_planted',metric='planted_quantity';
+    if(plantingListCue){operation='list';metric='planting_groups';}
+    else if(plantingGroupCountCue){operation='count_groups';metric='planting_group_count';}
+    else if(currentPlantCue){operation='active_count';metric='active_plant_quantity';}
+    return {domain:'planting',operation,metric,target:plantEntity?{type:'plant',id:plantEntity.obj?.id||plantEntity.id||'',name:plantEntity.name,obj:plantEntity.obj||null}:null,period,unit:'tanaman',query:q,source:'Riwayat kelompok tanam',reason:operation==='sum_planted'?'Ambil semua kelompok tanam yang cocok, saring berdasarkan tanggal bila diminta, lalu jumlahkan kuantitas awal termasuk kelompok yang sudah selesai atau gagal.':operation==='active_count'?'Jumlahkan kuantitas aktif dari kelompok yang relevan; jangan menggantinya dengan total awal penanaman.':operation==='count_groups'?'Hitung jumlah kelompok/peristiwa penanaman yang cocok, bukan jumlah individunya.':'Tampilkan riwayat kelompok tanam yang cocok dengan tanaman dan periode.'};
+  }
   if(bedEntity&&/\b(berapa|jumlah|banyak|ada berapa)\b/.test(n)&&/\b(tanaman|jenis tanaman|tanaman aktif)\b/.test(n)){
     return {domain:'bed',operation:'count_plants',metric:'plant_count',target:{type:'bed',id:bedEntity.obj?.id||bedEntity.id||'',name:bedEntity.name,obj:bedEntity.obj||null},period,unit:'tanaman',query:q,source:'Relasi Bed–tanaman',reason:'Temukan tanaman yang terhubung dengan Bed yang disebut, lalu hitung entitas tanaman unik.'};
   }
@@ -531,6 +544,23 @@ function rowWithinPeriod(date,period){if(!validDate(date))return false;if(!perio
 function selectHarvestRows(plan, gardenData=garden){
   const targetId=plan?.target?.id||'';
   return sortDesc(asArray(gardenData.harvests).filter(h=>h&&validDate(h.date)&&(!targetId||String(h.plantId)===String(targetId))&&rowWithinPeriod(h.date,plan?.period)));
+}
+function selectPlantingRows(plan, gardenData=garden){
+  const targetId=plan?.target?.id||'';const rows=[];
+  for(const plant of asArray(gardenData.plants)){
+    if(targetId&&String(plant?.id)!==String(targetId))continue;
+    const groups=getPlantGroups(plant);
+    if(groups.length){
+      for(let index=0;index<groups.length;index++){
+        const group=groups[index],date=group?.date||plant?.date||'';const hasPeriod=!!plan?.period?.start;
+        if(hasPeriod&&(!validDate(date)||!rowWithinPeriod(date,plan?.period)))continue;
+        rows.push({plant,group,date,index,totalQty:groupInitialQty(group),activeQty:groupCurrentQty(group)});
+      }
+    }else if((!plan?.period?.start||validDate(plant?.date))&&(!plan?.period?.start||rowWithinPeriod(plant.date,plan?.period))){
+      const qty=quantityNumber(plant?.qty);rows.push({plant,group:null,date:plant.date||'',index:0,totalQty:qty,activeQty:qty});
+    }
+  }
+  return rows.sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(b.group?.createdAt||'').localeCompare(String(a.group?.createdAt||'')));
 }
 function quantityNumber(value){if(value===null||value===undefined||String(value).trim()==='')return null;const n=typeof value==='number'?value:Number(String(value).replace(',','.'));return Number.isFinite(n)?n:null;}
 function aggregateHarvestRows(rows, requestedUnit=''){
@@ -562,9 +592,28 @@ function answerHarvestAggregation(plan){
   lines.push('\nPerhitungan ini memakai catatan panen aktual yang ditemukan. Jika pencatatan pada periode tersebut tidak lengkap, total ini juga bisa tidak lengkap.');
   return createResponse(lines.join('\n'),sources,sources.length>1?'Riwayat panen':'Bukti dari riwayat panen');
 }
+function answerPlantingQuantity(plan){
+  const rows=selectPlantingRows(plan),target=plan.target?.name||'seluruh kebun',period=plan.period?.label||'seluruh periode yang tercatat',sources=[];
+  for(const row of rows.slice(0,18))sources.push(evidence('Kelompok tanam',`${plantLabel(row.plant)} · ${row.totalQty==null?'jumlah awal tidak tercatat':formatQuantity(row.totalQty)+' tanaman awal'} · ${row.activeQty==null?'jumlah aktif tidak tercatat':formatQuantity(row.activeQty)+' aktif'}${row.group?.status?' · '+row.group.status:''}`,row.date,'Riwayat kelompok tanam'));
+  if(plan.operation==='list'){
+    if(!rows.length)return createResponse(`BELUM ADA RIWAYAT PENANAMAN YANG COCOK\n\nAku tidak menemukan kelompok tanam dengan tanggal yang cocok untuk ${target} pada ${period}.`,[],'Tidak ada catatan yang cocok');
+    return createResponse(`RIWAYAT PENANAMAN · ${target}\n\n${rows.slice(0,20).map(r=>`• ${dateFmt(r.date)} — ${r.totalQty==null?'jumlah awal tidak tercatat':formatQuantity(r.totalQty)+' tanaman awal'}${r.activeQty==null?'':`, ${formatQuantity(r.activeQty)} aktif`}${groupBedNames(r.group||{}).length?' · '+groupBedNames(r.group).join(', '):''}`).join('\n')}\n\nRiwayat ini mencakup kelompok yang masih aktif maupun yang telah menyelesaikan siklusnya.`,sources,sources.length>1?'Riwayat kelompok tanam':'Bukti dari riwayat penanaman');
+  }
+  if(plan.operation==='count_groups')return createResponse(rows.length?`JUMLAH KELOMPOK TANAM · ${target}\n\nDitemukan ${rows.length} kelompok/peristiwa penanaman yang tercatat pada ${period}. Ini menghitung kelompok tanam, bukan jumlah individunya.`:`BELUM ADA KELOMPOK TANAM YANG COCOK\n\nTidak ada catatan kelompok penanaman yang cocok untuk ${target} pada ${period}.`,sources,sources.length>1?'Riwayat kelompok tanam':'Bukti dari riwayat penanaman');
+  if(!rows.length)return createResponse(`BELUM ADA CATATAN PENANAMAN YANG COCOK\n\nAku tidak menemukan catatan penanaman dengan tanggal yang cocok untuk ${target} pada ${period}. Ini tidak membuktikan bahwa tanaman tersebut tidak pernah ditanam.`,[],'Tidak ada catatan yang cocok');
+  const active=plan.operation==='active_count';const field=active?'activeQty':'totalQty';const known=rows.filter(r=>Number.isFinite(r[field])&&r[field]!==null);const unknown=rows.length-known.length;const total=known.reduce((n,r)=>n+r[field],0);
+  const title=active?'JUMLAH TANAMAN AKTIF':'JUMLAH TANAMAN YANG DITANAM';const metric=active?'kuantitas aktif yang tercatat':'kuantitas awal penanaman yang tercatat';
+  const lines=[`${title} · ${target.toLocaleString('id-ID')}`,`\nPeriode penanaman: ${period}.`,`\nTotal ${metric}: ${known.length?formatQuantity(total)+' tanaman':'belum dapat dihitung'}.`];
+  lines.push(`Dasar hitung: ${known.length} kelompok penanaman dengan kuantitas terbaca dari ${rows.length} kelompok yang cocok.`);
+  if(unknown)lines.push(`${unknown} kelompok tidak memiliki kuantitas yang bisa dibaca, sehingga tidak ikut dijumlahkan.`);
+  if(active)lines.push('Jumlah aktif mengikuti status/kuantitas aktif yang tersimpan; ini berbeda dari jumlah awal yang ditanam.');
+  else lines.push('Jumlah ini mencakup kelompok yang sudah aktif, selesai, atau gagal selama kuantitas awalnya tercatat; ini bukan jumlah tanaman yang masih hidup sekarang.');
+  return createResponse(lines.join('\n\n'),sources,sources.length>1?'Riwayat kelompok tanam':'Bukti dari riwayat penanaman');
+}
 function executeReasoningPlan(plan){
   if(!plan)return null;
   if(plan.domain==='harvest'&&['sum','count'].includes(plan.operation))return answerHarvestAggregation(plan);
+  if(plan.domain==='planting'&&['sum_planted','active_count','count_groups','list'].includes(plan.operation))return answerPlantingQuantity(plan);
   if(plan.domain==='bed'&&plan.operation==='count_plants'){
     const bed=plan.target?.obj||garden.beds.find(b=>String(b.id)===String(plan.target?.id));if(!bed)return createResponse('Aku mengenali permintaan menghitung tanaman, tetapi Bed yang dituju tidak ditemukan di data yang dimuat.',[],'Objek tidak ditemukan');
     const plants=getPlantsInBed(bed),sources=[evidence('Relasi Bed–tanaman',`${bed.name} · ${plants.length} tanaman terkait`,'','Relasi tanaman–bed')];for(const p of plants)sources.push(evidence('Tanaman terkait',plantLabel(p),p.updatedAt||p.createdAt,'Tanaman'));
@@ -598,6 +647,23 @@ function runReasoningEngineEvaluation(){
   add('Agregasi menjumlahkan unit sejenis tanpa memasukkan tanaman lain atau unit berbeda',()=>{const p={target:{id:fakePlant.id},period:parseQueryPeriod('tahun ini',today)},r=sample.filter(x=>x.plantId===p.target.id&&rowWithinPeriod(x.date,p.period)),a=aggregateHarvestRows(r,'buah'),t=a.totals.find(x=>x.unit==='buah');return {pass:t?.total===12&&t.records===2&&a.excludedForUnit===1,detail:`total buah ${t?.total??'?'}, excluded unit ${a.excludedForUnit}`};});
   add('Jika satuan tidak sesuai, hasil tidak dikonversi diam-diam',()=>{const a=aggregateHarvestRows([{date:`${year}-01-01`,qty:3,unit:'kg'}],'buah');return {pass:a.matching.length===0&&a.excludedForUnit===1,detail:`matching ${a.matching.length}, excluded ${a.excludedForUnit}`};});
   add('Tanaman yang tidak punya catatan tak digabung dengan tanaman lain',()=>{const r=sample.filter(x=>x.plantId==='missing-plant');return {pass:r.length===0,detail:`${r.length} catatan cocok`};});
+  const fakeSpinach={id:'test-spinach',name:'Bayam',date:`${year-1}-11-20`,qty:37,plantingGroups:[
+    {id:'spinach-a',date:`${year-1}-11-20`,totalQty:7,qty:7,activeQty:0,completedQty:7,failedQty:0,status:'completed'},
+    {id:'spinach-b',date:`${year}-02-05`,totalQty:20,qty:20,activeQty:12,completedQty:3,failedQty:5},
+    {id:'spinach-c',date:`${year}-07-01`,totalQty:10,qty:10,activeQty:10,completedQty:0,failedQty:0}
+  ]};
+  const spinachEntity=[{type:'plant',name:'Bayam',id:fakeSpinach.id,obj:fakeSpinach}];const sampleGarden={plants:[fakeSpinach,{id:'test-other',name:'Selada',date:`${year}-01-01`,qty:100,plantingGroups:[{id:'lettuce-a',date:`${year}-01-01`,totalQty:100,qty:100,activeQty:100}]}],harvests:[],gardenEvents:[],attentions:[],inhabitants:[],beds:[],gardenNotes:[],gardenSettings:{}};
+  add('Jumlah Bayam yang ditanam memilih sum_planted, bukan jumlah aktif',()=>{const p=buildReasoningPlan('Berapa jumlah Bayam yang ditanam?',spinachEntity,today);return {pass:p.domain==='planting'&&p.operation==='sum_planted',detail:`${p.domain}/${p.operation}`};});
+  add('Jumlah Bayam yang masih aktif memilih active_count',()=>{const p=buildReasoningPlan('Berapa jumlah tanaman Bayam yang masih aktif sekarang?',spinachEntity,today);return {pass:p.domain==='planting'&&p.operation==='active_count',detail:`${p.domain}/${p.operation}`};});
+  add('Jumlah kelompok tanam tidak disamakan dengan jumlah individu',()=>{const p=buildReasoningPlan('Bayam ditanam berapa kali tahun ini?',spinachEntity,today);return {pass:p.domain==='planting'&&p.operation==='count_groups',detail:`${p.domain}/${p.operation}`};});
+  add('Riwayat penanaman memilih daftar kelompok, bukan agregasi',()=>{const p=buildReasoningPlan('Tampilkan riwayat penanaman Bayam',spinachEntity,today);return {pass:p.domain==='planting'&&p.operation==='list',detail:`${p.domain}/${p.operation}`};});
+  add('Total tanaman ditanam memasukkan kelompok selesai namun mengecualikan tanaman lain',()=>{const p={target:{id:'test-spinach'},period:parseQueryPeriod('',today)};const r=selectPlantingRows(p,sampleGarden);const total=r.reduce((n,x)=>n+(x.totalQty??0),0);return {pass:r.length===3&&total===37,detail:`${r.length} kelompok, total awal ${total}`};});
+  add('Jumlah aktif berbeda dari jumlah awal yang ditanam',()=>{const p={target:{id:'test-spinach'},period:parseQueryPeriod('',today)};const r=selectPlantingRows(p,sampleGarden);const total=r.reduce((n,x)=>n+(x.activeQty??0),0);return {pass:total===22,detail:`total aktif ${total}, total awal 37`};});
+  add('Rentang tahun ini menyaring kelompok berdasarkan tanggal tanam',()=>{const p={target:{id:'test-spinach'},period:parseQueryPeriod('tahun ini',today)};const r=selectPlantingRows(p,sampleGarden);return {pass:r.length===2&&r.every(x=>x.date.startsWith(String(year)))&&r.reduce((n,x)=>n+(x.totalQty??0),0)===30,detail:`${r.length} kelompok tahun berjalan, total ${r.reduce((n,x)=>n+(x.totalQty??0),0)}`};});
+  add('Jumlah aktif tidak memuat kelompok yang sudah selesai',()=>{const r=selectPlantingRows({target:{id:'test-spinach'},period:parseQueryPeriod('',today)},sampleGarden);return {pass:r.find(x=>x.group?.id==='spinach-a')?.activeQty===0,detail:'Kelompok selesai tetap ada di riwayat dengan kuantitas aktif nol'};});
+  add('Tanaman tanpa kelompok memakai jumlah warisan bila tanggal tercatat',()=>{const legacy={plants:[{id:'legacy-1',name:'Kangkung',date:`${year}-03-01`,qty:15}],harvests:[]};const r=selectPlantingRows({target:{id:'legacy-1'},period:parseQueryPeriod('',today)},legacy);return {pass:r.length===1&&r[0].totalQty===15,detail:`fallback catatan tanaman: ${r[0]?.totalQty??'tidak terbaca'}`};});
+  add('Kuantitas aktif dapat dihitung dari total dikurangi selesai dan gagal untuk skema lama',()=>{const q=groupCurrentQty({totalQty:12,completedQty:3,failedQty:2});return {pass:q===7,detail:`aktif hasil turunan ${q}`};});
+  add('Kelompok tanpa tanggal tetap masuk total sepanjang masa, tetapi tidak masuk periode tertentu',()=>{const legacy={plants:[{id:'legacy-2',name:'Kangkung',qty:4,plantingGroups:[{id:'g-undated',qty:4,totalQty:4,activeQty:4}]}],harvests:[]};const all=selectPlantingRows({target:{id:'legacy-2'},period:parseQueryPeriod('',today)},legacy),yearRows=selectPlantingRows({target:{id:'legacy-2'},period:parseQueryPeriod('tahun ini',today)},legacy);return {pass:all.length===1&&yearRows.length===0,detail:`sepanjang masa ${all.length}; periode tahun ini ${yearRows.length}`};});
   const entry={id:`reason-eval-${Date.now()}`,createdAt:new Date().toISOString(),passed:tests.filter(t=>t.passed).length,total:tests.length,cases:tests};protoMemory.reasoningEvaluations=asArray(protoMemory.reasoningEvaluations);protoMemory.reasoningEvaluations.push(entry);protoMemory.reasoningEvaluations=protoMemory.reasoningEvaluations.slice(-20);saveProtoMemory();renderReasoningEvaluation(entry);return entry;
 }
 function renderReasoningEvaluation(entry=asArray(protoMemory.reasoningEvaluations).slice(-1)[0]){const host=$('reasoningEvaluationResult');if(!host)return;if(!entry){host.className='context-empty';host.textContent='Tes penalaran belum dijalankan. Tes menggunakan data contoh terpisah dan tidak mengubah data kebun.';return}host.className='';const heading=document.createElement('div');heading.className='language-tag '+(entry.passed===entry.total?'good':'warn');heading.style.display='inline-block';heading.textContent=`Tes General Reasoning terakhir: ${entry.passed}/${entry.total} · ${dateFmt(entry.createdAt)}`;const list=document.createElement('div');list.className='language-eval-list';for(const c of entry.cases){const row=document.createElement('div');row.className='language-eval-row';const icon=document.createElement('b');icon.style.color=c.passed?'var(--accent)':'var(--red)';icon.textContent=c.passed?'✓':'×';const label=document.createElement('span');label.textContent=c.name+(c.detail?' — '+c.detail:'');row.append(icon,label);list.append(row)}host.replaceChildren(heading,list);}
