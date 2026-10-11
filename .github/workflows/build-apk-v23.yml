@@ -83,7 +83,7 @@ jobs:
           fi
 
           mkdir -p apk-output
-          gh run download "$run_id" --repo "$GH_REPO" --name "Terra-Serenada-v1.0.18" --dir apk-output
+          gh run download "$run_id" --repo "$GH_REPO" --name "Terra-Serenada-v1.0.19" --dir apk-output
           apk_path="$(find apk-output -type f -iname '*.apk' -print -quit)"
           if [[ -z "$apk_path" ]]; then
             echo "Artifact berhasil diunduh tetapi file APK tidak ditemukan."
