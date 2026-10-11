@@ -430,6 +430,169 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 
 </style>
 
+
+<style id="nara-appearance-only-reference">
+/* Nara visual pass: adapted from nara-prototype.html. No app logic or data behavior is changed. */
+#pageNara {
+  --nara-moss:#b0d78e;
+  --nara-gold:#efc776;
+  position:relative; isolation:isolate;
+  margin:-16px; padding:16px 14px 30px; overflow:hidden;
+  background:radial-gradient(ellipse at 50% 0%,rgba(83,112,48,.20),transparent 36%),
+             radial-gradient(ellipse at 95% 45%,rgba(183,130,48,.10),transparent 28%),
+             linear-gradient(180deg,#10180f 0%,#0b120b 68%,#11180e 100%) !important;
+  color:#f4f2df;
+}
+#pageNara::after {
+  content:""; position:absolute; inset:0; pointer-events:none; z-index:-1; opacity:.22;
+  background-image:radial-gradient(circle at 14% 18%,rgba(239,199,118,.5) 0 1px,transparent 2px),
+                   radial-gradient(circle at 87% 33%,rgba(176,215,142,.5) 0 1px,transparent 2px),
+                   radial-gradient(circle at 20% 73%,rgba(239,199,118,.35) 0 1px,transparent 2px);
+  background-size:130px 170px,180px 190px,210px 230px;
+}
+body:has(#pageNara.active) .appbar {
+  background:rgba(10,17,10,.96); border-bottom-color:rgba(181,203,143,.18);
+  -webkit-backdrop-filter:none; backdrop-filter:none;
+}
+body:has(#pageNara.active) .bottom-nav {
+  background:rgba(10,17,10,.97); border-color:rgba(181,203,143,.23);
+  -webkit-backdrop-filter:none; backdrop-filter:none; box-shadow:none;
+}
+body:has(#pageNara.active) .nav-item.active { color:#d8edb9; }
+
+/* Room hero — keep the working app's existing house and Nara artwork. */
+#pageNara .nara-house-hero {
+  min-height:400px !important; height:clamp(400px,108vw,455px) !important; max-height:455px !important;
+  margin:0 0 10px; border-radius:22px; border-color:rgba(190,211,145,.35);
+  background-size:cover !important; background-position:center 49% !important; background-attachment:scroll;
+  box-shadow:0 5px 12px rgba(0,0,0,.22);
+}
+#pageNara .nara-house-hero::after { background:linear-gradient(180deg,rgba(7,15,7,.38) 0%,rgba(7,15,7,.04) 36%,rgba(7,15,7,.02) 55%,rgba(7,15,7,.58) 100%); }
+#pageNara .nara-house-top { top:13px; left:13px; right:13px; gap:8px; }
+#pageNara .nara-house-label,
+#pageNara .nara-house-world {
+  min-height:30px; padding:7px 10px; border:1px solid rgba(234,232,199,.28); border-radius:999px;
+  background:rgba(11,20,10,.86); color:#eff2da; box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none;
+  font-family:inherit; font-size:9px; font-weight:850; letter-spacing:.7px;
+}
+#pageNara .nara-house-label { font-family:Georgia,"Times New Roman",serif; font-size:13px; letter-spacing:0; }
+#pageNara .nara-house-world { font-size:9px; font-weight:650; letter-spacing:0; }
+#pageNara .nara-house-bubble {
+  top:61px; left:14px; right:auto; transform:none; width:min(58%,208px); max-width:58%;
+  padding:12px 13px 13px; border:1px solid rgba(255,249,215,.72);
+  border-radius:17px 17px 17px 5px; background:rgba(251,244,217,.96); color:#263721;
+  box-shadow:0 4px 10px rgba(0,0,0,.16); font:700 clamp(17px,4.4vw,21px)/1.2 Georgia,"Times New Roman",serif;
+}
+#pageNara .nara-house-bubble::after { bottom:-8px; left:18px; width:15px; height:15px; background:#fbf4d9; }
+#pageNara .nara-house-character { bottom:3%; width:min(88%,410px); height:65%; filter:drop-shadow(0 8px 12px rgba(0,0,0,.25)); }
+#pageNara .nara-house-footer {
+  left:13px; right:13px; bottom:12px; align-items:flex-end; gap:8px;
+  padding:8px 9px; border-radius:12px;
+  background:linear-gradient(90deg,rgba(6,13,6,.66),rgba(6,13,6,.02));
+}
+#pageNara .nara-house-caption { text-shadow:0 2px 8px #000; }
+#pageNara .nara-house-caption small { color:#e3cf98; letter-spacing:1.35px; }
+#pageNara .nara-house-caption strong { font-size:23px; }
+#pageNara .nara-house-caption span { color:rgba(255,248,222,.9); }
+#pageNara .nara-house-enter {
+  padding:9px 10px !important; border-radius:12px !important; font-size:10px !important;
+  background:#1b2a19 !important; color:#f4f2df !important; border:1px solid #526848 !important;
+  -webkit-backdrop-filter:none; backdrop-filter:none; box-shadow:none !important;
+}
+
+/* Solid, low-cost surfaces and warm forest colors, while retaining the same information. */
+#pageNara .nara-identity {
+  padding:15px; margin-bottom:12px; border-radius:18px; border-color:#344532;
+  background:#172318 !important; box-shadow:none;
+}
+#pageNara .nara-identity-head { gap:10px; }
+#pageNara .nara-mark { width:44px; height:44px; flex-basis:44px; border-radius:14px; border-color:#486346; }
+#pageNara .nara-kicker { color:#b8d98f; font-size:8px; letter-spacing:1.25px; }
+#pageNara .nara-title { color:#f4f1db; font-family:Georgia,"Times New Roman",serif; font-size:22px; }
+#pageNara .nara-manifesto { color:#efc776; font-family:Georgia,"Times New Roman",serif; font-size:14px; line-height:1.45; }
+#pageNara .nara-description { color:#c1cbb7; font-size:11px; line-height:1.5; }
+#pageNara .nara-metrics { grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin:12px 0 10px; }
+#pageNara .nara-metric { padding:9px 7px; border:1px solid #344532; border-radius:14px; background:#1b2a19 !important; box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
+#pageNara .nara-metric b { color:#efc776; font-size:20px; }
+#pageNara .nara-metric span { color:#c2ceb4; font-size:9px; line-height:1.32; }
+#pageNara .nara-pulse { background:#111b12; border-color:#344532; color:#c1cbb7; border-radius:13px; }
+
+/* Prompt buttons become the prototype's illustrated action tiles. */
+#pageNara .nara-section-label { color:#dfd1a5; font:800 16px Georgia,"Times New Roman",serif; margin:18px 2px 10px; }
+#pageNara .nara-prompts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; margin:10px 0 18px; }
+#pageNara .nara-prompt {
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:7px;
+  min-width:0; min-height:112px; padding:11px 5px 10px; border-radius:17px;
+  border:1px solid rgba(160,194,121,.38); background:#1b2a19; color:#f3f1db;
+  text-align:center; white-space:normal; box-shadow:none; font-weight:650;
+}
+#pageNara .nara-prompt:nth-child(2) { border-color:rgba(224,182,93,.55); background:#302818; }
+#pageNara .nara-action-icon { width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; border-radius:50%; border:1px solid rgba(181,211,139,.3); background:rgba(147,190,105,.18); font-size:19px; }
+#pageNara .nara-prompt:nth-child(2) .nara-action-icon { background:rgba(225,179,80,.16); border-color:rgba(224,188,105,.3); }
+#pageNara .nara-prompt b { display:block; min-height:28px; font-size:10px; line-height:1.25; font-weight:800; }
+#pageNara .nara-prompt:active { transform:none; background:#243723; }
+
+/* Existing chat and taught-knowledge UI, rethemed without changing its IDs or handlers. */
+#pageNara .nara-chat { overflow:hidden; border-radius:19px; border:1px solid #344532; background:#172318 !important; box-shadow:none; }
+#pageNara .nara-chat-head { padding:12px; gap:8px; border-color:rgba(173,198,137,.17); background:#1b2a19; }
+#pageNara .nara-chat-head b { color:#f4f0d9; font-size:12px; }
+#pageNara .nara-chat-head span { color:#bfcab1; font-size:9px; text-align:right; }
+#pageNara .nara-messages { display:flex; flex-direction:column; gap:9px; min-height:100px; max-height:42vh; padding:12px; background:#172318; }
+#pageNara .nara-message { max-width:94%; padding:10px 12px; border-radius:14px; font-size:12px; line-height:1.5; }
+#pageNara .nara-message.assistant { align-self:flex-start; background:#202e1f; border:1px solid #3c5036; border-bottom-left-radius:5px; color:#e5ead8; }
+#pageNara .nara-message.user { align-self:flex-end; background:#29452e; border:1px solid #486b49; border-bottom-right-radius:5px; color:#f4f3e6; }
+#pageNara .nara-message-meta { color:#aebca0; }
+#pageNara .nara-welcome { padding:5px 1px 12px; }
+#pageNara .nara-welcome b { color:#f4f0d9; }
+#pageNara .nara-welcome p { color:#bfcab1; }
+#pageNara .nara-compose { padding:10px; gap:7px; background:#172318; border-color:rgba(173,198,137,.17); }
+#pageNara .nara-compose textarea { min-height:44px; max-height:120px; padding:11px; resize:vertical; border-radius:14px; border-color:#3b5036; background:#0d170e; color:#f6f2dc; font-size:12px; }
+#pageNara .nara-compose textarea::placeholder { color:#a7b39a; }
+#pageNara #naraSendBtn { min-height:44px; padding:9px 11px; border-radius:14px; border:1px solid rgba(221,195,118,.36); background:linear-gradient(145deg,#8cbf66,#56863f); color:#fff; box-shadow:none; }
+#pageNara .nara-compose-hint { padding:0 12px 11px; background:#172318; color:#aebca0; font-size:9px; }
+#pageNara .nara-knowledge { margin-top:11px; padding:0 13px; border-radius:16px; border-color:#344532; background:#172318; box-shadow:none; }
+#pageNara .nara-knowledge summary { padding:13px 0; color:#e8edda; font-size:12px; }
+#pageNara .nara-knowledge summary:after { color:#efc776; }
+#pageNara .nara-knowledge-intro { color:#b8c5ad; }
+#pageNara .nara-lesson { background:#202e1f; }
+#pageNara .nara-lesson-text { color:#e5ead8; }
+#pageNara .nara-lesson-date { color:#aebca0; }
+#pageNara .nara-boundary { color:#aebca0; font-size:9px; line-height:1.5; }
+
+/* Replace only the Nara glyph in the bottom navigation with Nara's full-face portrait. */
+.nav-item .nara-nav-face { width:27px; height:27px; border-radius:9px; overflow:hidden; display:block; border:1px solid #547553; background-color:#29452e; background-image:var(--nara-face); background-repeat:no-repeat; background-size:contain; background-position:center bottom; line-height:0; }
+.nav-item[data-nav="nara"] { gap:2px; }
+
+@media (max-width:380px) {
+  #pageNara { padding-left:10px; padding-right:10px; }
+  #pageNara .nara-house-hero { min-height:400px !important; height:400px !important; max-height:400px !important; }
+  #pageNara .nara-house-bubble { width:56%; max-width:56%; left:10px; top:60px; padding:10px; font-size:18px; }
+  #pageNara .nara-house-caption strong { font-size:21px; }
+  #pageNara .nara-house-caption span { font-size:9px; }
+  #pageNara .nara-house-enter { padding:8px 8px !important; font-size:9px !important; }
+  #pageNara .nara-prompts { gap:6px; }
+  #pageNara .nara-prompt { min-height:108px; padding:10px 4px 9px; }
+  #pageNara .nara-action-icon { width:35px; height:35px; flex-basis:35px; }
+  #pageNara .nara-prompt b { font-size:9px; }
+  #pageNara .nara-metric { padding:8px 6px; }
+  #pageNara .nara-metric b { font-size:18px; }
+}
+@media (min-width:721px) {
+  #pageNara { padding:24px 22px 34px; }
+  #pageNara .nara-house-hero { height:475px !important; min-height:475px !important; max-height:475px !important; max-width:640px; margin-left:auto; margin-right:auto; }
+  #pageNara .nara-identity, #pageNara .nara-prompts, #pageNara .nara-chat, #pageNara .nara-knowledge { max-width:640px; margin-left:auto; margin-right:auto; }
+  #pageNara .nara-section-label { max-width:640px; margin-left:auto; margin-right:auto; }
+  #pageNara .nara-messages { max-height:520px; }
+}
+@media (max-width:720px) {
+  body:has(#pageNara.active) .appbar,
+  body:has(#pageNara.active) .bottom-nav { -webkit-backdrop-filter:none; backdrop-filter:none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #pageNara *, #pageNara *::before, #pageNara *::after { scroll-behavior:auto !important; transition:none !important; }
+}
+</style>
+
 </head>
 <body>
 <div id="app">
@@ -628,11 +791,11 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 
     <div class="nara-section-label" id="naraTalkStart">Mulai dari kebunmu</div>
     <div class="nara-prompts">
-      <button type="button" class="secondary nara-prompt" data-nara-prompt="Buat ringkasan kondisi kebun hari ini.">🌱 Ringkasan kebun hari ini</button>
-      <button type="button" class="secondary nara-prompt" data-nara-prompt="Tanaman apa yang perlu perhatian sekarang?">🔎 Yang perlu perhatian</button>
-      <button type="button" class="secondary nara-prompt" data-nara-prompt="Tanaman apa yang mendekati waktu panen?">🧺 Perkiraan panen</button>
-      <button type="button" class="secondary nara-prompt" data-nara-prompt="Bagaimana cuaca kebun saat ini dan apa yang perlu diperhatikan?">🌦️ Cuaca kebun</button>
-      <button type="button" class="secondary nara-prompt" data-nara-prompt="Tanaman mana yang tercatat perlu disiram?">💧 Catatan penyiraman</button>
+      <button type="button" class="secondary nara-prompt" data-nara-prompt="Buat ringkasan kondisi kebun hari ini."><span class="nara-action-icon" aria-hidden="true">🌱</span><b>Ringkasan<br>kebun hari ini</b></button>
+      <button type="button" class="secondary nara-prompt" data-nara-prompt="Tanaman apa yang perlu perhatian sekarang?"><span class="nara-action-icon" aria-hidden="true">🔎</span><b>Yang perlu<br>perhatian</b></button>
+      <button type="button" class="secondary nara-prompt" data-nara-prompt="Tanaman apa yang mendekati waktu panen?"><span class="nara-action-icon" aria-hidden="true">🧺</span><b>Perkiraan<br>panen</b></button>
+      <button type="button" class="secondary nara-prompt" data-nara-prompt="Bagaimana cuaca kebun saat ini dan apa yang perlu diperhatikan?"><span class="nara-action-icon" aria-hidden="true">🌦️</span><b>Cuaca<br>kebun</b></button>
+      <button type="button" class="secondary nara-prompt" data-nara-prompt="Tanaman mana yang tercatat perlu disiram?"><span class="nara-action-icon" aria-hidden="true">💧</span><b>Catatan<br>penyiraman</b></button>
     </div>
 
     <section class="card nara-chat" aria-label="Percakapan dengan Nara">
@@ -659,7 +822,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   <button class="nav-item active" data-nav="home"><span>🏡</span>Beranda</button>
   <button class="nav-item" data-nav="plants"><span>🌱</span>Tanaman</button>
   <button class="nav-item" data-nav="inhabitants"><span>🐾</span>Inhabitants</button>
-  <button class="nav-item" data-nav="nara"><span>🌿</span>Nara</button>
+  <button class="nav-item" data-nav="nara"><span class="nara-nav-face" aria-hidden="true"></span>Nara</button>
 </div></nav>
 <section class="full-detail-page" id="plantDetailPage"><div class="full-detail-top"><button class="full-detail-back" id="plantDetailBack">‹</button><h2 id="plantDetailTitle">Tanaman</h2><button class="icon-btn" id="plantDetailEdit">✏️</button></div><div class="full-detail-body" id="plantDetailBody"></div></section>
 <section class="full-detail-page" id="inhabitantDetailPage"><div class="full-detail-top"><button class="full-detail-back" id="inhabitantDetailBack">‹</button><h2 id="inhabitantDetailTitle">Inhabitant</h2><button class="icon-btn" id="inhabitantDetailEdit">✏️</button></div><div class="full-detail-body" id="inhabitantDetailBody"></div></section>
