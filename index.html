@@ -453,6 +453,21 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 :root[data-theme="light"] .appbar, :root[data-theme="light"] .bottom-nav{box-shadow:0 3px 18px rgba(35,52,31,.05)}
 :root[data-theme="light"] .card{border-color:var(--border)}
 </style>
+
+<style id="nara-tab-face-fix">
+/* Nara tab uses the same full-face character asset as Rumah Nara. */
+.nav-item .nav-nara-face{
+  display:block;
+  width:30px;
+  height:30px;
+  margin:0 auto;
+  background-image:var(--nara-face);
+  background-position:center bottom;
+  background-repeat:no-repeat;
+  background-size:contain;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.24));
+}
+</style>
 </head>
 <body>
 <div id="app">
@@ -680,7 +695,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   <button class="nav-item active" data-nav="home"><span>🏡</span>Beranda</button>
   <button class="nav-item" data-nav="plants"><span>🌱</span>Tanaman</button>
   <button class="nav-item" data-nav="inhabitants"><span>🐾</span>Inhabitants</button>
-  <button class="nav-item" data-nav="nara"><span>🌿</span>Nara</button>
+  <button class="nav-item" data-nav="nara"><span class="nav-nara-face" aria-hidden="true"></span>Nara</button>
 </div></nav>
 <section class="full-detail-page" id="plantDetailPage"><div class="full-detail-top"><button class="full-detail-back" id="plantDetailBack">‹</button><h2 id="plantDetailTitle">Tanaman</h2><button class="icon-btn" id="plantDetailEdit">✏️</button></div><div class="full-detail-body" id="plantDetailBody"></div></section>
 <section class="full-detail-page" id="inhabitantDetailPage"><div class="full-detail-top"><button class="full-detail-back" id="inhabitantDetailBack">‹</button><h2 id="inhabitantDetailTitle">Inhabitant</h2><button class="icon-btn" id="inhabitantDetailEdit">✏️</button></div><div class="full-detail-body" id="inhabitantDetailBody"></div></section>
@@ -1497,7 +1512,7 @@ function renderGardenStatus(){
     const gs=(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).filter(groupHasActive);
     return gs.some(g=>{const hd=groupHarvestDate(x,g);if(!hd)return false;return Math.ceil((new Date(hd+'T00:00:00')-now)/86400000)<=7});
   }).length;
-  const attention=getAutomaticAttentions().length+attentions.filter(a=>a.status!=='done').length;
+  const attention=getAutomaticAttentions().length; // getAutomaticAttentions sudah mencakup perhatian manual aktif.
   const flowering=new Set();
   data.forEach(x=>(Array.isArray(x.events)?x.events:[]).filter(e=>e.type==='flowering'&&daysBetween(e.date,now)<=14).forEach(()=>flowering.add(x.id)));
   const ym=today().slice(0,7);
