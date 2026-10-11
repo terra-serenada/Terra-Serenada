@@ -1,1 +1,70 @@
+name: Apply Nara AI Teacher Audit Patch
 
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type APPLY to update nara-prototype.html only
+        required: true
+        default: NO
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    if: inputs.confirm == 'APPLY'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js for syntax validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Locate patch script
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f apply_nara_ai_teacher_audit_patch.py ]]; then
+            echo "Patch script found in repository root."
+          elif [[ -f Terra_Serenada_AI_Guru_Audit_Patch.zip ]]; then
+            unzip -o Terra_Serenada_AI_Guru_Audit_Patch.zip -d "$RUNNER_TEMP/nara-patch"
+            cp "$RUNNER_TEMP/nara-patch/apply_nara_ai_teacher_audit_patch.py" ./apply_nara_ai_teacher_audit_patch.py
+          else
+            echo "Could not find apply_nara_ai_teacher_audit_patch.py or Terra_Serenada_AI_Guru_Audit_Patch.zip in repository root."
+            exit 1
+          fi
+
+      - name: Apply patch and validate JavaScript
+        run: python apply_nara_ai_teacher_audit_patch.py
+
+      - name: Check whitespace and review changes
+        run: |
+          git diff --check
+          git diff --stat -- nara-prototype.html
+          git diff --exit-code -- index.html
+
+      - name: Commit updated Nara prototype
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nara-prototype.html
+          if git diff --cached --quiet; then
+            echo "No changes to commit. The patch may already be applied."
+            exit 0
+          fi
+          git commit -m "Fix Nara AI Guru correction audit loop"
+          git push origin HEAD:main
