@@ -1,0 +1,121 @@
+name: Publish Terra Serenada APK Terbaru
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-apk-v23.yml"
+      - "index.html"
+      - "manifest.webmanifest"
+      - "icon.png"
+      - "icon-192.png"
+      - "icon-512.png"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: terra-serenada-latest-apk
+  cancel-in-progress: false
+
+jobs:
+  publish-apk:
+    name: Build and publish APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Trigger the existing signed Android build
+        id: build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          workflow="build-apk-v22.yml"
+          endpoint="repos/${GH_REPO}/actions/workflows/${workflow}/runs?per_page=1"
+          before="$(gh api "$endpoint" --jq '.workflow_runs[0].id // 0')"
+
+          echo "Memulai build APK menggunakan workflow Android yang sudah ada: ${workflow}"
+          gh workflow run "$workflow" --repo "$GH_REPO" --ref main
+
+          run_id=""
+          for attempt in $(seq 1 120); do
+            current="$(gh api "$endpoint" --jq '.workflow_runs[0].id // 0')"
+            if [[ "$current" != "$before" && "$current" != "0" ]]; then
+              run_id="$current"
+              break
+            fi
+            sleep 5
+          done
+
+          if [[ -z "$run_id" ]]; then
+            echo "Gagal menemukan run build Android yang baru. Periksa tab Actions di repository."
+            exit 1
+          fi
+
+          echo "Android build run: ${run_id}"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+          status="queued"
+          conclusion=""
+          for attempt in $(seq 1 120); do
+            run_data="$(gh api "repos/${GH_REPO}/actions/runs/${run_id}")"
+            status="$(jq -r '.status // ""' <<< "$run_data")"
+            conclusion="$(jq -r '.conclusion // ""' <<< "$run_data")"
+
+            if [[ "$status" == "completed" ]]; then
+              break
+            fi
+            sleep 10
+          done
+
+          if [[ "$status" != "completed" ]]; then
+            echo "Build Android belum selesai dalam batas waktu tunggu workflow ini. Run ID: ${run_id}"
+            exit 1
+          fi
+          if [[ "$conclusion" != "success" ]]; then
+            echo "Build Android gagal (conclusion: ${conclusion}). Lihat run: https://github.com/${GH_REPO}/actions/runs/${run_id}"
+            exit 1
+          fi
+
+          mkdir -p apk-output
+          gh run download "$run_id" --repo "$GH_REPO" --name "Terra-Serenada-v1.0.18" --dir apk-output
+          apk_path="$(find apk-output -type f -iname '*.apk' -print -quit)"
+          if [[ -z "$apk_path" ]]; then
+            echo "Artifact berhasil diunduh tetapi file APK tidak ditemukan."
+            exit 1
+          fi
+          cp "$apk_path" Terra-Serenada.apk
+          test -s Terra-Serenada.apk
+          ls -lh Terra-Serenada.apk
+
+      - name: Keep a temporary APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Terra-Serenada-APK-latest
+          path: Terra-Serenada.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish downloadable APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          target_commitish: main
+          name: Terra Serenada APK Terbaru
+          body: |
+            APK Terra Serenada dengan integrasi Nara, dibangun dari branch `main`.
+
+            Berkas ini diperbarui otomatis saat `index.html` atau aset aplikasi berubah.
+            Build Android memakai workflow `build-apk-v22.yml` yang sudah ada di repository.
+
+            Unduhan langsung: https://github.com/terra-serenada/Terra-Serenada/releases/latest/download/Terra-Serenada.apk
+          files: Terra-Serenada.apk
+          overwrite_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
