@@ -251,7 +251,18 @@ function contextForPlant(p){
 function matchingProtoLessons(text){const words=String(text||'').toLocaleLowerCase('id-ID').split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>=4);if(!words.length)return[];const pool=[...coreLessons().map(l=>({...l,origin:'Nara core'})),...protoMemory.lessons.map(l=>({...l,origin:'Ingatan uji'}))];return pool.map(l=>({...l,_score:words.filter(w=>String(l.text).toLocaleLowerCase('id-ID').includes(w)).length})).filter(l=>l._score>0).sort((a,b)=>b._score-a._score).slice(0,3)}
 function coreLessons(){const x=safeRead(CORE_NARA_KEY,{lessons:[]});return asArray(x?.lessons)}
 function canonicalEntityText(value){return langNormalize(value).replace(/\bnenas\b/g,'nanas').replace(/\bterong\b/g,'terung').replace(/\bcabe\b/g,'cabai').replace(/\bketela pohon\b/g,'singkong').replace(/\bubi kayu\b/g,'singkong');}
-function matchNamedEntities(q){const low=canonicalEntityText(q);const all=[...garden.plants.map(x=>({type:'plant',name:x.name,obj:x})),...garden.beds.map(x=>({type:'bed',name:x.name,obj:x}))].filter(x=>x.name&&String(x.name).trim().length>=2).sort((a,b)=>String(b.name).length-String(a.name).length);const out=[];for(const x of all){const name=canonicalEntityText(x.name);if(name&&low.includes(name)&&!out.some(y=>y.type===x.type&&y.obj.id===x.obj.id))out.push(x)}return out}
+function matchNamedEntities(q){
+  const low=' '+canonicalEntityText(q)+' ';
+  const all=[...garden.plants.map(x=>({type:'plant',name:x.name,obj:x})),...garden.beds.map(x=>({type:'bed',name:x.name,obj:x})),...asArray(garden.inhabitants).map(x=>({type:'inhabitant',name:x.name,obj:x}))]
+    .filter(x=>x.name&&String(x.name).trim().length>=2)
+    .sort((a,b)=>String(b.name).length-String(a.name).length);
+  const out=[];
+  for(const x of all){
+    const name=canonicalEntityText(x.name);if(!name)continue;
+    if(low.includes(' '+name+' ')&&!out.some(y=>y.type===x.type&&String(y.obj?.id||y.name)===String(x.obj?.id||x.name)))out.push(x);
+  }
+  return out;
+}
 function getPlantsInBed(b){return garden.plants.filter(p=>allBedMatches(p,b))}
 function recentRainNearBed(b,days=7){const name=escapeName(b?.name);const ids=asArray(b?.id);return garden.gardenEvents.filter(e=>{if(!['rain','water','weeding','watering'].includes(e.type)&&!/(hujan|siram|penyiangan)/i.test(e.label||''))return false;const d=daysAgo(e.date);if(d===null||d<0||d>days)return false;const bednames=asArray(e.bedNames);const matchedIds=asArray(e.bedIds);return e.type==='rain'||(matchedIds.some(id=>ids.includes(id)))||bednames.some(n=>escapeName(n)===name)}).sort((a,b)=>dateSort(b,a)).slice(0,10)}
 function countSourceDomains(sources){return new Set(sources.map(s=>s.kind).filter(Boolean)).size}
@@ -504,6 +515,7 @@ function isQuantityQuestion(text){return /\b(berapa|jumlah|total|banyak|sejumlah
 function isRecordCountQuestion(text){const n=langNormalize(text);return /\b(berapa kali|berapa catatan|berapa transaksi|berapa kejadian|frekuensi|jumlah catatan|jumlah kejadian|berapa kali panen)\b/.test(n);}
 function classifyAnswerTask(text,plan=null){
   const n=langNormalize(text);
+  if(/\b(umur|usia|sudah berapa lama)\b/.test(n)||/\bberapa lama.{0,30}\b(ditanam|sejak tanam|sejak ditanam)\b/.test(n))return 'age';
   if(isQuantityQuestion(text)&&(plan?.domain==='harvest'||plan?.domain==='planting'||plan?.domain==='bed'||plan?.domain==='attention'))return 'quantity';
   if(/\b(di mana|dimana|lokasi(nya)?|bed mana|ditanam di mana|berada di mana|di bed apa)\b/.test(n))return 'location';
   if(/\b(terakhir|terbaru|paling baru|riwayat|daftar catatan|sebelumnya|tanggal terakhir)\b/.test(n))return 'history';
@@ -629,8 +641,14 @@ function answerEventPlan(plan,gardenData=garden){
   return createResponse(lines.join('\n'),sources,sources.length>1?'Beberapa catatan':'Bukti dari riwayat kejadian');
 }
 function buildReasoningPlan(text, entities=null, referenceDate=todayISO()){
-  const q=String(text||'').trim(),n=langNormalize(q),found=Array.isArray(entities)?entities:matchNamedEntities(q);
-  const plantEntity=found.find(e=>e.type==='plant'),bedEntity=found.find(e=>e.type==='bed');
+  const q=String(text||'').trim(),n=langNormalize(q),provided=Array.isArray(entities)?entities:[],found=provided.length?provided:matchNamedEntities(q);
+  const plantEntity=found.find(e=>e.type==='plant'),bedEntity=found.find(e=>e.type==='bed'),inhabitantEntity=found.find(e=>e.type==='inhabitant');
+  const ageCue=!/\bumur panen\b/.test(n)&&(/\b(umur|usia)\b/.test(n)||/\bberapa lama.{0,30}\b(ditanam|sejak tanam|sejak ditanam)\b/.test(n));
+  if(plantEntity&&ageCue)return {domain:'plant',operation:'age',metric:'planting_age_days',target:{type:'plant',id:plantEntity.obj?.id||plantEntity.id||'',name:plantEntity.name,obj:plantEntity.obj||null},period:{start:'',end:'',label:'tanggal saat ini',kind:'all_time'},referenceDate:validDate(referenceDate)?String(referenceDate).slice(0,10):todayISO(),query:q,source:'Riwayat penanaman',responseStyle:'direct',questionTask:'age',reason:'Cari tanggal tanam kelompok yang masih aktif untuk tanaman yang disebut, hitung umur berdasarkan tanggal acuan, dan jangan menggantinya dengan jumlah tanaman atau ringkasan kondisi.'};
+  const specificInhabitant=inhabitantEntity&&isSpecificInhabitantQuestion(q);
+  if(specificInhabitant){const operation=inhabitantOperationForQuestion(q);return {domain:'inhabitant',operation,metric:operation==='count_records'?'observation_count':operation==='latest'?'latest_observation':operation==='location'?'observed_location':'recorded_presence',target:{type:'inhabitant',id:inhabitantEntity.obj?.id||inhabitantEntity.id||'',name:inhabitantEntity.name,obj:inhabitantEntity.obj||null},period:parseQueryPeriod(q,referenceDate),referenceDate,query:q,source:'Jejak Kehadiran Inhabitant',responseStyle:operation==='list'?'detailed':'direct',questionTask:operation==='latest'?'history':operation==='count_records'?'quantity':'direct_fact',reason:'Gunakan hanya profil dan jejak pengamatan Inhabitant yang namanya cocok; jangan menggantinya dengan catatan hama atau organisme lain.'};}
+  const requestedOrganism=requestedOrganismName(q);
+  if(!inhabitantEntity&&requestedOrganism&&isOrganismPresenceQuestion(q))return {domain:'inhabitant',operation:'presence',metric:'recorded_presence',target:{type:'inhabitant',id:'',name:requestedOrganism,obj:null},period:parseQueryPeriod(q,referenceDate),referenceDate,query:q,source:'Jejak Kehadiran Inhabitant',responseStyle:'direct',questionTask:'direct_fact',reason:'Periksa bukti yang secara spesifik menyebut organisme yang diminta; catatan organisme lain bukan bukti keberadaan organisme ini.'};
   const eventPlan=buildEventReasoningPlan(q,found,referenceDate);if(eventPlan)return eventPlan;
   const period=parseQueryPeriod(q,referenceDate),explicitPeriod=period.kind!=='all_time';
   const hasHarvest=/\b(panen|dipanen|memanen|petik|dipetik|pemetikan|hasil panen|produksi)\b/.test(n);
@@ -679,6 +697,10 @@ function buildReasoningPlan(text, entities=null, referenceDate=todayISO()){
   }
   return {domain:'general',operation:'interpret',metric:'',target:plantEntity?{type:'plant',id:plantEntity.obj?.id||plantEntity.id||'',name:plantEntity.name,obj:plantEntity.obj||null}:bedEntity?{type:'bed',id:bedEntity.obj?.id||bedEntity.id||'',name:bedEntity.name,obj:bedEntity.obj||null}:null,period,unit:'',query:q,source:'Konteks kebun',reason:'Pahami maksud, kumpulkan konteks relevan, lalu pilih analisis yang sesuai.'};
 }
+function isSpecificInhabitantQuestion(text){const n=langNormalize(text);return /\b(apakah ada|adakah|ada .* di kebun|tidak ada .* di kebun|pernah (?:melihat|menemukan|ditemukan|terlihat)|kapan|terakhir|terbaru|riwayat|daftar pengamatan|berapa kali|berapa catatan|jumlah pengamatan|berapa banyak|berapa ekor|jumlah .* individu|di mana|dimana|di tanaman apa|ditemukan di)\b/.test(n);}
+function inhabitantOperationForQuestion(text){const n=langNormalize(text);if(/\b(riwayat|daftar pengamatan|semua catatan|seluruh catatan)\b/.test(n))return 'list';if(/\b(berapa kali|berapa catatan|jumlah pengamatan|berapa kejadian)\b/.test(n))return 'count_records';if(/\b(terakhir|terbaru|paling baru|kapan terakhir|terakhir kali|tanggal terakhir)\b/.test(n))return 'latest';if(/\b(di mana|dimana|di tanaman apa|ditemukan di|lokasi)\b/.test(n))return 'location';if(/\b(berapa banyak|jumlah .* individu|berapa ekor)\b/.test(n))return 'individual_count';return 'presence';}
+function isOrganismPresenceQuestion(text){const n=langNormalize(text);return /\b(apakah ada|adakah|ada .* di kebun|pernah melihat|pernah menemukan|pernah ditemukan|terlihat di kebun|ditemukan di kebun|ada tidak)\b/.test(n);}
+function requestedOrganismName(text){const n=canonicalEntityText(text);const names=[['kumbang koksi','Kumbang Koksi'],['ladybug','Kumbang Koksi'],['ladybird','Kumbang Koksi'],['stinkbug','Stinkbug'],['aphid','Aphid'],['aphids','Aphid'],['kutu daun','Kutu Daun'],['ulat','Ulat'],['lebah','Lebah'],['kupu kupu','Kupu-kupu'],['belalang','Belalang'],['capung','Capung'],['laba laba','Laba-laba'],['semut','Semut']];for(const [needle,label] of names)if((' '+n+' ').includes(' '+needle+' '))return label;return '';}
 function rowWithinPeriod(date,period){if(!validDate(date))return false;if(!period||!period.start)return true;const d=String(date).slice(0,10);return d>=period.start&&d<=period.end;}
 function selectHarvestRows(plan, gardenData=garden){
   const targetId=plan?.target?.id||'';
@@ -783,8 +805,115 @@ function answerPlantStatus(p){
   if(att.length)lines.push(`Ada ${att.length} catatan perhatian aktif: ${att.slice(0,3).map(a=>a.note||attentionName(a)).join('; ')}.`);else lines.push('Tidak ada catatan perhatian manual yang aktif; ini tidak membuktikan tanaman bebas masalah.');
   return createResponse(lines.join(' '),sources,sources.length>1?'Beberapa sumber':'Bukti dari catatan tanaman');
 }
+function ageDaysBetween(startDate,endDate){
+  if(!validDate(startDate)||!validDate(endDate))return null;
+  const a=Date.parse(String(startDate).slice(0,10)+'T00:00:00Z');
+  const b=Date.parse(String(endDate).slice(0,10)+'T00:00:00Z');
+  if(!Number.isFinite(a)||!Number.isFinite(b)||b<a)return null;
+  return Math.floor((b-a)/86400000);
+}
+function answerPlantAge(plan,gardenData=garden){
+  const target=plan.target||{};
+  const p=target.obj||asArray(gardenData.plants).find(x=>String(x?.id)===String(target.id))||asArray(gardenData.plants).find(x=>canonicalEntityText(x?.name)===canonicalEntityText(target.name));
+  if(!p)return createResponse('Aku memahami bahwa kamu menanyakan umur tanaman, tetapi tanaman yang dimaksud tidak ditemukan pada data yang dimuat.',[],'Objek tidak ditemukan');
+  const referenceDate=validDate(plan.referenceDate)?String(plan.referenceDate).slice(0,10):todayISO();
+  const allGroups=asArray(p.plantingGroups),active=allGroups.filter(groupActive);
+  let rows=[];
+  if(active.length){
+    rows=active.map((group,index)=>({group,index,date:group?.date||p.date||''}))
+      .filter(r=>validDate(r.date))
+      .map(r=>({...r,days:ageDaysBetween(r.date,referenceDate)}))
+      .filter(r=>r.days!==null);
+  }else if(!allGroups.length&&validDate(p.date)){
+    const days=ageDaysBetween(p.date,referenceDate);
+    if(days!==null)rows=[{group:null,index:0,date:p.date,days}];
+  }
+  const sources=[];
+  for(const row of rows)sources.push(evidence('Tanggal tanam kelompok',`${p.name} · ${row.days} hari sejak tanggal tanam tercatat`,row.date,'Riwayat penanaman'));
+  if(!rows.length){
+    const message=allGroups.length&&!active.length
+      ?`${p.name}: tidak ada kelompok tanam aktif yang tercatat, jadi umur tanaman aktif tidak bisa dihitung dari data ini.`
+      :`Aku belum bisa menghitung umur ${p.name} karena tanggal tanam kelompok aktif tidak tercatat atau tidak dapat dibaca.`;
+    return createResponse(message,sources,'Tanggal tanam tidak tersedia');
+  }
+  if(rows.length===1){
+    const r=rows[0];
+    return createResponse(`${p.name} tercatat ditanam pada ${dateFmt(r.date)}. Per ${dateFmt(referenceDate)}, umur kelompok tanam aktif ini sekitar ${formatQuantity(r.days)} hari berdasarkan tanggal yang tersimpan.`,sources,'Bukti dari riwayat penanaman');
+  }
+  const lines=[`UMUR KELOMPOK TANAM AKTIF · ${p.name}`,`Tanggal acuan: ${dateFmt(referenceDate)}.`,`Setiap kelompok bisa memiliki umur berbeda:`];
+  for(const r of rows.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)))){
+    lines.push(`• ${r.group?.label||r.group?.name||`Kelompok ${r.index+1}`} — ditanam ${dateFmt(r.date)}, sekitar ${formatQuantity(r.days)} hari lalu${groupBedNames(r.group||{}).length?' · '+groupBedNames(r.group).join(', '):''}.`);
+  }
+  lines.push('Umur ini dihitung dari tanggal tanam yang tercatat, bukan pengukuran usia fisiologis secara langsung.');
+  return createResponse(lines.join('\n\n'),sources,'Beberapa kelompok tanam');
+}
+function inhabitantObservationRows(inhabitant,gardenData=garden){
+  const observations=[...asArray(inhabitant?.events),...asArray(inhabitant?.observations)].filter(Boolean),rows=[];
+  const labels={seen:'Terlihat',nesting:'Bersarang',egg:'Bertelur',predating:'Memangsa',visiting:'Mengunjungi',first:'Pertama ditemukan',note:'Catatan','plant-tag':'Terlihat di tanaman'};
+  const plants=asArray(gardenData.plants),beds=asArray(gardenData.beds);
+  for(const e of observations){
+    const date=e.date||e.observedAt?.slice?.(0,10)||'';
+    const plantIds=[...asArray(e.plantIds),e.plantId].filter(Boolean).map(String);
+    const plantNames=[...asArray(e.plantNames),e.plantName].filter(v=>typeof v==='string'&&v.trim());
+    const linkedPlants=[...new Map(plantIds.map(id=>plants.find(p=>String(p?.id)===id)).filter(Boolean).map(p=>[String(p.id),p])).values()];
+    for(const p of linkedPlants)if(!plantNames.some(n=>canonicalEntityText(n)===canonicalEntityText(p.name)))plantNames.push(p.name);
+    const linkedBedNames=[];
+    for(const p of linkedPlants)for(const g of getPlantGroups(p)){
+      const ids=[g?.bedId,g?.locationId].filter(Boolean).map(String);
+      for(const id of ids){const b=beds.find(x=>String(x?.id)===id);if(b?.name)linkedBedNames.push(b.name);}
+      linkedBedNames.push(...asArray(g?.locations).map(v=>typeof v==='string'?v:(v?.name||'')));
+    }
+    const label=e.label||e.observationLabel||labels[e.type]||e.type||'Pengamatan';
+    const detail=[...new Set(plantNames)].length?'di '+[...new Set(plantNames)].join(', '):'';
+    rows.push({date,createdAt:e.createdAt||'',label,detail:[detail,e.note||e.description||e.action||''].filter(Boolean).join(' — '),plantNames:[...new Set(plantNames)],bedNames:[...new Set(linkedBedNames.filter(Boolean))],raw:e});
+  }
+  const profileDate=inhabitant?.firstSeenDate||inhabitant?.firstSeen||inhabitant?.date||'';
+  if(!rows.length&&validDate(profileDate))rows.push({date:profileDate,createdAt:'',label:'Pertama tercatat',detail:inhabitant.note||'',plantNames:[],bedNames:[],raw:{date:profileDate,note:inhabitant.note||''}});
+  return rows.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+}
+function answerInhabitantPlan(plan,gardenData=garden){
+  const target=plan.target||{},requestedName=target.name||'organisme ini';
+  const items=asArray(gardenData.inhabitants);
+  const item=target.id?items.find(i=>String(i?.id)===String(target.id)):items.find(i=>canonicalEntityText(i?.name)===canonicalEntityText(requestedName));
+  if(!item)return createResponse(`Aku belum menemukan catatan Inhabitant yang secara spesifik cocok dengan nama ${requestedName}. Catatan tentang serangga lain tidak cukup untuk menyimpulkan bahwa ${requestedName} tercatat di kebun.`,[],'Bukti spesifik tidak ditemukan');
+  const rows=inhabitantObservationRows(item,gardenData),validRows=rows.filter(r=>validDate(r.date));
+  const sources=[evidence('Inhabitant terdaftar',`${item.name}${item.faction?' · '+item.faction:''}${item.status?' · '+item.status:''}${item.note?' · '+item.note:''}`,'','Inhabitant')];
+  const addRows=list=>list.slice(0,12).forEach(r=>sources.push(evidence(r.label,`${r.detail||r.label}${r.bedNames?.length?' · Bed '+r.bedNames.join(', '):''}`,r.date,'Jejak Kehadiran Inhabitant')));
+  if(plan.operation==='individual_count'){
+    const count=quantityNumber(item.individualCount??item.count??item.quantity);
+    if(count===null)return createResponse(`Jumlah individu ${item.name} tidak tercatat. Jumlah catatan pengamatan tidak sama dengan jumlah individu.`,sources,'Jumlah individu tidak tercatat');
+    return createResponse(`Jumlah individu ${item.name} yang tercatat adalah ${formatQuantity(count)}.`,sources,'Bukti dari data Inhabitant');
+  }
+  if(plan.operation==='latest'){
+    if(!validRows.length)return createResponse(`${item.name} tercatat pada daftar Inhabitants, tetapi belum ada tanggal pengamatan yang bisa dipakai untuk menentukan kapan terakhir terlihat.`,sources,'Tanggal pengamatan tidak tersedia');
+    const r=validRows[0];addRows([r]);
+    return createResponse(`${item.name}: catatan pengamatan terbaru yang kutemukan adalah ${dateFmt(r.date)}${r.detail?' — '+r.detail:''}. Ini tanggal pada jejak Inhabitant, bukan bukti bahwa organisme itu pasti masih terlihat sekarang.`,sources,'Bukti dari jejak Inhabitant');
+  }
+  if(plan.operation==='count_records'){
+    addRows(validRows);
+    return createResponse(`${item.name} memiliki ${rows.length} catatan pengamatan yang tersimpan${validRows.length!==rows.length?`; ${rows.length-validRows.length} di antaranya tanpa tanggal valid`:''}. Ini jumlah catatan pengamatan, bukan jumlah individu organisme.`,sources,sources.length>1?'Jejak pengamatan':'Bukti dari data Inhabitant');
+  }
+  if(plan.operation==='list'){
+    addRows(rows);
+    const detail=rows.length?rows.slice(0,15).map(r=>`• ${validDate(r.date)?dateFmt(r.date):'Tanggal tidak tercatat'} — ${r.label}${r.detail?' · '+r.detail:''}${r.bedNames?.length?' · Bed '+r.bedNames.join(', '):''}`).join('\n'):'Belum ada jejak pengamatan terperinci yang tersimpan.';
+    return createResponse(`RIWAYAT PENGAMATAN · ${item.name}\n\n${detail}\n\nCatatan ini hanya menggambarkan pengamatan terhadap ${item.name}.`,sources,sources.length>1?'Jejak pengamatan':'Bukti dari data Inhabitant');
+  }
+  if(plan.operation==='location'){
+    const plantNames=[...new Set(rows.flatMap(r=>r.plantNames||[]))],bedNames=[...new Set(rows.flatMap(r=>r.bedNames||[]))];
+    if(!plantNames.length&&!bedNames.length)return createResponse(`Catatan ${item.name} belum menyimpan tanaman atau Bed tempat pengamatan berlangsung. Aku tidak akan menebak lokasinya.`,sources,'Lokasi pengamatan tidak tercatat');
+    addRows(rows.filter(r=>r.plantNames?.length||r.bedNames?.length));
+    return createResponse(`${item.name} tercatat diamati${plantNames.length?' pada tanaman '+plantNames.join(', '):''}${bedNames.length?' di Bed '+bedNames.join(', '):''}.`,sources,sources.length>1?'Jejak pengamatan':'Bukti dari data Inhabitant');
+  }
+  if(rows.length){
+    addRows(rows.slice(0,3));const latest=validRows[0];
+    return createResponse(`Ya, ${item.name} tercatat sebagai Inhabitant di kebun.${latest?` Catatan pengamatan terbaru yang tersimpan: ${dateFmt(latest.date)}${latest.detail?' — '+latest.detail:''}.`:''} Ini membuktikan adanya catatan keberadaan, bukan kepastian bahwa organisme tersebut terlihat saat ini.`,sources,sources.length>1?'Jejak pengamatan':'Bukti dari data Inhabitant');
+  }
+  return createResponse(`${item.name} tercatat pada daftar Inhabitants di Terra Serenada, tetapi belum ada catatan tanggal atau detail pengamatan yang tersimpan.`,sources,'Bukti dari data Inhabitant');
+}
 function executeReasoningPlan(plan){
   if(!plan)return null;
+  if(plan.domain==='plant'&&plan.operation==='age')return answerPlantAge(plan);
+  if(plan.domain==='inhabitant')return answerInhabitantPlan(plan);
   if(plan.domain==='event')return answerEventPlan(plan);
   if(plan.domain==='harvest'&&['sum','count'].includes(plan.operation))return answerHarvestAggregation(plan);
   if(plan.domain==='planting'&&['sum_planted','active_count','count_groups','list'].includes(plan.operation))return answerPlantingQuantity(plan);
@@ -857,6 +986,19 @@ function runReasoningEngineEvaluation(){
   add('Koreksi/aturan lama tentang panen tidak boleh mengambil alih pertanyaan berbunga',()=>{const p=buildReasoningPlan('Kapan Mangga terakhir kali berbunga?',floweringEntity,today);return {pass:p.domain==='event'&&p.eventType!=='harvest',detail:`domain ${p.domain}; jenis ${p.eventType||'tak ada'}`};});
   add('Ejaan Nenas/Nanas mengarah pada tanaman yang sama',()=>{const testGarden={plants:[{id:'pineapple',name:'Nanas'}],beds:[]};const original=garden.plants;garden.plants=testGarden.plants;const found=matchNamedEntities('berapa jumlah nenas di kebun saya');garden.plants=original;return {pass:found.some(e=>e.type==='plant'&&e.obj.id==='pineapple'),detail:found.map(e=>e.name).join(', ')||'tidak ditemukan'};});
   add('Ejaan Terong/Terung mengarah pada tanaman yang sama',()=>{const testGarden={plants:[{id:'eggplant',name:'Terung'}],beds:[]};const original=garden.plants;garden.plants=testGarden.plants;const found=matchNamedEntities('berapa terong yang dipanen');garden.plants=original;return {pass:found.some(e=>e.type==='plant'&&e.obj.id==='eggplant'),detail:found.map(e=>e.name).join(', ')||'tidak ditemukan'};});
+  add('Pertanyaan umur tanaman memilih atribut umur, bukan ringkasan umum',()=>{const strawberry={id:'test-strawberry',name:'Stroberi',date:`${year}-09-20`,plantingGroups:[{id:'strawberry-active',date:`${year}-09-20`,qty:5,activeQty:5,status:'active'}]};const e=[{type:'plant',name:'Stroberi',id:strawberry.id,obj:strawberry}],p=buildReasoningPlan('Sudah berapa umur Stroberi?',e,today);return {pass:p.domain==='plant'&&p.operation==='age'&&classifyAnswerTask('Sudah berapa umur Stroberi?',p)==='age',detail:`${p.domain}/${p.operation}`};});
+  add('Perencana menemukan entitas dari kalimat ketika daftar entitas yang diberikan kosong',()=>{const original=garden.plants;const strawberry={id:'test-strawberry-fallback',name:'Stroberi',plantingGroups:[{id:'sg',date:`${year}-09-20`,activeQty:2,qty:2,status:'active'}]};garden.plants=[...original.filter(p=>p.name!=='Stroberi'),strawberry];const p=buildReasoningPlan('Sudah berapa umur Stroberi?',[],today);garden.plants=original;return {pass:p.domain==='plant'&&p.operation==='age'&&p.target.id===strawberry.id,detail:`${p.domain}/${p.operation}/${p.target.id}`};});
+  add('Kata umur tetap dipetakan ke atribut umur saat frasa lebih percakapan',()=>({pass:classifyAnswerTask('Sudah berapa umur Stroberi?',{domain:'general'})==='age',detail:classifyAnswerTask('Sudah berapa umur Stroberi?',{domain:'general'})}));
+  add('Jawaban umur menghitung tanggal kelompok aktif, bukan jumlah tanaman',()=>{const strawberry={id:'test-strawberry',name:'Stroberi',plantingGroups:[{id:'strawberry-active',date:`${year}-09-20`,qty:5,activeQty:5,status:'active'}]};const p={domain:'plant',operation:'age',target:{type:'plant',id:strawberry.id,name:strawberry.name,obj:strawberry},referenceDate:today};const a=answerPlantAge(p,{plants:[strawberry]});const expected=ageDaysBetween(`${year}-09-20`,today);return {pass:a.text.includes(`${expected} hari`)&&!/kelompok tanam aktif dengan total/i.test(a.text),detail:`umur ${expected} hari; ${a.text}`};});
+  add('Umur tanpa tanggal tanam tidak menebak angka',()=>{const p={domain:'plant',operation:'age',target:{type:'plant',id:'strawberry-unknown',name:'Stroberi',obj:{id:'strawberry-unknown',name:'Stroberi',plantingGroups:[{qty:5,activeQty:5,status:'active'}]}},referenceDate:today};const a=answerPlantAge(p,{plants:[]});return {pass:/tanggal tanam/i.test(a.text)&&!/\b\d+ hari\b/.test(a.text),detail:a.text};});
+  const koksi={id:'test-koksi',name:'Kumbang Koksi',faction:'Serangga',status:'often',events:[{id:'koksi-first',type:'first',date:`${year}-10-10`,label:'Pertama ditemukan',note:'Sedang kawin di atas daun',plantNames:['Terung']}]};
+  const koksiEntities=[{type:'inhabitant',name:'Kumbang Koksi',id:koksi.id,obj:koksi}];
+  add('Pertanyaan keberadaan Kumbang Koksi menargetkan Inhabitant spesifik, bukan semua hama',()=>{const p=buildReasoningPlan('Apakah ada Kumbang Koksi di kebun?',koksiEntities,today);return {pass:p.domain==='inhabitant'&&p.operation==='presence'&&p.target.name==='Kumbang Koksi',detail:`${p.domain}/${p.operation}/${p.target.name}`};});
+  add('Permintaan organisme spesifik tetap dipetakan meski pemanggil memberi daftar entitas kosong',()=>{const original=garden.inhabitants;garden.inhabitants=[koksi];const p=buildReasoningPlan('Adakah Kumbang Koksi di kebun?',[],today);garden.inhabitants=original;return {pass:p.domain==='inhabitant'&&p.operation==='presence'&&p.target.name==='Kumbang Koksi',detail:`${p.domain}/${p.operation}/${p.target.name}`};});
+  add('Jawaban Kumbang Koksi tidak mencampurkan catatan stinkbug',()=>{const g={plants:[{id:'eggplant',name:'Terung',plantingGroups:[{id:'eggplant-g',date:`${year}-01-01`,qty:1,activeQty:1,locations:['Veggie']}]}],beds:[],inhabitants:[koksi],attentions:[{plantId:'eggplant',date:`${year}-10-10`,type:'pest',note:'Stinkbug menghisap tunas muda'}],gardenEvents:[],harvests:[],gardenNotes:[],gardenSettings:{}};const p=buildReasoningPlan('Apakah ada Kumbang Koksi di kebun?',koksiEntities,today),a=answerInhabitantPlan(p,g);return {pass:/Kumbang Koksi/.test(a.text)&&!/stinkbug/i.test(a.text)&&/10 Okt/.test(a.text),detail:a.text};});
+  add('Kapan terakhir Kumbang Koksi ditemukan mencari jejak organismenya sendiri',()=>{const p=buildReasoningPlan('Kapan Kumbang Koksi terakhir ditemukan?',koksiEntities,today);const a=answerInhabitantPlan(p,{plants:[],beds:[],inhabitants:[koksi]});return {pass:p.operation==='latest'&&a.text.includes(`10 Okt ${year}`)&&!/(stinkbug|hama lain)/i.test(a.text),detail:`${p.operation}: ${a.text}`};});
+  add('Pertanyaan jumlah individu organisme tidak dihitung dari jumlah pengamatan',()=>{const p=buildReasoningPlan('Berapa banyak Kumbang Koksi di kebun?',koksiEntities,today),a=answerInhabitantPlan(p,{plants:[],beds:[],inhabitants:[koksi]});return {pass:p.operation==='individual_count'&&/jumlah individu tidak tersimpan|jumlah individu/i.test(a.text)&&!/1 individu/.test(a.text),detail:a.text};});
+  add('Entitas Inhabitant dikenali berdasarkan nama lengkap, bukan kata umum saja',()=>{const original=garden.inhabitants;garden.inhabitants=[koksi];const got=matchNamedEntities('Apakah ada Kumbang Koksi di kebun?');garden.inhabitants=original;return {pass:got.some(e=>e.type==='inhabitant'&&e.obj.id===koksi.id),detail:got.map(e=>`${e.type}:${e.name}`).join(', ')};});
   add('Pertanyaan lokasi tidak dicampur dengan ringkasan perhatian atau penyiraman',()=>{const task=classifyAnswerTask('Kunyit berada di bed mana saja?',{domain:'general'});return {pass:task==='location',detail:task};});
   const entry={id:`reason-eval-${Date.now()}`,createdAt:new Date().toISOString(),passed:tests.filter(t=>t.passed).length,total:tests.length,cases:tests};protoMemory.reasoningEvaluations=asArray(protoMemory.reasoningEvaluations);protoMemory.reasoningEvaluations.push(entry);protoMemory.reasoningEvaluations=protoMemory.reasoningEvaluations.slice(-20);saveProtoMemory();renderReasoningEvaluation(entry);return entry;
 }
@@ -869,8 +1011,11 @@ function answerQuestion(q){
   if(frame.intent==='correction')return handleInlineLanguageCorrection(text,frame);
   const low=langNormalize(text);if(/^(hai|halo|hallo|selamat pagi|selamat siang|selamat sore|selamat malam|terima kasih|makasih)[!. ]*$/.test(low))return attachLanguageFrame(answerGreeting(),frame);
   if(frame.ambiguous){return attachLanguageFrame(createResponse('Aku menangkap ini sebagai pertanyaan lanjutan, tetapi belum bisa memastikan apa yang dimaksud oleh “itu/yang tadi” karena tidak menemukan rujukan yang jelas di percakapan ini. Tanaman, Bed, atau catatan mana yang kamu maksud?',[],'Perlu klarifikasi'),frame)}
-  const entities=frame.entities.length?matchNamedEntities(text):[];
-  const resolved=frame.resolvedEntity?(frame.resolvedEntity.type==='plant'?plantById(frame.resolvedEntity.id):garden.beds.find(b=>b.id===frame.resolvedEntity.id)):null;
+  // Re-run entity matching from the actual message even if the lightweight language frame missed it.
+  // This prevents an empty frame entity list from bypassing age, count, location, or named-organism plans.
+  const resolved=frame.resolvedEntity?(frame.resolvedEntity.type==='plant'?plantById(frame.resolvedEntity.id):frame.resolvedEntity.type==='bed'?garden.beds.find(b=>b.id===frame.resolvedEntity.id):frame.resolvedEntity.type==='inhabitant'?garden.inhabitants.find(i=>i.id===frame.resolvedEntity.id):null):null;
+  const matchedEntities=matchNamedEntities(text);
+  const entities=matchedEntities.length?matchedEntities:(resolved?[{type:frame.resolvedEntity.type,name:frame.resolvedEntity.name,id:frame.resolvedEntity.id,obj:resolved}]:[]);
   const focus=entities.length?entities[0]:(resolved?{type:frame.resolvedEntity.type,name:frame.resolvedEntity.name,obj:resolved}:null);
   const intent=frame.appliedIntent||frame.intent;
   const plan=buildReasoningPlan(text,entities);frame.reasoningPlan=plan;
