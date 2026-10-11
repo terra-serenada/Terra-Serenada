@@ -468,6 +468,26 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   filter:drop-shadow(0 2px 3px rgba(0,0,0,.24));
 }
 </style>
+<style id="nara-online-guru-integration">
+/* Nara Online Guru — compact panel; all app garden UI remains unchanged. */
+.nara-guru-panel{margin-top:10px;padding:0 13px;border:1px solid var(--border);border-radius:16px;background:var(--surface)}
+.nara-guru-panel>summary{cursor:pointer;list-style:none;padding:13px 0;font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.nara-guru-panel>summary::-webkit-details-marker{display:none}
+.nara-guru-panel>summary:after{content:'＋';margin-left:auto;color:var(--muted)}
+.nara-guru-panel[open]>summary:after{content:'−'}
+.nara-guru-summary-status{font-size:10px;font-weight:750;color:var(--muted);background:var(--surface2);border-radius:999px;padding:5px 8px}
+.nara-guru-summary-status.good{color:var(--accent)}.nara-guru-summary-status.warn{color:#e8c56b}.nara-guru-body{padding:0 0 12px}
+.nara-guru-intro,.nara-guru-status-text{font-size:11px;line-height:1.5;color:var(--muted);margin:0 0 9px}
+.nara-guru-latest{padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;margin-top:8px}
+.nara-guru-latest-title{font-size:12px;font-weight:800}.nara-guru-latest-meta{font-size:10px;color:var(--muted);margin-top:4px}.nara-guru-latest-copy{font-size:11px;line-height:1.5;margin-top:7px;white-space:pre-wrap;overflow-wrap:anywhere}
+.nara-guru-history{display:grid;gap:6px;margin-top:8px}.nara-guru-history-item{font-size:10px;color:var(--muted);padding:7px 9px;background:rgba(255,255,255,.025);border-radius:9px;line-height:1.4}
+.nara-guru-retry{width:100%;margin-top:9px;font-size:11px;padding:9px 11px}
+.nara-message-meta .nara-online-indicator{color:var(--accent)}
+.nara-lesson .nara-lesson-text.teacher-title{font-weight:800;color:var(--text)}.nara-lesson-preview{font-size:10px;line-height:1.45;color:var(--muted);margin-top:5px;white-space:pre-wrap;overflow-wrap:anywhere}
+.nara-lesson-full{margin-top:7px}.nara-lesson-full summary{font-size:10px;color:var(--accent);cursor:pointer;font-weight:750}.nara-lesson-full .nara-lesson-text{margin-top:6px}
+.nara-online-note{font-size:9px;color:var(--muted);margin-top:3px}
+</style>
+
 </head>
 <body>
 <div id="app">
@@ -681,12 +701,23 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
       <div class="nara-compose-hint">Untuk menyimpan pengetahuan secara eksplisit, mulai pesan dengan <b>“Ingat:”</b>. Contoh: “Ingat: bed timur paling cepat kering setelah dua hari tanpa hujan.”</div>
     </section>
 
+    <details class="nara-knowledge nara-guru-panel" id="naraGuruPanel">
+      <summary>🎓 Guru AI Online · <span class="nara-guru-summary-status" id="naraGuruStatus">Menyiapkan pengajaran</span></summary>
+      <div class="nara-guru-body">
+        <p class="nara-guru-intro">Guru AI mengajarkan kemampuan model bahasa secara otomatis dan menyimpan materinya ke ingatan Nara. Saat online, pertanyaan, cuplikan percakapan, materi belajar yang relevan, dan catatan kebun yang diperlukan dikirim melalui Cloudflare Worker ke Anoman AI. Kunci API tetap berada di Worker. Materi Guru dipakai sebagai konteks, bukan dianggap sebagai fakta kebun terverifikasi. Panel ini bisa dibiarkan tertutup agar halaman Nara tetap ringkas.</p>
+        <div class="nara-guru-status-text" id="naraGuruStatusText" role="status" aria-live="polite">Guru akan memulai pelajaran fondasi setelah penyimpanan kebun siap.</div>
+        <div id="naraGuruLatestLesson"></div>
+        <div class="nara-guru-history" id="naraGuruHistory"></div>
+        <button type="button" class="secondary nara-guru-retry" id="naraGuruContinue">📚 Minta Guru melanjutkan pelajaran</button>
+      </div>
+    </details>
+
     <details class="nara-knowledge" id="naraKnowledgePanel">
       <summary>🧠 Pengetahuan yang diajarkan kepada Nara (<span id="naraLessonCount">0</span>)</summary>
       <div class="nara-knowledge-intro">Catatan yang kamu ajarkan akan disimpan di perangkat ini dan menjadi konteks untuk percakapan berikutnya. Kamu bisa menghapusnya satu per satu.</div>
       <div class="nara-lesson-list" id="naraLessonsList"></div>
     </details>
-    <div class="nara-boundary">Fondasi saat ini berjalan langsung dari data lokal dan aturan kebun di Terra Serenada. Nara tidak akan mengaku mengetahui kondisi yang belum dicatat. Koneksi ke model AI generatif eksternal memerlukan layanan/backend yang aman; tidak ada kunci API yang ditanam di HTML ini.</div>
+    <div class="nara-boundary">Nara menggabungkan reasoning lokal, data Terra Serenada, dan Guru AI Online melalui Cloudflare Worker. Saat online, pertanyaan serta konteks kebun dan ingatan yang relevan dikirim ke Anoman AI untuk menyusun jawaban; kunci API tidak ditanam di HTML. Jika koneksi gagal, Nara tetap menggunakan jawaban lokal. Materi Guru adalah ingatan eksternal—bukan pelatihan ulang bobot model dan bukan bukti otomatis tentang keadaan kebun.</div>
   </section>
 </main>
 
@@ -1682,11 +1713,15 @@ function tsWeatherInit(){
    It reads the app's own garden records, persists conversation/explicit lessons,
    and deliberately avoids inventing facts absent from those records. */
 function naraNormalizeState(){
-  if(!naraState||typeof naraState!=='object'||Array.isArray(naraState))naraState={version:1,messages:[],lessons:[],updatedAt:''};
+  if(!naraState||typeof naraState!=='object'||Array.isArray(naraState))naraState={version:2,messages:[],lessons:[],onlineTeacherLessons:[],teacherLearning:{},updatedAt:''};
   if(!Array.isArray(naraState.messages))naraState.messages=[];
   if(!Array.isArray(naraState.lessons))naraState.lessons=[];
+  if(!Array.isArray(naraState.onlineTeacherLessons))naraState.onlineTeacherLessons=[];
   naraState.messages=naraState.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.text==='string').slice(-80);
   naraState.lessons=naraState.lessons.filter(m=>m&&typeof m.text==='string').slice(-100);
+  naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.filter(m=>m&&typeof m==='object'&&typeof m.title==='string').slice(-40);
+  const old=naraState.teacherLearning&&typeof naraState.teacherLearning==='object'?naraState.teacherLearning:{};
+  naraState.teacherLearning={enabled:old.enabled!==false,foundationCompleted:!!old.foundationCompleted,totalUserQuestions:Math.max(0,Number(old.totalUserQuestions)||0),lastAutoQuestionCount:Math.max(0,Number(old.lastAutoQuestionCount)||0),automaticCycleCount:Math.max(0,Number(old.automaticCycleCount)||0),queued:!!old.queued,lastAutoLessonAt:old.lastAutoLessonAt||null,lastAutoAttemptAt:old.lastAutoAttemptAt||null};
 }
 function naraPersistState(){
   naraNormalizeState();naraState.updatedAt=new Date().toISOString();
@@ -1720,22 +1755,28 @@ function naraRefreshOverview(){
   $('naraChatStatus').textContent=`${s.plants} tanaman · konteks live`;
   $('naraLessonCount').textContent=s.lessons;
   naraRenderLessons();
+  naraRenderGuruPanel();
 }
 function naraFormatClock(value){const d=new Date(value||Date.now());return Number.isNaN(d.getTime())?'':d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});}
 function naraRenderChat(){
   const box=$('naraMessages');if(!box)return;naraNormalizeState();
   if(!naraState.messages.length){
-    box.innerHTML='<div class="nara-welcome"><b>Halo, aku Nara. 🌱</b><p>Aku mulai dari apa yang benar-benar tercatat di Terra Serenada. Tanyakan kondisi kebun, tanaman tertentu, penyiraman, perkiraan panen, atau ajarkan aku pengetahuan dari pengamatanmu.</p></div>';
+    box.innerHTML='<div class="nara-welcome"><b>Halo, aku Nara. 🌱</b><p>Aku membaca catatan Terra Serenada dan memakai pengetahuan yang kupelajari dari Guru AI Online. Tanyakan kondisi kebun, tanaman tertentu, penyiraman, perkiraan panen, atau topik pengetahuan umum.</p></div>';
     return;
   }
-  box.innerHTML=naraState.messages.map(m=>`<div class="nara-message ${m.role==='user'?'user':'assistant'}"><div class="nara-message-meta">${m.role==='user'?'KAMU':'NARA'}${m.createdAt?' · '+esc(naraFormatClock(m.createdAt)):''}</div><div>${esc(m.text)}</div></div>`).join('');
+  box.innerHTML=naraState.messages.map(m=>{const meta=[m.role==='user'?'KAMU':'NARA',m.createdAt?naraFormatClock(m.createdAt):'',m.pending?'Menjawab dengan Guru Online…':m.onlineModel?m.onlineModel:m.onlineFailed?'Jawaban lokal · Guru Online belum tersambung':''].filter(Boolean).join(' · ');return `<div class="nara-message ${m.role==='user'?'user':'assistant'}"><div class="nara-message-meta">${esc(meta)}</div><div>${esc(m.text)}</div></div>`;}).join('');
   box.scrollTop=box.scrollHeight;
 }
 function naraRenderLessons(){
   const box=$('naraLessonsList');if(!box)return;
   const list=naraState.lessons.slice().reverse();
-  if(!list.length){box.innerHTML='<div class="meta">Belum ada pengetahuan yang diajarkan. Mulai pesan dengan “Ingat: …”.</div>';return;}
-  box.innerHTML=list.slice(0,30).map(l=>`<div class="nara-lesson"><div><div class="nara-lesson-text">${esc(l.text)}</div><div class="nara-lesson-date">Disimpan ${esc(fmt((l.createdAt||'').slice(0,10)))}</div></div><button type="button" class="nara-lesson-delete" data-nara-lesson-delete="${esc(l.id)}" aria-label="Hapus pengetahuan">×</button></div>`).join('');
+  if(!list.length){box.innerHTML='<div class="meta">Belum ada pengetahuan yang diajarkan. Guru AI Online akan mengajar otomatis; kamu juga bisa mulai pesan dengan “Ingat: …”.</div>';return;}
+  box.innerHTML=list.slice(0,30).map(l=>{
+    const isTeacher=l.learningType==='model_language'||l.origin==='Guru AI Online';
+    const title=isTeacher?(l.title||l.topic||'Pelajaran Guru AI Online'):l.text;
+    const preview=isTeacher?String(l.summary||l.text||'').slice(0,420):'';
+    return `<div class="nara-lesson"><div><div class="nara-lesson-text ${isTeacher?'teacher-title':''}">${esc(title)}</div>${isTeacher?`<div class="nara-lesson-preview">${esc(preview)}</div><details class="nara-lesson-full"><summary>Lihat materi ajar lengkap</summary><div class="nara-lesson-text">${esc(l.text)}</div></details>`:''}<div class="nara-lesson-date">${isTeacher?'Guru AI Online · ':''}Disimpan ${esc(fmt((l.createdAt||'').slice(0,10)))}</div></div><button type="button" class="nara-lesson-delete" data-nara-lesson-delete="${esc(l.id)}" aria-label="Hapus pengetahuan">×</button></div>`;
+  }).join('');
 }
 function naraWeatherSnapshot(){
   const summary=$('weatherContent')?.querySelector('.weather-now-summary')?.textContent?.trim()||'';
@@ -1751,6 +1792,177 @@ function naraGetTaughtKnowledge(q){
   if(!tokens.length)return [];
   return naraState.lessons.map(l=>({...l,score:tokens.reduce((n,w)=>n+(String(l.text).toLowerCase().includes(w)?1:0),0)})).filter(l=>l.score>0).sort((a,b)=>b.score-a.score).slice(0,3);
 }
+const NARA_GURU_WORKER='https://nara-ai-guru.junesavandy99.workers.dev';
+const NARA_GURU_MODEL='gpt-4o-mini';
+let naraGuruBusy=false;
+let naraOnlinePendingCount=0;
+let naraGuruStartupAttempted=false;
+function naraGuruSafe(value,max=900){return String(value??'').trim().slice(0,max)}
+function naraGuruOriginHint(){try{const expected='https://terra-serenada.github.io';if(location.origin!==expected)return ` Halaman saat ini berasal dari ${location.protocol==='file:'?'file lokal':location.origin}; Worker sekarang hanya mengizinkan ${expected}. Jika APK memuat HTML secara lokal, koneksi online mungkin memerlukan penyesuaian origin atau bridge Android.`;}catch{}return ''}
+function naraGuruState(){naraNormalizeState();return naraState.teacherLearning}
+function naraSetGuruStatus(label,kind='',detail=''){
+  const badge=$('naraGuruStatus'),text=$('naraGuruStatusText');
+  if(badge){badge.textContent=label;badge.className='nara-guru-summary-status'+(kind?' '+kind:'');}
+  if(text&&detail)text.textContent=detail;
+}
+function naraParseGuruContent(content){
+  const raw=String(content||'').trim();const cleaned=raw.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'').trim();
+  try{const parsed=JSON.parse(cleaned);if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))return {parsed,raw};}catch{}
+  return {parsed:{judul:'Pelajaran Guru AI Online',bidang_pembelajaran:'kemampuan model bahasa',tujuan:'Memperluas kemampuan bahasa dan penalaran Nara.',penjelasan:raw,pelajaran_inti:raw,batas_pengetahuan:'Materi ini berasal dari Guru AI Online dan bukan fakta kebun yang otomatis terverifikasi.'},raw};
+}
+function naraGuruList(value){return Array.isArray(value)?value.map(x=>String(x??'').trim()).filter(Boolean):value?[String(value)]:[]}
+function naraGuruLessonText(parsed,topic,raw){
+  const list=v=>naraGuruList(v).join('; ');
+  const parts=[
+    `Pelajaran Guru AI Online: ${naraGuruSafe(parsed.judul||topic,180)}`,
+    `Bidang pembelajaran: ${naraGuruSafe(parsed.bidang_pembelajaran||'kemampuan model bahasa',160)}`,
+    `Topik: ${naraGuruSafe(topic,500)}`,
+    parsed.tujuan?`Tujuan belajar: ${parsed.tujuan}`:'',
+    parsed.penjelasan?`Materi ajar: ${parsed.penjelasan}`:'',
+    list(parsed.konsep_kunci)?`Konsep kunci: ${list(parsed.konsep_kunci)}`:'',
+    list(parsed.langkah_berpikir)?`Langkah berpikir Nara: ${list(parsed.langkah_berpikir)}`:'',
+    parsed.contoh_terbimbing?`Contoh terbimbing: ${parsed.contoh_terbimbing}`:'',
+    parsed.contoh_lain?`Contoh tambahan: ${parsed.contoh_lain}`:'',
+    parsed.penerapan_untuk_nara?`Penerapan: ${parsed.penerapan_untuk_nara}`:'',
+    parsed.batas_pengetahuan?`Batas pengetahuan: ${parsed.batas_pengetahuan}`:'',
+    parsed.latihan?`Latihan: ${parsed.latihan}`:'',
+    parsed.pelajaran_inti?`Pelajaran inti: ${parsed.pelajaran_inti}`:'',
+    list(parsed.aturan_yang_dapat_dipakai_nara)?`Aturan operasional: ${list(parsed.aturan_yang_dapat_dipakai_nara)}`:'',
+    parsed.langkah_selanjutnya?`Arah pendalaman berikutnya: ${parsed.langkah_selanjutnya}`:'',
+    raw&&!parsed.penjelasan&&!parsed.pelajaran_inti?`Materi asli Guru: ${raw}`:''
+  ].filter(Boolean);
+  return `Ingatan pengajaran otomatis Guru AI Online (pengetahuan umum/kerangka kerja, bukan fakta kebun terverifikasi):\n${parts.join('\n')}`;
+}
+function naraRenderGuruPanel(){
+  const history=$('naraGuruHistory'),latestBox=$('naraGuruLatestLesson');if(!history||!latestBox)return;
+  naraNormalizeState();const lessons=naraState.onlineTeacherLessons.slice().reverse();const st=naraGuruState();
+  if(lessons.length){const l=lessons[0];latestBox.innerHTML=`<div class="nara-guru-latest"><div class="nara-guru-latest-title">${esc(l.title||l.topic||'Pelajaran Guru AI Online')}</div><div class="nara-guru-latest-meta">${esc(l.createdAt?new Date(l.createdAt).toLocaleString('id-ID',{dateStyle:'medium',timeStyle:'short'}):'Waktu tidak tersedia')} · ${esc(l.model||NARA_GURU_MODEL)} · tersimpan otomatis</div><div class="nara-guru-latest-copy">${esc(l.summary||'Materi ajar telah disimpan ke ingatan Nara.')}</div></div>`;
+  }else{latestBox.innerHTML='<div class="nara-guru-latest"><div class="nara-guru-latest-title">Belum ada pelajaran Guru tersimpan</div><div class="nara-guru-latest-copy">Guru akan memulai dari fondasi model bahasa setelah koneksi tersedia.</div></div>';}
+  history.innerHTML=lessons.length>1?lessons.slice(1,4).map(l=>`<div class="nara-guru-history-item">${esc(l.title||l.topic||'Pelajaran')} · ${esc(l.createdAt?new Date(l.createdAt).toLocaleDateString('id-ID'):'tanggal tidak tersedia')}</div>`).join(''):'';
+  if(st.foundationCompleted&&!naraGuruBusy&&!/^(Koneksi belum tersedia|Mode lokal aktif|Pengajaran gagal)/i.test($('naraGuruStatus')?.textContent||''))naraSetGuruStatus('Mengajar otomatis aktif','good');
+}
+async function naraGuruChat(messages,maxTokens=1400){
+  const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),40000);
+  try{
+    const response=await fetch(`${NARA_GURU_WORKER}/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:NARA_GURU_MODEL,messages,max_tokens:maxTokens}),signal:ctrl.signal,cache:'no-store'});
+    const result=await response.json().catch(()=>null);
+    if(!response.ok)throw new Error(result?.error?.message||result?.error||result?.message||`Worker merespons HTTP ${response.status}`);
+    const content=result?.choices?.[0]?.message?.content;
+    if(typeof content!=='string'||!content.trim())throw new Error('Model tidak mengembalikan teks jawaban.');
+    return {text:content.trim(),model:result?.model||NARA_GURU_MODEL};
+  }finally{clearTimeout(timer)}
+}
+function naraOnlineLearningContext(question,localDraft=''){
+  const q=String(question||'').toLocaleLowerCase('id-ID');
+  const compact=(v,n=220)=>naraGuruSafe(v,n);
+  const summary=naraGardenSnapshot();
+  const words=q.normalize('NFKD').replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(x=>x.length>=3);
+  const named=data.filter(p=>p?.name&&(q.includes(String(p.name).toLocaleLowerCase('id-ID'))||String(p.name).toLocaleLowerCase('id-ID').split(/\s+/).filter(w=>w.length>=4).filter(w=>words.includes(w)).length>=2));
+  let selected=named;
+  if(!selected.length&&/(siram|penyiraman|air|kering|lembap)/i.test(q))selected=summary.waterDue;
+  if(!selected.length&&/(panen|petik|siap dipanen)/i.test(q))selected=summary.upcoming.map(x=>x.plant);
+  if(!selected.length&&/(perhatian|masalah|hama|penyakit|sakit|bermasalah)/i.test(q))selected=summary.attention.map(a=>data.find(p=>p?.id===a.plantId)).filter(Boolean);
+  if(!selected.length&&/(ringkasan|kondisi kebun|semua tanaman|kebun hari ini)/i.test(q))selected=data.slice(0,8);
+  selected=[...new Map(selected.filter(Boolean).map(p=>[p.id||p.name,p])).values()].slice(0,7);
+  const plants=selected.map(p=>({
+    nama:p.name||'Tanaman tanpa nama',varietas:p.variety||'',catatan:compact(p.note,240),
+    penyiraman_terakhir:p.lastWater||null,sumber_penyiraman:p.lastWaterSource||null,estimasi_umur_panen_hari:p.harvestDays??null,
+    kelompok_tanam:naraActiveGroups(p).slice(0,3).map(g=>({tanggal:g.date||null,jumlah_aktif:groupActiveQty(g),lokasi:groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||'')).filter(Boolean).slice(0,4),status:g.status||g.cycleStatus||''})),
+    kejadian_terbaru:naraPlantEvents(p).slice(0,3).map(e=>({tanggal:e.date||null,jenis:e.type||'',label:compact(e.label||e.type,100),catatan:compact(e.note,180)}))
+  }));
+  const attention=attentions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,7).map(a=>({tanaman:data.find(p=>p.id===a.plantId)?.name||'Tanaman tidak ditemukan',tanggal:a.date||null,status:a.status||'',jenis:a.problemType||a.type||'',bagian:a.affectedPart||'',keparahan:a.severity||'',prioritas:a.priority||'',catatan:compact(a.note,220),tindakan:compact(a.action,160)}));
+  const activity=gardenEvents.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,7).map(e=>({tanggal:e.date||null,jenis:e.type||'',label:compact(e.label||e.type,100),catatan:compact(e.note,180),bed:Array.isArray(e.bedNames)?e.bedNames.slice(0,5):[]}));
+  const harvestHistory=harvests.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,7).map(h=>({tanggal:h.date||null,tanaman:data.find(p=>p.id===h.plantId)?.name||h.plantName||'Tanaman tidak diketahui',jumlah:h.qty??null,satuan:h.unit||'',kualitas:h.quality||'',catatan:compact(h.note,120)}));
+  const bedRelevant=/(bed|lokasi|tanah|drainase|cahaya|teduh|media)/i.test(q)||beds.some(b=>b.name&&q.includes(String(b.name).toLowerCase()));
+  const bedRows=bedRelevant?beds.slice(0,10).map(b=>({nama:b.name||'',jenis_tanah:b.soilType||'',drainase:b.drainage||'',paparan_cahaya:b.lightExposure||b.light||'',vegetasi:b.vegetation||'',catatan:compact(b.note,180)})):[];
+  const inhabitantRelevant=/(inhabitant|hewan|serangga|kumbang|kupu|lebah|semut|siput|makhluk|satwa|organisme)/i.test(q);
+  const inhabitantRows=inhabitantRelevant?inhabitants.slice(0,10).map(i=>({nama:i.name||'',kelompok:i.faction||'',status:i.status||'',catatan:compact(i.note,180),kejadian:asArray(i.events).slice(-2).map(e=>({tanggal:e.date||null,jenis:e.type||'',catatan:compact(e.note,120)}))})):[];
+  const notes=/(catatan|jurnal|pernah saya tulis|riwayat|pengalaman)/i.test(q)?gardenNotes.slice(-5).map(n=>({tanggal:n.date||n.createdAt||null,judul:compact(n.title,80),catatan:compact(n.text||n.note||n.content,200)})):[];
+  const weather=/(cuaca|hujan|ramalan|prakiraan|suhu|kelembapan|angin)/i.test(q)?naraWeatherSnapshot():null;
+  const matched=naraGetTaughtKnowledge(question);
+  const latestModelLessons=naraState.lessons.filter(l=>l.learningType==='model_language'||l.origin==='Guru AI Online').slice(-2).reverse();
+  const lessons=[...new Map([...latestModelLessons,...matched].map(l=>[l.id||l.text,l])).values()].slice(0,4).map(l=>({topik:compact(l.title||l.topic||String(l.text||'').split('\n')[0],150),asal:l.origin||'Ingatan Nara',materi:compact(l.text,950),jenis:l.learningType||'pengetahuan'}));
+  const history=naraState.messages.slice(-8).map(m=>({peran:m.role,isi:compact(m.text,280)}));
+  const payload={pertanyaan_pengguna:compact(question,1200),draft_reasoning_lokal:compact(localDraft||naraAnswer(question),1400),ringkasan_kebun:{tanaman:summary.plants,tanaman_dengan_kelompok_aktif:summary.active,bed:summary.beds,inhabitant:summary.inhabitants,panen_tercatat:summary.harvests,catatan_kebun:summary.gardenNotes,kejadian_tanaman:summary.events,perlu_diperiksa:summary.attention.length,perkiraan_panen_14_hari:summary.upcoming.length},tanaman_relevan:plants,perhatian_tercatat:/(perhatian|masalah|hama|penyakit|sakit|tanaman)/i.test(q)?attention:attention.slice(0,3),aktivitas_kebun:/(hujan|siram|penyiraman|aktivitas|riwayat|catatan)/i.test(q)?activity:activity.slice(0,2),riwayat_panen:/panen/i.test(q)?harvestHistory:harvestHistory.slice(0,3),profil_bed:bedRows,inhabitant:inhabitantRows,catatan_kebun:notes,cuaca:weather,ingatan_belajar_relevan:lessons,percakapan_terakhir:history};
+  let serial=JSON.stringify(payload);
+  // Stay comfortably below the Worker 32 KiB request cap, including Unicode and the system prompt.
+  if(serial.length>10500){payload.perhatian_tercatat=payload.perhatian_tercatat.slice(0,4);payload.aktivitas_kebun=payload.aktivitas_kebun.slice(0,4);payload.riwayat_panen=payload.riwayat_panen.slice(0,4);payload.tanaman_relevan=payload.tanaman_relevan.slice(0,4);payload.ingatan_belajar_relevan=payload.ingatan_belajar_relevan.slice(0,3);payload.percakapan_terakhir=payload.percakapan_terakhir.slice(-5);serial=JSON.stringify(payload);}
+  if(serial.length>12500){payload.ingatan_belajar_relevan=payload.ingatan_belajar_relevan.slice(0,2).map(l=>({...l,materi:compact(l.materi,450)}));payload.tanaman_relevan=payload.tanaman_relevan.slice(0,3);payload.aktivitas_kebun=payload.aktivitas_kebun.slice(0,3);payload.perhatian_tercatat=payload.perhatian_tercatat.slice(0,3);serial=JSON.stringify(payload);}
+  return serial;
+}
+async function naraRequestOnlineAnswer(question,localAnswer,recentHistory=[]){
+  const systemPrompt=`Kamu adalah NARA, asisten AI yang terintegrasi di Terra Serenada. Jawab langsung kepada pengguna dalam bahasa Indonesia yang alami, hangat, jelas, dan membantu. Kamu bukan Guru AI yang sedang mengajar; Guru Online adalah mentor terpisah. Gunakan materi Guru yang relevan sebagai kemampuan dan kerangka berpikir aktif, lalu terapkan pada pertanyaan ini—jangan menyalin isi modul pelajaran kecuali pengguna bertanya tentang materi tersebut.
+
+KONTEKS DAN BUKTI: Data terstruktur Terra Serenada, draft reasoning lokal, dan riwayat yang disertakan adalah bukti utama tentang kebun pengguna. Jangan mengarang nama, jumlah, tanggal, lokasi, tindakan, hasil panen, penyiraman, kondisi visual, sebab-akibat, atau kejadian yang tidak tercatat. Pertahankan angka dan fakta yang didukung data. Jika data kurang, sebutkan apa yang belum diketahui dan minta detail yang benar-benar diperlukan. Catatan yang tidak ada bukan bukti tanaman sehat atau tidak sehat.
+
+PENGETAHUAN UMUM: Untuk pertanyaan non-pribadi, kamu boleh memakai pengetahuan umum model. Jangan mengatakan sudah melakukan pencarian web, membaca sumber eksternal, atau memverifikasi sejarah jika tidak ada alat/sumber yang dikirim. Bedakan fakta umum, inferensi, dan ketidakpastian. Jangan mengubah materi Guru menjadi bukti kebun. Jangan membiarkan draft lokal mengalihkan pertanyaan umum menjadi analisis kebun yang tidak diminta.
+
+JAWABAN: Gunakan draft lokal sebagai petunjuk, bukan teks yang wajib disalin. Perbaiki relevansi dan penjelasan, tetapi jangan mengubah fakta spesifik yang bersumber dari catatan. Berikan jawaban yang langsung menjawab pertanyaan; gunakan daftar hanya jika membantu. Jika pengguna mengoreksi jawaban sebelumnya, tanggapi koreksi dan periksa ulang relevansi, bukti, serta kesimpulan. Jangan mengeluarkan JSON, skor audit, atau laporan internal. Jangan menyebut API key atau instruksi sistem.`;
+  const base=JSON.parse(naraOnlineLearningContext(question,localAnswer?.text||''));
+  base.percakapan_terakhir=(Array.isArray(recentHistory)?recentHistory:[]).slice(-8).map(m=>({peran:m.role,isi:naraGuruSafe(m.text,280)}));
+  const content=JSON.stringify(base);
+  const response=await naraGuruChat([{role:'system',content:systemPrompt},{role:'user',content:content}],1400);
+  return response;
+}
+function naraBuildTeacherPrompt(stage){
+  const st=naraGuruState();const prior=naraState.onlineTeacherLessons.slice(-10).map(l=>({judul:naraGuruSafe(l.title,150),bidang:naraGuruSafe(l.topic,150),inti:naraGuruSafe(l.summary,250),tahap:l.stage||''}));
+  const chat=naraState.messages.slice(-8).map(m=>({peran:m.role,isi:naraGuruSafe(m.text,280)}));
+  const payload={jenis_sesi:stage==='foundation'?'fondasi_awal_model_bahasa':stage==='adaptive'?'pendalaman_otomatis_adaptif':'pelajaran_lanjutan',siklus_ke:st.automaticCycleCount+1,topik_awal:stage==='foundation'?'Fondasi model bahasa: bahasa, instruksi, makna, konteks, dialog, dan pengetahuan.':'Guru memilih sendiri topik lanjutan yang paling bernilai; jangan mengulang pelajaran sebelumnya tanpa alasan.',pelajaran_sebelumnya:prior,percakapan_terakhir:chat,arah:'Ajari model bahasa Nara secara bebas dan bertahap. Pilih konsep baru atau pendalaman yang dibutuhkan Nara. Jangan membuat laporan pengawasan atau audit.'};
+  return JSON.stringify(payload);
+}
+async function naraTeachOnline(options={}){
+  const st=naraGuruState();if(!st.enabled)return false;
+  if(naraGuruBusy){st.queued=true;naraPersistState();return false;}
+  const stage=options.stage||(st.foundationCompleted?'adaptive':'foundation');const automatic=options.automatic!==false;
+  const topic=stage==='foundation'?'Fondasi kemampuan model bahasa untuk Nara: pemahaman instruksi, bahasa, makna, konteks, dialog, pengetahuan, dan penerapan.':`Kurikulum adaptif model bahasa Nara — sesi ${st.automaticCycleCount+1}. Guru memilih pelajaran berikutnya.`;
+  naraGuruBusy=true;st.lastAutoAttemptAt=new Date().toISOString();naraPersistState();
+  naraSetGuruStatus('Guru sedang mengajar…','warn','Guru AI Online sedang menyusun materi. Setelah diterima, materi akan disimpan otomatis ke ingatan Nara.');
+  const button=$('naraGuruContinue');if(button){button.disabled=true;button.textContent='⏳ Guru sedang mengajar…';}
+  let succeeded=false;
+  try{
+    const systemPrompt=`Kamu adalah GURU AI ONLINE dan mentor perkembangan kemampuan Nara, sebuah asisten yang didukung model bahasa. Tugasmu MENGAJAR, bukan mengawasi, mengaudit, memberi skor, atau sekadar mengkritik performa Nara. Bebaskan cakupan pengajaran: sintaks, semantik, pragmatik, instruksi, maksud, ambiguitas, konteks percakapan, koherensi, penalaran, perencanaan, dialog, penjelasan, rangkuman, koreksi diri, ketidakpastian, penggunaan dan penilaian bukti, grounding, retrieval, ingatan eksternal, penggunaan alat, multilingual, serta konsep lain yang menurutmu memperkuat kemampuan model bahasa. Jangan membatasi materi hanya pada berkebun.
+
+Bangun kurikulum bertahap: fondasi dahulu; sesi berikutnya memilih konsep baru atau pendalaman berdasarkan materi dan percakapan yang sudah ada. Berikan pelajaran substantif yang dapat digunakan kembali: tujuan, penjelasan konsep, konsep kunci, prosedur berpikir, contoh terbimbing, penerapan pada perilaku Nara, batas pengetahuan, latihan, pelajaran inti, aturan operasional yang dapat dipakai, dan arah pendalaman berikutnya. Jangan mengklaim telah melatih bobot model. Materi hanya disimpan sebagai ingatan eksternal dan dimasukkan ke konteks jawaban. Pisahkan teori umum dari fakta kebun yang benar-benar tersedia; jangan mengarang data kebun, jangan mengklaim pencarian web atau verifikasi sumber eksternal.
+
+Kembalikan hanya JSON valid tanpa markdown fences dengan kunci: {"judul":"...","bidang_pembelajaran":"...","tujuan":"...","penjelasan":"...","konsep_kunci":["..."],"langkah_berpikir":["..."],"contoh_terbimbing":"...","contoh_lain":"...","penerapan_untuk_nara":"...","batas_pengetahuan":"...","latihan":"...","pelajaran_inti":"...","aturan_yang_dapat_dipakai_nara":["..."],"langkah_selanjutnya":"..."}.`;
+    const result=await naraGuruChat([{role:'system',content:systemPrompt},{role:'user',content:naraBuildTeacherPrompt(stage)}],2000);
+    const decoded=naraParseGuruContent(result.text);const p=decoded.parsed;const title=naraGuruSafe(p.judul||topic,200);const summary=naraGuruSafe(p.penjelasan||p.pelajaran_inti||decoded.raw,700);const createdAt=new Date().toISOString();const id=makeId('nara-guru-lesson');
+    const fullText=naraGuruLessonText(p,topic,decoded.raw);
+    const mem={id,text:fullText,createdAt,origin:'Guru AI Online',sourceTeacherLessonId:id,title,topic,summary,learningType:'model_language',automatic:true,model:result.model,stage};
+    naraState.lessons.push(mem);naraState.lessons=naraState.lessons.slice(-100);
+    naraState.onlineTeacherLessons.push({id,title,topic,summary,createdAt,model:result.model,stage,automatic});naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.slice(-40);
+    st.automaticCycleCount+=1;st.lastAutoQuestionCount=st.totalUserQuestions;st.lastAutoLessonAt=createdAt;st.queued=false;if(stage==='foundation')st.foundationCompleted=true;
+    naraPersistState();naraRenderLessons();naraRefreshOverview();naraRenderGuruPanel();
+    naraSetGuruStatus('Mengajar otomatis aktif','good',`Materi terbaru tersimpan otomatis: “${title}”. Materi disimpan sebagai ingatan belajar, bukan sebagai fakta kebun terverifikasi.`);
+    succeeded=true;return true;
+  }catch(err){
+    console.warn('Nara Online Guru teaching failed:',err);
+    naraSetGuruStatus('Koneksi belum tersedia','warn',`Pengajaran otomatis belum berhasil: ${naraGuruSafe(err?.name==='AbortError'?'permintaan melewati batas waktu':err?.message||err,260)}. Ingatan yang ada tetap aman; gunakan tombol coba lagi saat koneksi pulih.${naraGuruOriginHint()}`);
+    return false;
+  }finally{
+    naraGuruBusy=false;if(button){button.disabled=false;button.textContent='📚 Minta Guru melanjutkan pelajaran';}
+    if(succeeded&&st.queued&&st.enabled&&st.foundationCompleted&&st.totalUserQuestions-st.lastAutoQuestionCount>=4){st.queued=false;naraPersistState();setTimeout(()=>naraTeachOnline({stage:'adaptive',automatic:true}),700);}
+    else if(!succeeded)st.queued=false;
+    naraRenderGuruPanel();
+  }
+}
+let naraTeacherTimer=null;
+function naraMaybeStartAutomaticTeacher(){
+  const st=naraGuruState();if(!st.enabled)return;
+  if(st.foundationCompleted){naraSetGuruStatus('Mengajar otomatis aktif','good','Fondasi sudah pernah diajarkan. Guru akan memilih pelajaran lanjutan secara otomatis setelah beberapa percakapan.');naraRenderGuruPanel();naraMaybeScheduleAutomaticTeacher();return;}
+  if(naraGuruStartupAttempted)return;naraGuruStartupAttempted=true;
+  setTimeout(()=>{if(!naraGuruBusy&&!naraGuruState().foundationCompleted)naraTeachOnline({stage:'foundation',automatic:true});},900);
+}
+function naraMaybeScheduleAutomaticTeacher(){
+  const st=naraGuruState();if(!st.enabled||!st.foundationCompleted||st.totalUserQuestions-st.lastAutoQuestionCount<4)return;
+  if(naraGuruBusy){st.queued=true;naraPersistState();return;}
+  st.queued=false;setTimeout(()=>naraTeachOnline({stage:'adaptive',automatic:true}),600);
+}
+function naraExpandTaughtContext(question){
+  const relevant=naraGetTaughtKnowledge(question);const models=naraState.lessons.filter(l=>l.learningType==='model_language'||l.origin==='Guru AI Online').slice(-2).reverse();
+  return [...new Map([...models,...relevant].map(l=>[l.id||l.text,l])).values()].slice(0,4);
+}
+
 function naraAnswerForPlant(plant){
   const groups=naraActiveGroups(plant);const ev=naraPlantEvents(plant);const due=waterIsDue(plant);const harvest=naraUpcomingHarvests(30).filter(h=>h.plant.id===plant.id);const latest=ev.slice(0,3);
   const lines=[`Tentang ${plant.name}${plant.variety?' ('+plant.variety+')':''}:`];
@@ -1831,25 +2043,48 @@ function naraAnswer(question){
     if(!inhabitants.length)return 'Belum ada Inhabitant yang tercatat. Kamu bisa menambahkan makhluk yang ditemukan di kebun melalui halaman Inhabitants; nanti aku bisa memakai jejak kehadiran dan hubungan dengan tanaman sebagai konteks.';
     return `Ada ${inhabitants.length} Inhabitant yang tercatat: ${inhabitants.slice(0,15).map(i=>`${i.name}${i.faction?' ('+i.faction+')':''}`).join(', ')}. Aku bisa menjelaskan riwayat yang tersimpan, tetapi tidak menyimpulkan peran ekologis spesies tanpa identifikasi atau catatan yang mendukung.`;
   }
-  const learned=naraGetTaughtKnowledge(raw);
-  if(learned.length)return `Aku menemukan pengetahuan yang pernah kamu ajarkan dan mungkin relevan:\n${learned.map(l=>'• '+l.text).join('\n')}\n\nAku belum punya cukup data kebun untuk memastikan penerapannya pada pertanyaanmu sekarang. Sebutkan nama tanaman atau situasi yang sedang kamu hadapi agar bisa kuhubungkan dengan catatan Terra Serenada.`;
+  const learned=naraExpandTaughtContext(raw);
+  if(learned.length)return `Aku menemukan ${learned.length} materi belajar yang relevan dari ingatan Nara. Aku akan menerapkan prinsip yang sesuai pada pertanyaan ini, bukan menyalin modul pelajarannya. Materi belajar membantu cara berpikir, tetapi bukan bukti bahwa sesuatu terjadi di kebun. Sebutkan tanaman atau situasi spesifik bila kamu ingin aku menghubungkannya dengan catatan Terra Serenada.`;
 
   return `Aku belum bisa menjawab itu dengan andal dari catatan yang tersedia. Aku bisa membaca data tanaman, penyiraman, perkiraan panen, catatan perhatian, Bed, Inhabitants, dan pengetahuan yang kamu ajarkan.\n\nCoba sebutkan nama tanaman atau tanyakan “ringkasan kebun hari ini”, “apa yang perlu perhatian?”, atau “perkiraan panen”. Kalau ini pengalaman baru dari kebun, ajarkan dengan “Ingat: …” atau catat dulu sebagai Perjalanan Tanaman agar menjadi bagian dari memori Terra Serenada.`;
 }
-function naraSendMessage(text){
+async function naraSendMessage(text){
   const raw=String(text||'').trim();if(!raw)return;
-  naraNormalizeState();naraState.messages.push({role:'user',text:raw,createdAt:new Date().toISOString()});
-  const answer=naraAnswer(raw);naraState.messages.push({role:'assistant',text:answer,createdAt:new Date().toISOString()});
-  naraState.messages=naraState.messages.slice(-80);naraPersistState();naraRenderChat();naraRefreshOverview();
+  naraNormalizeState();const teacher=naraGuruState();teacher.totalUserQuestions+=1;
+  const history=naraState.messages.slice(-8).map(m=>({role:m.role,text:m.text}));
+  naraState.messages.push({id:makeId('nara-user'),role:'user',text:raw,createdAt:new Date().toISOString()});
+  const localAnswer=naraAnswer(raw);
+  const isExplicitMemory=/^(?:nara[, :]*\s*)?(?:ingat(?:lah)?|ajarkan ke nara|catat pengetahuan|simpan sebagai pengetahuan)\s*[:：-]?\s*.+$/i.test(raw);
+  const asksMemoryList=/(pengetahuan yang kamu ajarkan|apa yang kamu ingat|ingatanku|apa yang pernah saya ajarkan|daftar pengetahuan)/i.test(raw);
+  const useOnline=!isExplicitMemory&&!asksMemoryList;
+  const answerMessage={id:makeId('nara-answer'),role:'assistant',text:localAnswer,localDraft:localAnswer,createdAt:new Date().toISOString(),pending:useOnline,onlineFailed:false};
+  naraState.messages.push(answerMessage);naraState.messages=naraState.messages.slice(-80);naraPersistState();naraRenderChat();naraRefreshOverview();
   const input=$('naraInput');if(input){input.value='';input.focus();}
+  if(!useOnline){naraMaybeScheduleAutomaticTeacher();return;}
+  naraOnlinePendingCount++;const sendBtn=$('naraSendBtn');if(sendBtn){sendBtn.disabled=true;sendBtn.textContent='…';}
+  try{
+    const result=await naraRequestOnlineAnswer(raw,{text:localAnswer},history);
+    const target=naraState.messages.find(m=>m.id===answerMessage.id);
+    if(target){target.text=result.text;target.onlineModel=result.model;target.pending=false;target.onlineFailed=false;naraPersistState();naraRenderChat();}
+  }catch(err){
+    console.warn('Nara online answer failed; keeping local response:',err);
+    const target=naraState.messages.find(m=>m.id===answerMessage.id);
+    if(target){target.text=target.localDraft||target.text;target.pending=false;target.onlineFailed=true;naraPersistState();naraRenderChat();}
+    naraSetGuruStatus('Mode lokal aktif','warn',`Guru Online belum dapat menjawab saat ini. Nara tetap menggunakan reasoning lokal. ${naraGuruSafe(err?.name==='AbortError'?'Permintaan melewati batas waktu.':err?.message||err,180)}${naraGuruOriginHint()}`);
+  }finally{
+    naraOnlinePendingCount=Math.max(0,naraOnlinePendingCount-1);if(sendBtn){sendBtn.disabled=naraOnlinePendingCount>0;sendBtn.textContent=naraOnlinePendingCount?'…':'Kirim ↑';}
+    naraMaybeScheduleAutomaticTeacher();naraRefreshOverview();
+  }
 }
 function naraBindUI(){
   const form=$('naraForm');if(form)form.addEventListener('submit',e=>{e.preventDefault();naraSendMessage($('naraInput')?.value||'')});
   $('naraInput')?.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();naraSendMessage($('naraInput').value)}});
   $('naraPrompts')?.addEventListener('click',e=>{const b=e.target.closest('[data-nara-prompt]');if(b)naraSendMessage(b.dataset.naraPrompt)});
-  $('pageNara')?.addEventListener('click',e=>{const b=e.target.closest('[data-nara-prompt]');if(b)naraSendMessage(b.dataset.naraPrompt);const del=e.target.closest('[data-nara-lesson-delete]');if(del){const lesson=naraState.lessons.find(x=>x.id===del.dataset.naraLessonDelete);if(lesson&&confirm('Hapus pengetahuan yang diajarkan kepada Nara?')){naraState.lessons=naraState.lessons.filter(x=>x.id!==lesson.id);naraPersistState();naraRefreshOverview();showToast('Pengetahuan Nara dihapus');}}});
+  $('pageNara')?.addEventListener('click',e=>{const b=e.target.closest('[data-nara-prompt]');if(b)naraSendMessage(b.dataset.naraPrompt);const del=e.target.closest('[data-nara-lesson-delete]');if(del){const lesson=naraState.lessons.find(x=>x.id===del.dataset.naraLessonDelete);if(lesson&&confirm('Hapus pengetahuan yang diajarkan kepada Nara?')){naraState.lessons=naraState.lessons.filter(x=>x.id!==lesson.id);if(lesson.sourceTeacherLessonId)naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.filter(x=>x.id!==lesson.sourceTeacherLessonId);naraPersistState();naraRefreshOverview();showToast('Pengetahuan Nara dihapus');}}});
   $('openNaraFromHome')?.addEventListener('click',()=>showPage('nara'));
   $('naraHouseTalk')?.addEventListener('click',()=>document.getElementById('naraTalkStart')?.scrollIntoView({behavior:'smooth',block:'start'}));
+  $('naraGuruContinue')?.addEventListener('click',()=>naraTeachOnline({stage:naraGuruState().foundationCompleted?'adaptive':'foundation',automatic:true}));
+  const guruPanel=$('naraGuruPanel');if(guruPanel){try{guruPanel.open=localStorage.getItem('naraGuruPanelExpanded')==='true'}catch{}guruPanel.addEventListener('toggle',()=>{try{localStorage.setItem('naraGuruPanelExpanded',String(guruPanel.open))}catch{}})}
 }
 
 function render(){
@@ -2516,7 +2751,7 @@ document.querySelectorAll('[data-nav]').forEach(btn=>btn.onclick=()=>showPage(bt
 ti4NormalizeState();
 render();
 tsWeatherInit();
-initStorage().then(()=>{ti41EnsureGrowthIndicators();render();scheduleNotifications();});
+initStorage().then(()=>{ti41EnsureGrowthIndicators();render();scheduleNotifications();naraMaybeStartAutomaticTeacher();naraRefreshOverview();}).catch(err=>{console.warn('Nara initial storage initialization failed:',err);naraMaybeStartAutomaticTeacher();});
 setTimeout(()=>optimizeStoredPhotos(),250);
 scheduleNotifications();
 </script>
