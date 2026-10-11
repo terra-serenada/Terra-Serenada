@@ -250,7 +250,8 @@ function contextForPlant(p){
 }
 function matchingProtoLessons(text){const words=String(text||'').toLocaleLowerCase('id-ID').split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>=4);if(!words.length)return[];const pool=[...coreLessons().map(l=>({...l,origin:'Nara core'})),...protoMemory.lessons.map(l=>({...l,origin:'Ingatan uji'}))];return pool.map(l=>({...l,_score:words.filter(w=>String(l.text).toLocaleLowerCase('id-ID').includes(w)).length})).filter(l=>l._score>0).sort((a,b)=>b._score-a._score).slice(0,3)}
 function coreLessons(){const x=safeRead(CORE_NARA_KEY,{lessons:[]});return asArray(x?.lessons)}
-function matchNamedEntities(q){const low=String(q||'').toLocaleLowerCase('id-ID');const all=[...garden.plants.map(x=>({type:'plant',name:x.name,obj:x})),...garden.beds.map(x=>({type:'bed',name:x.name,obj:x}))].filter(x=>x.name&&String(x.name).trim().length>=2).sort((a,b)=>String(b.name).length-String(a.name).length);const out=[];for(const x of all)if(low.includes(String(x.name).toLocaleLowerCase('id-ID'))&&!out.some(y=>y.type===x.type&&y.obj.id===x.obj.id))out.push(x);return out}
+function canonicalEntityText(value){return langNormalize(value).replace(/\bnenas\b/g,'nanas').replace(/\bterong\b/g,'terung').replace(/\bcabe\b/g,'cabai').replace(/\bketela pohon\b/g,'singkong').replace(/\bubi kayu\b/g,'singkong');}
+function matchNamedEntities(q){const low=canonicalEntityText(q);const all=[...garden.plants.map(x=>({type:'plant',name:x.name,obj:x})),...garden.beds.map(x=>({type:'bed',name:x.name,obj:x}))].filter(x=>x.name&&String(x.name).trim().length>=2).sort((a,b)=>String(b.name).length-String(a.name).length);const out=[];for(const x of all){const name=canonicalEntityText(x.name);if(name&&low.includes(name)&&!out.some(y=>y.type===x.type&&y.obj.id===x.obj.id))out.push(x)}return out}
 function getPlantsInBed(b){return garden.plants.filter(p=>allBedMatches(p,b))}
 function recentRainNearBed(b,days=7){const name=escapeName(b?.name);const ids=asArray(b?.id);return garden.gardenEvents.filter(e=>{if(!['rain','water','weeding','watering'].includes(e.type)&&!/(hujan|siram|penyiangan)/i.test(e.label||''))return false;const d=daysAgo(e.date);if(d===null||d<0||d>days)return false;const bednames=asArray(e.bedNames);const matchedIds=asArray(e.bedIds);return e.type==='rain'||(matchedIds.some(id=>ids.includes(id)))||bednames.some(n=>escapeName(n)===name)}).sort((a,b)=>dateSort(b,a)).slice(0,10)}
 function countSourceDomains(sources){return new Set(sources.map(s=>s.kind).filter(Boolean)).size}
@@ -319,7 +320,10 @@ function parseLanguageFrame(text,options={}){
   const entities=matchNamedEntities(text),intent=languageIntent(text),negation=languageNegation(text),reference=languageReference(text),resolved=!entities.length&&reference.followUp?recentLanguageFocus(history):null;
   const ambiguous=reference.followUp&&!entities.length&&!resolved&&!['correction','learning_instruction'].includes(intent);
   const similarRule=!['correction','learning_instruction'].includes(intent)?findMatchingLanguageRule(text):null;
-  const appliedIntent=similarRule?.suggestedIntent||'';
+  const explicitEvent=detectRequestedEvent(text);
+  const learnedEvent=similarRule?.patternType?.startsWith('harvest_')?'harvest':'';
+  const compatibleRule=explicitEvent&&learnedEvent&&explicitEvent!==learnedEvent?null:similarRule;
+  const appliedIntent=compatibleRule?.suggestedIntent||'';
   return {intent:intent, intentLabel:LANG_INTENT_LABELS[appliedIntent||intent]||'Pernyataan',negation:negation,reference:reference,entities:entities.map(e=>({type:e.type,name:e.name,id:e.obj?.id||''})),resolvedEntity:resolved?{type:resolved.type,name:resolved.name,id:resolved.obj?.id||''}:null,ambiguous:!!ambiguous,similarRule:similarRule?{id:similarRule.id,trigger:similarRule.trigger,correction:similarRule.correction,suggestedIntent:similarRule.suggestedIntent||'',score:similarRule.score}:null,appliedIntent:appliedIntent||'',createdAt:new Date().toISOString()};
 }
 function lastMessageText(role,history=protoMemory.messages){for(let i=history.length-1;i>=0;i--)if(history[i]?.role===role&&typeof history[i].text==='string')return history[i].text;return ''}
@@ -507,9 +511,127 @@ function classifyAnswerTask(text,plan=null){
   if(/\b(analisis|ringkasan|ringkas|bagaimana kondisi|kenapa|mengapa|penyebab|hubungan antara|bandingkan|perbandingan|apa yang sebaiknya|rekomendasi)\b/.test(n))return 'analysis';
   return 'direct_fact';
 }
+function detectRequestedEvent(text){
+  const n=langNormalize(text);
+  // Prefer explicit event nouns/verbs so a historical flowering question can never be routed to harvest.
+  if(/\b(berbunga|pembungaan|mekar|bunga muncul|mulai berbunga)\b/.test(n))return 'flowering';
+  if(/\b(berbuah|mulai berbuah|buah muncul|pembuahan)\b/.test(n))return 'fruiting';
+  if(/\b(penyiraman|disiram|menyiram|menyirami|siram)\b/.test(n))return 'watering';
+  if(/\b(hujan|curah hujan)\b/.test(n))return 'rain';
+  if(/\b(pemangkasan|dipangkas|memangkas|pangkas|pruning)\b/.test(n))return 'pruning';
+  if(/\b(penyakit|jamur|busuk|layu|bercak penyakit)\b/.test(n))return 'disease';
+  if(/\b(hama|aphid|aphids|kutu daun|stinkbug|kumbang|ulat)\b/.test(n))return 'pest';
+  return '';
+}
+function eventTypeLabel(type){return ({flowering:'berbunga',fruiting:'berbuah',watering:'penyiraman',rain:'hujan',pruning:'pemangkasan',disease:'penyakit',pest:'hama'})[type]||'kejadian';}
+function eventRowMatchesType(row,type){
+  const raw=row?.raw||row?.event||row?.attention||{};
+  const rawType=langNormalize([raw.type,raw.problemType,raw.label,row.label].filter(Boolean).join(' '));
+  if(type==='flowering')return /\bflowering\b|\bberbunga\b|\bpembungaan\b|\bmekar\b/.test(rawType);
+  if(type==='fruiting')return /\bfruiting\b|\bberbuah\b|\bpembuahan\b/.test(rawType);
+  if(type==='watering')return /\bwater\b|\bwatering\b|\birrigation\b|\bsiram\b|\bpenyiraman\b/.test(rawType);
+  if(type==='rain')return /\brain\b|\bhujan\b/.test(rawType);
+  if(type==='pruning')return /\bpruning\b|\bprune\b|\bpangkas\b|\bpemangkasan\b/.test(rawType);
+  if(type==='disease')return /\bdisease\b|\bpenyakit\b|\bjamur\b|\bbusuk\b|\blayu\b|\bbercak penyakit\b/.test(rawType);
+  if(type==='pest')return /\bpest\b|\bhama\b|\baphids?\b|\bkutu daun\b|\bstinkbug\b|\bkumbang\b|\bulat\b/.test(rawType);
+  return false;
+}
+function buildEventReasoningPlan(text,found,referenceDate=todayISO()){
+  const q=String(text||'').trim(),n=langNormalize(q),eventType=detectRequestedEvent(q);
+  if(!eventType)return null;
+  // Keep causal/explanatory and broad analyses in the contextual-analysis path rather than reducing them to an event lookup.
+  if(/\b(kenapa|mengapa|penyebab|mengapa bisa|apa yang sebaiknya|rekomendasi|bandingkan|hubungan antara|berkaitan dengan)\b/.test(n))return null;
+  const latest=/\b(kapan|tanggal berapa|terakhir|terbaru|paling baru|terakhir kali|tanggal terakhir|yang terakhir)\b/.test(n);
+  const list=/\b(riwayat|daftar|semua catatan|seluruh catatan|tampilkan catatan|kejadian apa saja)\b/.test(n);
+  const count=/\b(berapa kali|berapa kejadian|berapa catatan|jumlah kejadian|jumlah catatan|seberapa sering)\b/.test(n);
+  const presence=/\b(apakah|apa sudah|sudah pernah|pernahkah|pernah|sudah)\b/.test(n)&&/\b(berbunga|berbuah|disiram|hujan|dipangkas|hama|penyakit|kutu daun|aphid|kumbang)\b/.test(n);
+  // Event words in advice/diagnosis requests alone are not enough; handle explicit retrieval tasks only.
+  if(!latest&&!list&&!count&&!presence)return null;
+  const foundEntities=Array.isArray(found)?found:matchNamedEntities(q);
+  const p=foundEntities.find(e=>e.type==='plant'),b=foundEntities.find(e=>e.type==='bed');
+  let operation=latest?'latest':list?'list':count?'count':'presence';
+  const period=parseQueryPeriod(q,referenceDate);
+  const target=p?{type:'plant',id:p.obj?.id||p.id||'',name:p.name,obj:p.obj||p}:b?{type:'bed',id:b.obj?.id||b.id||'',name:b.name,obj:b.obj||b}:null;
+  return {domain:'event',eventType,operation,target,period,query:q,source:eventTypeLabel(eventType),responseStyle:list?'detailed':'direct',questionTask:count?'quantity':list?'history':latest?'history':'direct_fact',reason:operation==='latest'?`Cari catatan ${eventTypeLabel(eventType)} terbaru; jangan memakai data dari jenis kejadian lain.`:operation==='count'?`Filter catatan ${eventTypeLabel(eventType)} sesuai objek dan periode, lalu hitung kejadian.`:operation==='list'?`Tampilkan riwayat ${eventTypeLabel(eventType)} yang cocok.`:`Periksa apakah ada catatan ${eventTypeLabel(eventType)} yang cocok; ketiadaan catatan bukan bukti kejadian tidak pernah terjadi.`};
+}
+function eventRowsForPlan(plan,gardenData=garden){
+  const type=plan.eventType,targetId=String(plan.target?.id||''),targetType=plan.target?.type||'';
+  const plants=asArray(gardenData.plants),beds=asArray(gardenData.beds),rows=[];
+  const getBedsForPlant=p=>{
+    const names=[];
+    for(const g of getPlantGroups(p)){
+      const ids=[g?.bedId,g?.locationId].filter(Boolean);
+      for(const id of ids){const bed=beds.find(b=>String(b?.id)===String(id));if(bed?.name)names.push(bed.name);}
+      names.push(...asArray(g?.locations).map(v=>typeof v==='string'?v:(v?.name||'')));
+    }
+    return [...new Set(names.filter(Boolean))];
+  };
+  const targetBed=targetType==='bed'?(beds.find(b=>String(b?.id)===targetId)||plan.target?.obj):null;
+  const targetPlant=targetType==='plant'?plants.find(p=>String(p?.id)===targetId):null;
+  const targetBedNames=targetPlant?getPlantGroups(targetPlant).flatMap(g=>groupBedNames(g)):targetBed?[targetBed.name]:[];
+  const plantMatch=p=>!targetId||(targetType==='plant'?String(p?.id)===targetId:targetType==='bed'?getBedsForPlant(p).some(n=>targetBedNames.some(t=>escapeName(n)===escapeName(t))):true);
+  if(['flowering','fruiting','pruning','pest','disease'].includes(type)){
+    for(const p of plants){if(!plantMatch(p))continue;
+      for(const e of asArray(p.events)){
+        const row={date:e?.date,createdAt:e?.createdAt,label:e?.label||e?.type||eventTypeLabel(type),detail:[e?.note,e?.action].filter(Boolean).join(' — '),plant:p,source:'Perjalanan tanaman',raw:e};
+        if(eventRowMatchesType(row,type))rows.push(row);
+      }
+      if(['pest','disease'].includes(type))for(const a of asArray(gardenData.attentions)){
+        if(String(a?.plantId)!==String(p?.id))continue;
+        const row={date:a?.completedDate||a?.date||String(a?.completedAt||'').slice(0,10),createdAt:a?.completedAt||a?.createdAt,label:attentionName(a),detail:[a?.note,a?.action].filter(Boolean).join(' — '),plant:p,source:'Catatan perhatian',raw:a,attention:a};
+        if(eventRowMatchesType(row,type))rows.push(row);
+      }
+    }
+  }else{
+    // Water/rain are usually recorded in gardenEvents; a plant's lastWater is a fallback for legacy data.
+    for(const e of asArray(gardenData.gardenEvents)){
+      const row={date:e?.date,createdAt:e?.createdAt,label:e?.label||(e?.type==='rain'?'Hujan':'Penyiraman'),detail:[...new Set(asArray(e?.bedIds).map(id=>beds.find(b=>String(b?.id)===String(id))?.name).filter(Boolean).concat(asArray(e?.bedNames)))].join(', ')|| (e?.type==='rain'?'Seluruh bed':'Cakupan tidak tercatat'),plant:null,source:'Aktivitas kebun',raw:e};
+      if(!eventRowMatchesType(row,type))continue;
+      if(targetType==='plant'){
+        const names=targetBedNames;
+        const scoped=type==='rain'?(row.detail==='Seluruh bed'||row.bedNames?.some(n=>names.some(t=>escapeName(n)===escapeName(t)))):(row.detail==='Cakupan tidak tercatat'||names.length===0||names.some(n=>row.detail.split(', ').some(v=>escapeName(v)===escapeName(n))));
+        if(!scoped)continue;
+        row.plant=targetPlant||null;
+      }else if(targetType==='bed'){
+        const names=asArray(e?.bedIds).map(id=>beds.find(b=>String(b?.id)===String(id))?.name).filter(Boolean).concat(asArray(e?.bedNames));
+        if(type!=='rain'&&!names.some(n=>escapeName(n)===escapeName(targetBed?.name)))continue;
+        if(type==='rain'&&names.length&&!names.some(n=>escapeName(n)===escapeName(targetBed?.name)))continue;
+      }
+      rows.push(row);
+    }
+    if(type==='watering'&&targetPlant&&targetPlant.lastWater&&!rows.some(r=>String(r.date||'')===String(targetPlant.lastWater))){
+      rows.push({date:targetPlant.lastWater,createdAt:'',label:'Penyiraman terakhir tercatat',detail:targetPlant.lastWaterSource||'Sumber air tidak dicatat',plant:targetPlant,source:'Data tanaman',raw:{type:'watering',date:targetPlant.lastWater,label:'Penyiraman terakhir tercatat'}});
+    }
+  }
+  const filtered=rows.filter(r=>validDate(r.date)&&(!plan.period?.start||rowWithinPeriod(r.date,plan.period)));
+  const dedup=new Map();for(const r of filtered){const key=[r.plant?.id||'',r.date,r.label,r.detail].join('|');if(!dedup.has(key))dedup.set(key,r);}
+  return [...dedup.values()].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+}
+function answerEventPlan(plan,gardenData=garden){
+  const rows=eventRowsForPlan(plan,gardenData),type=plan.eventType,label=eventTypeLabel(type),target=plan.target?.name||'kebun',period=plan.period?.start?plan.period.label:'seluruh periode yang tercatat';
+  const sources=rows.slice(0,14).map(r=>evidence(`${r.plant?.name?r.plant.name+' · ':''}${r.label||label}`,r.detail||r.label||label,r.date,r.source||'Catatan kejadian'));
+  if(plan.operation==='latest'){
+    if(!rows.length)return createResponse(`Belum ada catatan ${label} yang cocok untuk ${target}${plan.period?.start?' pada '+period:''}. Ini berarti catatan tersebut tidak ditemukan pada data yang dimuat; bukan bukti bahwa kejadian tidak pernah terjadi.`,[], 'Tidak ada catatan yang cocok');
+    const r=rows[0],who=r.plant?.name?`${r.plant.name}: `:'';
+    return createResponse(`${who}catatan ${label} terbaru yang kutemukan adalah ${dateFmt(r.date)}${r.detail?` — ${r.detail}`:''}. Ini berdasarkan riwayat yang tersimpan${plan.period?.start?' pada '+period:''}.`,sources,'Bukti dari riwayat kejadian');
+  }
+  if(plan.operation==='count'){
+    const text=rows.length?`Tercatat ${rows.length} kejadian/catatan ${label} untuk ${target}${plan.period?.start?' pada '+period:''}.`:`Aku tidak menemukan catatan ${label} untuk ${target}${plan.period?.start?' pada '+period:''}. Itu tidak memastikan kejadian tersebut tidak pernah terjadi.`;
+    return createResponse(text,sources,sources.length>1?'Beberapa catatan':'Bukti dari riwayat kejadian');
+  }
+  if(plan.operation==='presence'){
+    const text=rows.length?`Ya, ada catatan ${label} untuk ${target}. Yang terbaru tercatat ${dateFmt(rows[0].date)}${rows[0].detail?` — ${rows[0].detail}`:''}.`:`Aku belum menemukan catatan ${label} untuk ${target} pada data yang dimuat. Itu belum membuktikan kejadian tersebut tidak pernah terjadi.`;
+    return createResponse(text,sources,sources.length>1?'Beberapa catatan':'Bukti dari riwayat kejadian');
+  }
+  const lines=[`RIWAYAT ${label.toLocaleUpperCase('id-ID')} · ${target}`,`\nPeriode: ${period}.`];
+  if(!rows.length)lines.push(`\nBelum ada catatan ${label} yang cocok pada data yang dimuat.`);else lines.push(...rows.slice(0,12).map(r=>`• ${dateFmt(r.date)}${r.plant?.name?' · '+r.plant.name:''}${r.detail?' — '+r.detail:''}`));
+  lines.push('\nRiwayat ini hanya mencerminkan kejadian yang dicatat di Terra Serenada.');
+  return createResponse(lines.join('\n'),sources,sources.length>1?'Beberapa catatan':'Bukti dari riwayat kejadian');
+}
 function buildReasoningPlan(text, entities=null, referenceDate=todayISO()){
   const q=String(text||'').trim(),n=langNormalize(q),found=Array.isArray(entities)?entities:matchNamedEntities(q);
   const plantEntity=found.find(e=>e.type==='plant'),bedEntity=found.find(e=>e.type==='bed');
+  const eventPlan=buildEventReasoningPlan(q,found,referenceDate);if(eventPlan)return eventPlan;
   const period=parseQueryPeriod(q,referenceDate),explicitPeriod=period.kind!=='all_time';
   const hasHarvest=/\b(panen|dipanen|memanen|petik|dipetik|pemetikan|hasil panen|produksi)\b/.test(n);
   const forecast=/\b(perkiraan|estimasi|berikutnya|mendatang|prediksi|akan dipanen)\b/.test(n);
@@ -663,6 +785,7 @@ function answerPlantStatus(p){
 }
 function executeReasoningPlan(plan){
   if(!plan)return null;
+  if(plan.domain==='event')return answerEventPlan(plan);
   if(plan.domain==='harvest'&&['sum','count'].includes(plan.operation))return answerHarvestAggregation(plan);
   if(plan.domain==='planting'&&['sum_planted','active_count','count_groups','list'].includes(plan.operation))return answerPlantingQuantity(plan);
   if(plan.domain==='bed'&&['count_plants','count_active_plants'].includes(plan.operation)){
@@ -725,6 +848,16 @@ function runReasoningEngineEvaluation(){
   add('Tanaman tanpa kelompok memakai jumlah warisan bila tanggal tercatat',()=>{const legacy={plants:[{id:'legacy-1',name:'Kangkung',date:`${year}-03-01`,qty:15}],harvests:[]};const r=selectPlantingRows({target:{id:'legacy-1'},period:parseQueryPeriod('',today)},legacy);return {pass:r.length===1&&r[0].totalQty===15,detail:`fallback catatan tanaman: ${r[0]?.totalQty??'tidak terbaca'}`};});
   add('Kuantitas aktif dapat dihitung dari total dikurangi selesai dan gagal untuk skema lama',()=>{const q=groupCurrentQty({totalQty:12,completedQty:3,failedQty:2});return {pass:q===7,detail:`aktif hasil turunan ${q}`};});
   add('Kelompok tanpa tanggal tetap masuk total sepanjang masa, tetapi tidak masuk periode tertentu',()=>{const legacy={plants:[{id:'legacy-2',name:'Kangkung',qty:4,plantingGroups:[{id:'g-undated',qty:4,totalQty:4,activeQty:4}]}],harvests:[]};const all=selectPlantingRows({target:{id:'legacy-2'},period:parseQueryPeriod('',today)},legacy),yearRows=selectPlantingRows({target:{id:'legacy-2'},period:parseQueryPeriod('tahun ini',today)},legacy);return {pass:all.length===1&&yearRows.length===0,detail:`sepanjang masa ${all.length}; periode tahun ini ${yearRows.length}`};});
+  const floweringPlant={id:'test-mango',name:'Mangga',plantingGroups:[{id:'mango-g',date:`${year}-01-05`,qty:1,activeQty:1,locations:['Sanctuary']}],events:[{id:'mango-flower-old',date:`${year}-02-03`,type:'flowering',label:'Berbunga',note:'Bunga pertama'},{id:'mango-flower-new',date:`${year}-08-17`,type:'flowering',label:'Berbunga',note:'Berbunga lagi'},{id:'mango-harvest',date:`${year}-09-21`,type:'harvest',label:'Panen',note:'2 buah'}]};
+  const floweringEntity=[{type:'plant',name:'Mangga',id:floweringPlant.id,obj:floweringPlant}];
+  add('Kata berbunga memilih domain kejadian berbunga, bukan panen',()=>{const p=buildReasoningPlan('Kapan Mangga terakhir kali berbunga?',floweringEntity,today);return {pass:p.domain==='event'&&p.eventType==='flowering'&&p.operation==='latest',detail:`${p.domain}/${p.eventType}/${p.operation}`};});
+  add('Tanggal terakhir berbunga mengambil peristiwa berbunga terbaru dan mengabaikan panen yang lebih baru',()=>{const p=buildReasoningPlan('Kapan Mangga terakhir kali berbunga?',floweringEntity,today);const g={plants:[floweringPlant],beds:[],harvests:[],gardenEvents:[],attentions:[],inhabitants:[],gardenNotes:[],gardenSettings:{}};const r=eventRowsForPlan(p,g),a=answerEventPlan(p,g);return {pass:r.length===2&&r[0].date===`${year}-08-17`&&a.text.includes('17 Agu 2026')&&!/panen/i.test(a.text),detail:`terpilih ${r[0]?.date||'tidak ada'}; jawaban: ${a.text}`};});
+  add('Pertanyaan berapa kali berbunga memilih operasi hitung kejadian',()=>{const p=buildReasoningPlan('Berapa kali Mangga berbunga?',floweringEntity,today);return {pass:p.domain==='event'&&p.eventType==='flowering'&&p.operation==='count',detail:`${p.domain}/${p.eventType}/${p.operation}`};});
+  add('Pertanyaan riwayat berbunga memilih daftar peristiwa berbunga',()=>{const p=buildReasoningPlan('Tampilkan riwayat berbunga Mangga',floweringEntity,today);return {pass:p.domain==='event'&&p.eventType==='flowering'&&p.operation==='list',detail:`${p.domain}/${p.eventType}/${p.operation}`};});
+  add('Koreksi/aturan lama tentang panen tidak boleh mengambil alih pertanyaan berbunga',()=>{const p=buildReasoningPlan('Kapan Mangga terakhir kali berbunga?',floweringEntity,today);return {pass:p.domain==='event'&&p.eventType!=='harvest',detail:`domain ${p.domain}; jenis ${p.eventType||'tak ada'}`};});
+  add('Ejaan Nenas/Nanas mengarah pada tanaman yang sama',()=>{const testGarden={plants:[{id:'pineapple',name:'Nanas'}],beds:[]};const original=garden.plants;garden.plants=testGarden.plants;const found=matchNamedEntities('berapa jumlah nenas di kebun saya');garden.plants=original;return {pass:found.some(e=>e.type==='plant'&&e.obj.id==='pineapple'),detail:found.map(e=>e.name).join(', ')||'tidak ditemukan'};});
+  add('Ejaan Terong/Terung mengarah pada tanaman yang sama',()=>{const testGarden={plants:[{id:'eggplant',name:'Terung'}],beds:[]};const original=garden.plants;garden.plants=testGarden.plants;const found=matchNamedEntities('berapa terong yang dipanen');garden.plants=original;return {pass:found.some(e=>e.type==='plant'&&e.obj.id==='eggplant'),detail:found.map(e=>e.name).join(', ')||'tidak ditemukan'};});
+  add('Pertanyaan lokasi tidak dicampur dengan ringkasan perhatian atau penyiraman',()=>{const task=classifyAnswerTask('Kunyit berada di bed mana saja?',{domain:'general'});return {pass:task==='location',detail:task};});
   const entry={id:`reason-eval-${Date.now()}`,createdAt:new Date().toISOString(),passed:tests.filter(t=>t.passed).length,total:tests.length,cases:tests};protoMemory.reasoningEvaluations=asArray(protoMemory.reasoningEvaluations);protoMemory.reasoningEvaluations.push(entry);protoMemory.reasoningEvaluations=protoMemory.reasoningEvaluations.slice(-20);saveProtoMemory();renderReasoningEvaluation(entry);return entry;
 }
 function renderReasoningEvaluation(entry=asArray(protoMemory.reasoningEvaluations).slice(-1)[0]){const host=$('reasoningEvaluationResult');if(!host)return;if(!entry){host.className='context-empty';host.textContent='Tes penalaran belum dijalankan. Tes menggunakan data contoh terpisah dan tidak mengubah data kebun.';return}host.className='';const heading=document.createElement('div');heading.className='language-tag '+(entry.passed===entry.total?'good':'warn');heading.style.display='inline-block';heading.textContent=`Tes General Reasoning terakhir: ${entry.passed}/${entry.total} · ${dateFmt(entry.createdAt)}`;const list=document.createElement('div');list.className='language-eval-list';for(const c of entry.cases){const row=document.createElement('div');row.className='language-eval-row';const icon=document.createElement('b');icon.style.color=c.passed?'var(--accent)':'var(--red)';icon.textContent=c.passed?'✓':'×';const label=document.createElement('span');label.textContent=c.name+(c.detail?' — '+c.detail:'');row.append(icon,label);list.append(row)}host.replaceChildren(heading,list);}
