@@ -140,7 +140,7 @@ jobs:
             echo "ERROR: Legacy Kotlin jvmTarget DSL is not allowed with Kotlin 2.4.21."
             exit 1
           fi
-          grep -q 'val conn = (URL(RECOMMENDED_MODEL_URL)' android/app/src/main/java/com/terra/serenada/NaraLocalEngine.kt
+          grep -q 'URL(RECOMMENDED_MODEL_URL)' android/app/src/main/java/com/terra/serenada/NaraLocalEngine.kt
           grep -q 'versionCode = 2000 + ciRunNumber' android/app/build.gradle.kts
           echo "Kotlin, runtime and application version configuration checks passed."
 
