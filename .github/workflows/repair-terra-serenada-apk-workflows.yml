@@ -1,0 +1,204 @@
+name: Repair Terra Serenada APK Release Workflows (v27)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: terra-serenada-apk-workflow-repair
+  cancel-in-progress: false
+
+jobs:
+  repair-workflows:
+    name: Consolidate release workflows and add APK install checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch release workflow files safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          root = Path(".github/workflows")
+          v24 = root / "build-apk-v24.yml"
+          v25 = root / "build-apk-v25.yml"
+          v26 = root / "build-apk-v26.yml"
+
+          for path in (v24, v25, v26):
+              if not path.is_file():
+                  raise SystemExit(f"Required workflow not found: {path}")
+
+          retired_workflow = textwrap.dedent("""\
+          name: Retired APK Workflow — use v27
+
+          on:
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          jobs:
+            retired:
+              runs-on: ubuntu-latest
+              steps:
+                - name: Explain retirement
+                  run: |
+                    echo "This legacy APK workflow is retired to prevent publishing an older APK."
+                    echo "Use Actions -> Build and publish APK v1.0.22 (v27) -> Run workflow."
+          """)
+
+          # Replace older build workflows completely so they cannot auto-publish stale APKs.
+          v24.write_text(retired_workflow.replace("Retired APK Workflow", "Retired APK Workflow v24"), encoding="utf-8")
+          v25.write_text(retired_workflow.replace("Retired APK Workflow", "Retired APK Workflow v25"), encoding="utf-8")
+
+          content = v26.read_text(encoding="utf-8")
+          if "Validate APK package, signature, alignment and update compatibility" in content:
+              raise SystemExit("The v26 workflow already contains the validation step; no changes were made.")
+
+          replacements = [
+              (
+                  "name: Build and publish APK v1.0.21 — Terra Serenada + Nara Offline (v26)",
+                  "name: Build and publish APK v1.0.22 — Terra Serenada + Nara Offline (v27)",
+              ),
+              ("versionCode = 1000 + ciRunNumber", "versionCode = 2000 + ciRunNumber"),
+              ('versionName = "1.0.21.$ciRunNumber"', 'versionName = "1.0.22.$ciRunNumber"'),
+              ("tag_name: apk-v1.0.21-", "tag_name: apk-v1.0.22-"),
+              ("name: Terra Serenada APK 1.0.21 (build ", "name: Terra Serenada APK 1.0.22 (build "),
+          ]
+          for old, new in replacements:
+              count = content.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one occurrence of {old!r}; found {count}. No v27 update made.")
+              content = content.replace(old, new, 1)
+
+          validation_step = textwrap.indent(textwrap.dedent("""\
+                - name: Validate APK package, signature, alignment and update compatibility
+                  shell: bash
+                  env:
+                    BASELINE_APK_URL: https://github.com/terra-serenada/Terra-Serenada/releases/download/apk-v1.0.19-10/Terra-Serenada.apk
+                  run: |
+                    set -euo pipefail
+                    APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+                    ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+                    AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+                    test -x "$APKSIGNER"
+                    test -x "$ZIPALIGN"
+                    test -x "$AAPT"
+
+                    echo "Downloading the previous published APK as the signing-certificate reference."
+                    curl --fail --location --retry 3 --silent --show-error "$BASELINE_APK_URL" --output baseline.apk
+                    test -s baseline.apk
+                    test -s Terra-Serenada.apk
+
+                    unzip -t Terra-Serenada.apk
+                    "$APKSIGNER" verify --verbose --print-certs baseline.apk 2>&1 | tee baseline-signature.txt
+                    "$APKSIGNER" verify --verbose --print-certs Terra-Serenada.apk 2>&1 | tee new-signature.txt
+
+                    baseline_fingerprint="$(sed -n 's/.*Signer #1 certificate SHA-256 digest: *//p' baseline-signature.txt | head -n 1 | tr -d ':' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+                    new_fingerprint="$(sed -n 's/.*Signer #1 certificate SHA-256 digest: *//p' new-signature.txt | head -n 1 | tr -d ':' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+                    if [ -z "$baseline_fingerprint" ] || [ -z "$new_fingerprint" ]; then
+                      echo "ERROR: Could not read the signing-certificate fingerprint from one of the APKs."
+                      exit 1
+                    fi
+                    echo "Previous APK certificate SHA-256: $baseline_fingerprint"
+                    echo "New APK certificate SHA-256:      $new_fingerprint"
+                    if [ "$baseline_fingerprint" != "$new_fingerprint" ]; then
+                      echo "ERROR: The new APK is signed with a different certificate from the previous release."
+                      echo "The release is blocked to protect the installed app and its private data. Restore the original signing key before publishing an update."
+                      exit 1
+                    fi
+
+                    "$ZIPALIGN" -c -v 4 Terra-Serenada.apk
+                    "$AAPT" dump badging Terra-Serenada.apk | tee apk-metadata.txt
+                    expected_code=$((2000 + GITHUB_RUN_NUMBER))
+                    expected_name="1.0.22.${GITHUB_RUN_NUMBER}"
+                    grep -F "package: name='com.terra.serenada' versionCode='${expected_code}' versionName='${expected_name}'" apk-metadata.txt
+                    echo "APK validation passed: package, version, signature compatibility, archive and alignment."
+          """), "      ")
+
+          smoke_step = textwrap.indent(textwrap.dedent("""\
+                - name: Android emulator install and launch smoke test
+                  uses: ReactiveCircus/android-emulator-runner@v2
+                  with:
+                    api-level: 35
+                    arch: x86_64
+                    profile: pixel_6
+                    disable-animations: true
+                    script: |
+                      set -euo pipefail
+                      adb install -r Terra-Serenada.apk
+                      adb logcat -c
+                      adb shell monkey -p com.terra.serenada -c android.intent.category.LAUNCHER 1
+                      for attempt in $(seq 1 15); do
+                        if adb shell pidof com.terra.serenada >/dev/null 2>&1; then
+                          break
+                        fi
+                        sleep 1
+                      done
+                      adb shell pidof com.terra.serenada
+                      if adb logcat -d -s AndroidRuntime:E | grep -q 'FATAL EXCEPTION'; then
+                        adb logcat -d -s AndroidRuntime:E
+                        exit 1
+                      fi
+                      echo "APK installed and main activity stayed running in the Android emulator."
+          """), "      ")
+
+          anchor = "      - name: Upload APK artifact (temporary download)\n"
+          if content.count(anchor) != 1:
+              raise SystemExit("Could not safely locate the artifact-upload step; validation was not inserted.")
+          content = content.replace(anchor, validation_step + smoke_step + anchor, 1)
+          v26.write_text(content, encoding="utf-8")
+          print("Prepared changes to v24, v25 and v26. No HTML or garden data files were modified.")
+          PY
+
+      - name: Validate workflow changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          v24 = Path('.github/workflows/build-apk-v24.yml').read_text()
+          v25 = Path('.github/workflows/build-apk-v25.yml').read_text()
+          v26 = Path('.github/workflows/build-apk-v26.yml').read_text()
+          assert 'workflow_dispatch:' in v24 and 'push:' not in v24
+          assert 'workflow_dispatch:' in v25 and 'push:' not in v25
+          assert 'versionCode = 2000 + ciRunNumber' in v26
+          assert 'versionName = "1.0.22.$ciRunNumber"' in v26
+          assert 'Validate APK package, signature, alignment and update compatibility' in v26
+          assert 'Android emulator install and launch smoke test' in v26
+          assert 'tag_name: apk-v1.0.22-' in v26
+          assert 'name: Terra Serenada APK 1.0.22 (build ' in v26
+          print('Workflow content checks passed.')
+          PY
+          git diff --check
+          git diff --stat
+
+      - name: Commit workflow repair to main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/build-apk-v24.yml .github/workflows/build-apk-v25.yml .github/workflows/build-apk-v26.yml
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Consolidate APK release workflows and validate updates"
+          git push origin HEAD:main
+          echo "Workflow repair pushed to main. The APK build is a separate manual run."
