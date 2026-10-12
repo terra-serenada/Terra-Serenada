@@ -204,10 +204,22 @@ jobs:
           unzip -t Terra-Serenada.apk
           "$APKSIGNER" verify --verbose --print-certs baseline.apk 2>&1 | tee baseline-signature.txt
           "$APKSIGNER" verify --verbose --print-certs Terra-Serenada.apk 2>&1 | tee new-signature.txt
-          baseline_fingerprint="$(sed -n 's/.*Signer #1 certificate SHA-256 digest: *//p' baseline-signature.txt | head -n 1 | tr -d ':' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
-          new_fingerprint="$(sed -n 's/.*Signer #1 certificate SHA-256 digest: *//p' new-signature.txt | head -n 1 | tr -d ':' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+          # Build Tools may format the signer prefix differently, for example:
+          # "Signer #1 certificate SHA-256 digest: ..." or
+          # "V2 Signer: certificate SHA-256 digest: ...". Extract the certificate
+          # digest by its stable label, never by a version-specific prefix.
+          extract_certificate_sha256() {
+            local signature_file="$1"
+            awk '/certificate SHA-256 digest:/ { sub(/^.*certificate SHA-256 digest:[[:space:]]*/, ""); print; exit }' "$signature_file" \
+              | tr -d ':' \
+              | tr -d '[:space:]' \
+              | tr '[:upper:]' '[:lower:]'
+          }
+          baseline_fingerprint="$(extract_certificate_sha256 baseline-signature.txt)"
+          new_fingerprint="$(extract_certificate_sha256 new-signature.txt)"
           if [ -z "$baseline_fingerprint" ] || [ -z "$new_fingerprint" ]; then
-            echo "ERROR: Unable to read APK signing certificate fingerprints."
+            echo "ERROR: Unable to extract APK certificate SHA-256 fingerprint. Raw signer details follow:"
+            grep -Ei 'certificate DN|certificate SHA-256 digest|Number of signers|Verified using' baseline-signature.txt new-signature.txt || true
             exit 1
           fi
           echo "Known previous APK certificate SHA-256: $baseline_fingerprint"
