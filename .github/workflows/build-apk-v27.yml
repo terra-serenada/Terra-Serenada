@@ -255,20 +255,33 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            set -euo pipefail
+            # android-emulator-runner executes this script via /usr/bin/sh -c.
+            # `pipefail` is Bash-only, so keep this block POSIX-sh compatible.
+            set -eu
+            adb wait-for-device
             adb install -r Terra-Serenada.apk
             adb logcat -c
             adb shell monkey -p com.terra.serenada -c android.intent.category.LAUNCHER 1
-            for attempt in $(seq 1 20); do
-              if adb shell pidof com.terra.serenada >/dev/null 2>&1; then break; fi
+            app_pid=""
+            for attempt in $(seq 1 30); do
+              app_pid="$(adb shell pidof com.terra.serenada 2>/dev/null || true)"
+              if [ -n "$app_pid" ]; then break; fi
               sleep 1
             done
-            adb shell pidof com.terra.serenada
-            if adb logcat -d -s AndroidRuntime:E | grep -q 'FATAL EXCEPTION'; then
-              adb logcat -d -s AndroidRuntime:E
+            if [ -z "$app_pid" ]; then
+              echo "ERROR: Terra Serenada did not remain running after launch. Android runtime logs follow:"
+              adb logcat -d -s AndroidRuntime:E ActivityManager:E || true
               exit 1
             fi
-            echo "APK installed and launched successfully in Android emulator."
+            crash_log="$(adb logcat -d -s AndroidRuntime:E 2>&1)" || {
+              echo "ERROR: Unable to read Android runtime logs after launching the app."
+              exit 1
+            }
+            if printf '%s\n' "$crash_log" | grep -q 'FATAL EXCEPTION'; then
+              printf '%s\n' "$crash_log"
+              exit 1
+            fi
+            echo "APK installed and app process remained running in Android emulator."
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
