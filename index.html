@@ -1869,6 +1869,10 @@ async function naraGuruChat(messages,maxTokens=1400){
     return {text:content.trim(),model:result?.model||NARA_GURU_MODEL};
   }finally{clearTimeout(timer)}
 }
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
 function naraOnlineLearningContext(question,localDraft=''){
   const q=String(question||'').toLocaleLowerCase('id-ID');
   const compact=(v,n=220)=>naraGuruSafe(v,n);
