@@ -42,34 +42,22 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Create Android project using the last known-good project generator
+      - name: Create Android project from the known-good v26 generator (no repository push)
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p .github/scripts
-          GENERATOR=".github/scripts/create-android-project.sh"
-          if [ ! -s "$GENERATOR" ]; then
-            echo "First v27 run: retrieving the Android project-generation step from the known v26 workflow."
-            ruby -ryaml -e '
-              workflow = YAML.safe_load_file(".github/workflows/build-apk-v26.yml")
-              steps = workflow.fetch("jobs").values.first.fetch("steps")
-              step = steps.find { |item| item["name"] == "Create Android project (preserve the existing Terra Serenada bridges)" }
-              abort "ERROR: Could not locate the known Android project-generation step in build-apk-v26.yml." unless step && step["run"]
-              File.write(ENV.fetch("RUNNER_TEMP") + "/create-android-project.sh", step["run"])
-            '
-            bash "$RUNNER_TEMP/create-android-project.sh"
-            cp "$RUNNER_TEMP/create-android-project.sh" "$GENERATOR"
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add "$GENERATOR"
-            git commit -m "Preserve Android project generator for APK v27" || true
-            git push origin HEAD:main
-            echo "Saved reusable Android project generator under .github/scripts/. Future builds no longer depend on build-apk-v26.yml."
-          else
-            bash "$GENERATOR"
-          fi
+          # Generate the project in this runner only. Never commit or push from a build job;
+          # doing so can race with user uploads and cause non-fast-forward failures.
+          ruby -ryaml -e '
+            workflow = YAML.safe_load_file(".github/workflows/build-apk-v26.yml")
+            steps = workflow.fetch("jobs").values.first.fetch("steps")
+            step = steps.find { |item| item["name"] == "Create Android project (preserve the existing Terra Serenada bridges)" }
+            abort "ERROR: Could not locate the known Android project-generation step in build-apk-v26.yml." unless step && step["run"]
+            File.write(ENV.fetch("RUNNER_TEMP") + "/create-android-project.sh", step["run"])
+          '
+          test -s "$RUNNER_TEMP/create-android-project.sh"
+          bash "$RUNNER_TEMP/create-android-project.sh"
+          echo "Android project generated in the runner; no repository files were committed or pushed."
 
       - name: Set monotonically newer application version
         shell: bash
