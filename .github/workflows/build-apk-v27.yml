@@ -204,10 +204,7 @@ jobs:
           unzip -t Terra-Serenada.apk
           "$APKSIGNER" verify --verbose --print-certs baseline.apk 2>&1 | tee baseline-signature.txt
           "$APKSIGNER" verify --verbose --print-certs Terra-Serenada.apk 2>&1 | tee new-signature.txt
-          # Build Tools may format the signer prefix differently, for example:
-          # "Signer #1 certificate SHA-256 digest: ..." or
-          # "V2 Signer: certificate SHA-256 digest: ...". Extract the certificate
-          # digest by its stable label, never by a version-specific prefix.
+          # Android Build Tools may prefix the signer label differently. Parse the stable certificate digest label.
           extract_certificate_sha256() {
             local signature_file="$1"
             awk '/certificate SHA-256 digest:/ { sub(/^.*certificate SHA-256 digest:[[:space:]]*/, ""); print; exit }' "$signature_file" \
@@ -235,12 +232,27 @@ jobs:
           grep -F "package: name='com.terra.serenada' versionCode='${expected_code}' versionName='${expected_name}'" apk-metadata.txt
           echo "APK package, version, certificate, archive and alignment checks passed."
 
+      - name: Enable KVM permissions for Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -e /dev/kvm ]; then
+            echo "ERROR: /dev/kvm is not available on this runner; hardware-accelerated Android emulator tests cannot run reliably."
+            exit 1
+          fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
       - name: Android emulator install and launch smoke test
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
           profile: pixel_6
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
             set -euo pipefail
