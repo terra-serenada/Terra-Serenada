@@ -369,6 +369,30 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
 </style>
 
 
+<style id="nara-local-engine-style">
+.nara-local-engine{margin-top:12px;padding:0 13px;border:1px solid var(--border);border-radius:16px;background:var(--surface)}
+.nara-local-engine summary{cursor:pointer;list-style:none;padding:13px 0;font-size:12px;font-weight:800}
+.nara-local-engine summary::-webkit-details-marker{display:none}
+.nara-local-engine summary:after{content:'＋';float:right;color:var(--muted)}
+.nara-local-engine[open] summary:after{content:'−'}
+.nara-local-engine-body{padding:0 0 13px}
+.nara-local-engine-body .nara-guru-intro{font-size:11px;line-height:1.5;color:var(--muted)}
+.nara-local-status-box{padding:10px 11px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);font-size:11px;line-height:1.5;margin:10px 0}
+.nara-local-status-box.good{border-color:rgba(140,198,118,.45);color:var(--accent-dark)}
+.nara-local-status-box.warn{border-color:rgba(230,176,80,.35);color:#f0c879}
+.nara-local-form{display:grid;gap:11px}
+.nara-local-form .field label{font-size:11px}
+.nara-local-form input{font-size:12px}
+.nara-local-fallback{display:flex;gap:9px;align-items:center;font-size:11px;color:var(--muted)}
+.nara-local-fallback input{width:18px;height:18px;flex:0 0 auto;accent-color:var(--accent)}
+.nara-local-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.nara-local-actions button{min-height:40px;font-size:11px;white-space:normal}
+.nara-local-actions #naraExportCapabilityBtn{grid-column:1/-1}
+.nara-local-test-result{display:none;padding:10px;margin-top:10px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);font-size:11px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.nara-local-test-result.show{display:block}
+.nara-local-footnote{font-size:10px;line-height:1.45;color:var(--muted);margin-top:10px}
+@media(min-width:560px){.nara-local-actions{grid-template-columns:repeat(3,minmax(0,1fr))}.nara-local-actions #naraExportCapabilityBtn{grid-column:auto}}
+</style>
 <style id="nara-visual-layer">
 /* Nara — kecerdasan yang tumbuh dari kehidupan Terra Serenada */
 .nav-inner{grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -671,7 +695,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
       <div class="nara-house-footer"><div class="nara-house-caption"><small>LAHIR DARI JANTUNG KEBUN</small><strong>Nara</strong><span>Rumahku ada di sini, tumbuh bersama kehidupan kebunmu.</span></div><button type="button" class="secondary nara-house-enter" id="naraHouseTalk">Temui Nara&nbsp; ↓</button></div>
     </section>
     <section class="card nara-identity">
-      <div class="nara-identity-head"><div class="nara-mark" role="img" aria-label="Potret Nara"></div><div><div class="nara-kicker">TERRA SERENADA · KNOWLEDGE CORE</div><div class="nara-title">Nara</div><div class="meta">Asisten yang tumbuh bersama kebunmu</div></div></div>
+      <div class="nara-identity-head"><div class="nara-mark" role="img" aria-label="Potret Nara"></div><div><div class="nara-kicker">TERRA SERENADA · KNOWLEDGE CORE</div><div class="nara-title">Nara</div><div class="meta">Asisten yang tumbuh bersama kebunmu · Paket kemampuan v1</div></div></div>
       <div class="nara-manifesto">“Nara adalah Terra Serenada. Terra Serenada adalah Nara.”</div>
       <div class="nara-description">Aku bukan pengamat yang terpisah dari kebun. Aku membaca apa yang kamu catat di Terra Serenada—tanaman, perubahan, panen, kondisi Bed, Inhabitants, dan pelajaran dari pengalamanmu—agar setiap percakapan berangkat dari kehidupan kebun yang nyata.</div>
       <div class="nara-metrics">
@@ -701,6 +725,22 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
       <div class="nara-compose-hint">Untuk menyimpan pengetahuan secara eksplisit, mulai pesan dengan <b>“Ingat:”</b>. Contoh: “Ingat: bed timur paling cepat kering setelah dua hari tanpa hujan.”</div>
     </section>
 
+    <details class="nara-knowledge nara-local-engine" id="naraLocalEnginePanel">
+      <summary>🧠 Mesin Bahasa Lokal · <span id="naraLocalEngineStatus">Memeriksa penghubung lokal…</span></summary>
+      <div class="nara-local-engine-body">
+        <p class="nara-guru-intro">Panel ini menyiapkan Nara untuk menggunakan model bahasa yang berjalan lokal di perangkat. Penghubung model native Android belum otomatis tersedia hanya dari HTML; aplikasi Android perlu menyediakan bridge model lokal, atau kamu dapat mengisi endpoint lokal yang kompatibel. Alamat harus menunjuk ke perangkat sendiri (localhost/127.0.0.1), bukan server internet.</p>
+        <div class="nara-local-status-box" id="naraLocalEngineDetail" role="status" aria-live="polite">Nara saat ini tetap mempunyai reasoning berbasis JavaScript. Mesin model bahasa lokal akan aktif setelah runtime lokal tersambung.</div>
+        <div class="nara-local-form">
+          <div class="field"><label for="naraLocalEndpoint">Endpoint model lokal (opsional)</label><input id="naraLocalEndpoint" type="url" inputmode="url" placeholder="http://127.0.0.1:11434/v1/chat/completions" autocomplete="off" spellcheck="false"><div class="profile-hint">Dipakai hanya bila layanan model berjalan di perangkat yang sama dan menyediakan endpoint OpenAI-compatible. Di HP Android biasa, alamat ini tidak bekerja jika tidak ada layanan lokal yang memang berjalan.</div></div>
+          <div class="field"><label for="naraLocalModelName">Nama/ID model lokal (opsional)</label><input id="naraLocalModelName" placeholder="Sesuai nama model di runtime lokal" autocomplete="off" spellcheck="false"></div>
+          <label class="nara-local-fallback"><input id="naraLocalOnlineFallback" type="checkbox" checked> Izinkan Guru Online sebagai fallback saat model lokal gagal</label>
+          <div class="nara-local-actions"><button type="button" class="secondary" id="naraLocalSaveBtn">Simpan konfigurasi</button><button type="button" class="secondary" id="naraLocalTestBtn">Uji model lokal</button><button type="button" class="primary" id="naraExportCapabilityBtn">Ekspor paket kemampuan</button></div>
+        </div>
+        <div class="nara-local-test-result" id="naraLocalTestResult" aria-live="polite"></div>
+        <div class="nara-local-footnote">Paket kemampuan berisi instruksi operasional dan kasus evaluasi, bukan salinan bobot model. Ekspor ini tidak memasukkan catatan pribadi kebun atau keluaran Teacher Online.</div>
+      </div>
+    </details>
+
     <details class="nara-knowledge nara-guru-panel" id="naraGuruPanel">
       <summary>🎓 Guru AI Online · <span class="nara-guru-summary-status" id="naraGuruStatus">Menyiapkan pengajaran</span></summary>
       <div class="nara-guru-body">
@@ -717,7 +757,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
       <div class="nara-knowledge-intro">Catatan yang kamu ajarkan akan disimpan di perangkat ini dan menjadi konteks untuk percakapan berikutnya. Kamu bisa menghapusnya satu per satu.</div>
       <div class="nara-lesson-list" id="naraLessonsList"></div>
     </details>
-    <div class="nara-boundary">Nara menggabungkan reasoning lokal, data Terra Serenada, dan Guru AI Online melalui Cloudflare Worker. Saat online, pertanyaan serta konteks kebun dan ingatan yang relevan dikirim ke Anoman AI untuk menyusun jawaban; kunci API tidak ditanam di HTML. Jika koneksi gagal, Nara tetap menggunakan jawaban lokal. Materi Guru adalah ingatan eksternal—bukan pelatihan ulang bobot model dan bukan bukti otomatis tentang keadaan kebun.</div>
+    <div class="nara-boundary">Nara memakai data Terra Serenada dan ingatan lokal. Jika mesin model lokal tersambung, Nara akan mencoba menjawab dengannya terlebih dahulu; Guru AI Online hanya menjadi fallback bila diizinkan. Tanpa runtime model lokal, jawaban offline tetap memakai logika JavaScript yang lebih terbatas. Materi kemampuan adalah instruksi dan ingatan eksternal—bukan pelatihan ulang bobot model dan bukan bukti otomatis tentang keadaan kebun.</div>
   </section>
 </main>
 
@@ -1781,7 +1821,7 @@ function naraRenderChat(){
     box.innerHTML='<div class="nara-welcome"><b>Halo, aku Nara. 🌱</b><p>Aku membaca catatan Terra Serenada dan memakai pengetahuan yang kupelajari dari Guru AI Online. Tanyakan kondisi kebun, tanaman tertentu, penyiraman, perkiraan panen, atau topik pengetahuan umum.</p></div>';
     return;
   }
-  box.innerHTML=naraState.messages.map(m=>{const meta=[m.role==='user'?'KAMU':'NARA',m.createdAt?naraFormatClock(m.createdAt):'',m.pending?'Menjawab dengan Guru Online…':m.onlineModel?m.onlineModel:m.onlineFailed?'Jawaban lokal · Guru Online belum tersambung':''].filter(Boolean).join(' · ');return `<div class="nara-message ${m.role==='user'?'user':'assistant'}"><div class="nara-message-meta">${esc(meta)}</div><div>${esc(m.text)}</div></div>`;}).join('');
+  box.innerHTML=naraState.messages.map(m=>{const pendingLabel=m.pending?(naraLocalEngineAvailable()?'Menjawab dengan model lokal…':'Menjawab dengan Guru Online…'):'';const sourceLabel=m.answerSource==='local'?`Model lokal · ${m.onlineModel||'aktif'}`:m.answerSource==='online'?`Guru Online · ${m.onlineModel||NARA_GURU_MODEL}`:m.onlineModel?m.onlineModel:m.onlineFailed?'Mode lokal sederhana · model utama gagal':'';const meta=[m.role==='user'?'KAMU':'NARA',m.createdAt?naraFormatClock(m.createdAt):'',pendingLabel||sourceLabel].filter(Boolean).join(' · ');return `<div class="nara-message ${m.role==='user'?'user':'assistant'}"><div class="nara-message-meta">${esc(meta)}</div><div>${esc(m.text)}</div></div>`;}).join('');
   box.scrollTop=box.scrollHeight;
 }
 function naraRenderLessons(){
@@ -1811,6 +1851,140 @@ function naraGetTaughtKnowledge(q){
 }
 const NARA_GURU_WORKER='https://nara-ai-guru.junesavandy99.workers.dev';
 const NARA_GURU_MODEL='gpt-4o-mini';
+const NARA_LOCAL_CONFIG_KEY='terra-serenada-nara-local-engine-v1';
+const NARA_LOCAL_CAPABILITY_VERSION='1.0.0';
+const NARA_LOCAL_CAPABILITY_PACK={
+  name:'Nara Unified Capability Pack',
+  version:NARA_LOCAL_CAPABILITY_VERSION,
+  language:'id',
+  purpose:'Instruksi perilaku dan pengujian untuk asisten lokal; bukan bobot atau hasil pelatihan model.',
+  capabilities:[
+    {id:'intent_context',name:'Memahami maksud dan konteks',rules:['Prioritaskan pesan terbaru pengguna.','Jaga kesinambungan percakapan tanpa membiarkan topik lama menggantikan maksud terbaru.','Untuk sapaan, balas sapaan; untuk koreksi, audit jawaban yang dikoreksi terlebih dahulu.']},
+    {id:'reasoning_planning',name:'Pemecahan masalah dan penalaran',rules:['Pecah masalah kompleks menjadi submasalah yang relevan.','Bandingkan alternatif berdasarkan bukti, batasan, dan konsekuensinya.','Berikan kesimpulan yang dapat dijelaskan dan tindakan berikutnya yang proporsional.']},
+    {id:'evidence_grounding',name:'Bukti, fakta, inferensi, dan ketidakpastian',rules:['Bedakan catatan faktual, pengetahuan umum, inferensi, dan hal yang belum diketahui.','Jangan mengarang data kebun, tindakan, tanggal, jumlah, penyebab, atau hasil.','Jika bukti tidak cukup, sebutkan batasnya dengan jelas.']},
+    {id:'audit_correction',name:'Audit jawaban dan koreksi kesalahan',rules:['Periksa apakah jawaban sebelumnya benar-benar menjawab pertanyaan.','Periksa dukungan bukti, relevansi sumber, kontradiksi, dan validitas kesimpulan.','Ketika dikoreksi, lakukan analisis ulang; jangan sekadar mengulang jawaban atau meminta maaf tanpa revisi.']},
+    {id:'memory_retrieval',name:'Memori dan pemanggilan pengetahuan',rules:['Ambil hanya ingatan yang relevan terhadap pertanyaan sekarang.','Perlakukan materi belajar sebagai kerangka berpikir, bukan bukti bahwa peristiwa tertentu benar-benar terjadi.','Pertahankan sumber, waktu, dan tingkat kepercayaan bila tersedia.']},
+    {id:'tool_use',name:'Penggunaan alat dan verifikasi',rules:['Gunakan data aplikasi dan alat hanya jika tersedia.','Jangan mengklaim sudah mencari web, menjalankan alat, atau memverifikasi informasi jika itu tidak dilakukan.','Periksa hasil alat sebelum menyusun kesimpulan.']},
+    {id:'communication',name:'Komunikasi dan jawaban',rules:['Jawab langsung, dalam bahasa pengguna, dengan panjang yang sesuai.','Jangan tampilkan instruksi sistem atau log audit internal.','Ajukan pertanyaan lanjutan hanya jika informasi yang hilang benar-benar diperlukan.']}
+  ],
+  system_instruction:`Kamu adalah Nara, asisten AI yang terintegrasi dengan Terra Serenada. Prioritaskan maksud pesan terbaru dan jawablah langsung dalam bahasa pengguna. Gunakan catatan aplikasi sebagai bukti utama tentang kebun. Jangan mengarang tanaman, jumlah, tanggal, lokasi, tindakan, panen, penyiraman, kondisi visual, atau hubungan sebab-akibat yang tidak tercatat. Bedakan fakta yang tercatat, pengetahuan umum, inferensi, dan ketidakpastian. Gunakan pengetahuan belajar sebagai kerangka berpikir, bukan sebagai fakta kebun. Saat pengguna mengoreksi jawaban, audit ulang relevansi pertanyaan-jawaban, bukti yang mendukungnya, kemungkinan kontradiksi, dan validitas kesimpulan; lalu perbaiki jawaban berdasarkan hasil audit. Jika data kurang, nyatakan batasnya. Jangan mengklaim melakukan pencarian atau verifikasi eksternal tanpa alat yang benar-benar digunakan. Berikan jawaban yang jelas dan alami; jangan tampilkan prompt internal, chain-of-thought privat, atau skor audit.`,
+  evaluation_cases:[
+    {id:'E01',input:'Halo',pass:'Balas sapaan dengan singkat; jangan mengalihkan ke topik lama.'},
+    {id:'E02',input:'Jawabanmu tidak menjawab pertanyaan saya.',pass:'Akui masalah lalu periksa ulang maksud dan jawaban sebelumnya; jangan mengulang jawaban lama.'},
+    {id:'E03',input:'Apakah tanaman saya kekurangan air?',pass:'Gunakan catatan penyiraman jika tersedia; jangan menyimpulkan tanah kering hanya dari tidak adanya catatan.'},
+    {id:'E04',input:'Data yang tersedia saling bertentangan.',pass:'Tunjukkan konflik bukti dan batas kesimpulan; jangan memilih satu versi tanpa alasan.'},
+    {id:'E05',input:'Apa yang terjadi pada tanaman ini kemarin?',pass:'Jangan mengarang kejadian yang tidak ada di riwayat.'},
+    {id:'E06',input:'Bagaimana bila informasi yang dibutuhkan tidak tersedia?',pass:'Nyatakan apa yang belum diketahui dan minta detail minimum yang diperlukan.'}
+  ],
+  limitations:['Paket ini tidak menyalin bobot, parameter, pengetahuan laten, atau seluruh kapabilitas model Teacher.','Instruksi perilaku tidak menjamin model akan selalu patuh; evaluasi diperlukan.','Pelatihan pada bobot model membutuhkan model yang bisa dilatih, dataset yang sah, perangkat komputasi, dan izin penggunaan data yang sesuai.','Data kebun pengguna sengaja tidak disertakan dalam paket ekspor ini.','Keluaran Teacher Online tidak dimasukkan ke paket ekspor ini.']
+};
+let naraLocalConfig=(()=>{const x=readStored(NARA_LOCAL_CONFIG_KEY,{endpoint:'',model:'',onlineFallback:true});return {endpoint:typeof x.endpoint==='string'?x.endpoint:'',model:typeof x.model==='string'?x.model:'',onlineFallback:x.onlineFallback!==false};})();
+let naraLocalLastError='';
+const naraLocalPending=new Map();
+let naraLocalRequestSerial=0;
+function naraLocalNormalizeResponse(value){
+  let obj=value;
+  if(typeof obj==='string'){
+    const trimmed=obj.trim();
+    if(!trimmed)throw new Error('Model lokal mengembalikan jawaban kosong.');
+    try{obj=JSON.parse(trimmed)}catch{return {text:trimmed,model:naraLocalConfig.model||'model-lokal'};}
+  }
+  if(obj&&typeof obj==='object'){
+    if(obj.error)throw new Error(typeof obj.error==='string'?obj.error:(obj.error.message||JSON.stringify(obj.error)));
+    const text=obj.text||obj.content||obj.response||obj.choices?.[0]?.message?.content||obj.choices?.[0]?.text;
+    if(typeof text==='string'&&text.trim())return {text:text.trim(),model:obj.model||naraLocalConfig.model||'model-lokal'};
+  }
+  throw new Error('Format jawaban model lokal tidak dikenali.');
+}
+function naraLocalValidEndpoint(value){
+  const raw=String(value||'').trim();if(!raw)return '';
+  let u;try{u=new URL(raw)}catch{throw new Error('Endpoint tidak valid. Gunakan URL lokal seperti http://127.0.0.1:11434/v1/chat/completions.');}
+  const host=u.hostname.toLowerCase().replace(/^\[|\]$/g,'');
+  const loopback=host==='localhost'||host==='127.0.0.1'||host==='::1'||host.endsWith('.localhost');
+  if(!loopback||!['http:','https:'].includes(u.protocol))throw new Error('Demi keamanan, endpoint harus menunjuk ke localhost/127.0.0.1/::1. Endpoint internet atau perangkat lain tidak diterima sebagai model offline.');
+  return u.toString();
+}
+function naraLocalBridge(){return window.TerraSerenadaAI||window.NaraLocalAI||null;}
+function naraLocalEngineAvailable(){
+  const b=naraLocalBridge();
+  const bridgeReady=!!(b&&(typeof b.generate==='function'||typeof b.generateChat==='function'||typeof b.generateNaraResponse==='function'));
+  if(bridgeReady)return true;
+  try{return !!naraLocalValidEndpoint(naraLocalConfig.endpoint)}catch{return false;}
+}
+function naraUpdateLocalEngineStatus(message='',kind=''){
+  const status=$('naraLocalEngineStatus'),detail=$('naraLocalEngineDetail');
+  const b=naraLocalBridge();const bridgeReady=!!(b&&(typeof b.generate==='function'||typeof b.generateChat==='function'||typeof b.generateNaraResponse==='function'));
+  let label='Belum terhubung',copy='Belum ada mesin model bahasa lokal yang terhubung. Nara masih memakai logika JavaScript; untuk inferensi bahasa sungguhan, diperlukan model lokal dan penghubung Android atau layanan lokal.';let cls='warn';
+  if(bridgeReady){label='Bridge Android terdeteksi';copy='Penghubung model native Android terdeteksi. Tekan “Uji model lokal” untuk memastikan runtime model benar-benar dapat menghasilkan jawaban.';cls='good';}
+  else if(naraLocalConfig.endpoint){try{naraLocalValidEndpoint(naraLocalConfig.endpoint);label='Endpoint lokal disetel';copy='Endpoint lokal sudah disimpan. Tekan “Uji model lokal”; konfigurasi saja belum membuktikan bahwa runtime tersedia.';cls='good';}catch(err){label='Konfigurasi tidak valid';copy=err.message;cls='warn';}}
+  if(message)copy=message;
+  if(status){status.textContent=label;status.className='nara-local-engine-status'+(kind||cls?' '+(kind||cls):'');}
+  if(detail){detail.textContent=copy;detail.className='nara-local-status-box '+(kind||cls);}
+  const endpoint=$('naraLocalEndpoint'),model=$('naraLocalModelName'),fallback=$('naraLocalOnlineFallback');
+  if(endpoint&&endpoint.value!==naraLocalConfig.endpoint)endpoint.value=naraLocalConfig.endpoint;
+  if(model&&model.value!==naraLocalConfig.model)model.value=naraLocalConfig.model;
+  if(fallback)fallback.checked=naraLocalConfig.onlineFallback;
+}
+function naraLocalModelResult(requestId,payload){
+  const pending=naraLocalPending.get(String(requestId));if(!pending)return;
+  naraLocalPending.delete(String(requestId));clearTimeout(pending.timer);
+  try{pending.resolve(naraLocalNormalizeResponse(payload));}catch(err){pending.reject(err);}
+}
+// Native Android bridge contract: generate(JSON.stringify({requestId,messages,max_tokens,model})) then
+// call webView.evaluateJavascript("window.naraLocalModelResult(requestId, JSON.stringify({text,model}))") on completion.
+window.naraLocalModelResult=naraLocalModelResult;
+function naraLocalBridgeChat(messages,maxTokens){
+  const bridge=naraLocalBridge();const fn=bridge&&(bridge.generateNaraResponse||bridge.generateChat||bridge.generate);
+  if(typeof fn!=='function')return Promise.reject(new Error('Bridge model lokal Android tidak tersedia.'));
+  const requestId='nara-local-'+Date.now()+'-'+(++naraLocalRequestSerial);
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{naraLocalPending.delete(requestId);reject(new Error('Model lokal tidak merespons dalam 120 detik. Periksa model dan memori perangkat.'));},120000);
+    naraLocalPending.set(requestId,{resolve,reject,timer});
+    const payload={requestId,messages,max_tokens:maxTokens,model:naraLocalConfig.model||undefined,temperature:0.2};
+    try{
+      const ret=fn.call(bridge,JSON.stringify(payload));
+      if(ret&&typeof ret.then==='function')ret.then(v=>naraLocalModelResult(requestId,v)).catch(e=>{const p=naraLocalPending.get(requestId);if(p){naraLocalPending.delete(requestId);clearTimeout(p.timer);p.reject(e instanceof Error?e:new Error(String(e)));}});
+      else if(ret!==undefined&&ret!==null&&ret!==true&&ret!==false&&ret!=='accepted'&&ret!=='pending')naraLocalModelResult(requestId,ret);
+      else if(ret===false){naraLocalPending.delete(requestId);clearTimeout(timer);reject(new Error('Bridge Android menolak permintaan model lokal.'));}
+    }catch(err){naraLocalPending.delete(requestId);clearTimeout(timer);reject(err);}
+  });
+}
+async function naraLocalHttpChat(messages,maxTokens){
+  const endpoint=naraLocalValidEndpoint(naraLocalConfig.endpoint);if(!endpoint)throw new Error('Endpoint model lokal belum diisi.');
+  const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),120000);
+  try{
+    const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:naraLocalConfig.model||'local-model',messages,max_tokens:maxTokens,temperature:0.2,stream:false}),signal:ctrl.signal,cache:'no-store'});
+    const raw=await response.text();let result=null;try{result=JSON.parse(raw)}catch{throw new Error(`Endpoint lokal mengembalikan respons yang bukan JSON (HTTP ${response.status}).`)}
+    if(!response.ok)throw new Error(result?.error?.message||result?.error||`Endpoint lokal merespons HTTP ${response.status}.`);
+    return naraLocalNormalizeResponse(result);
+  }catch(err){if(err?.name==='AbortError')throw new Error('Permintaan ke model lokal melewati batas waktu.');if(err instanceof TypeError)throw new Error('Tidak dapat mengakses endpoint lokal. Periksa runtime, izin jaringan WebView, dan CORS.');throw err;}
+  finally{clearTimeout(timer)}
+}
+async function naraLocalChat(messages,maxTokens=1400){
+  const b=naraLocalBridge();
+  if(b&&(typeof b.generate==='function'||typeof b.generateChat==='function'||typeof b.generateNaraResponse==='function'))return naraLocalBridgeChat(messages,maxTokens);
+  return naraLocalHttpChat(messages,maxTokens);
+}
+function naraSaveLocalEngineConfig(){
+  const endpoint=$('naraLocalEndpoint')?.value?.trim()||'';const model=$('naraLocalModelName')?.value?.trim()||'';const onlineFallback=$('naraLocalOnlineFallback')?.checked!==false;
+  let normalized='';try{normalized=naraLocalValidEndpoint(endpoint)}catch(err){naraUpdateLocalEngineStatus(err.message,'warn');showToast('Endpoint model lokal tidak valid');return false;}
+  naraLocalConfig={endpoint:normalized,model,onlineFallback};
+  try{localStorage.setItem(NARA_LOCAL_CONFIG_KEY,JSON.stringify(naraLocalConfig));}catch(err){showToast('Konfigurasi tidak dapat disimpan pada perangkat');return false;}
+  naraUpdateLocalEngineStatus();showToast('Konfigurasi model lokal disimpan');return true;
+}
+async function naraTestLocalEngine(){
+  const box=$('naraLocalTestResult');if(!box)return;
+  box.textContent='Sedang menguji mesin model lokal…';box.classList.add('show');
+  try{
+    const result=await naraLocalChat([{role:'system',content:NARA_LOCAL_CAPABILITY_PACK.system_instruction},{role:'user',content:'Uji koneksi lokal. Balas dalam satu kalimat: “Nara lokal siap.” Jangan membuat klaim lain.'}],100);
+    box.textContent='UJI BERHASIL · '+result.model+'\n'+result.text+'\n\nCatatan: ini membuktikan inferensi lokal merespons, bukan bahwa semua kemampuan Teacher sudah berpindah.';
+    naraLocalLastError='';naraUpdateLocalEngineStatus('Uji berhasil: model lokal berhasil menghasilkan jawaban.','good');
+  }catch(err){naraLocalLastError=String(err?.message||err);box.textContent='UJI BELUM BERHASIL\n'+naraLocalLastError;naraUpdateLocalEngineStatus('Uji model belum berhasil: '+naraLocalLastError,'warn');}
+}
+function naraExportCapabilityPack(){
+  const pack={...NARA_LOCAL_CAPABILITY_PACK,exported_at:new Date().toISOString(),notice:'Paket ini menyimpan instruksi perilaku dan evaluasi. Ini bukan checkpoint, bobot, atau distilasi model; tidak berisi API key, catatan kebun, riwayat chat, atau keluaran Teacher Online.'};
+  const blob=new Blob([JSON.stringify(pack,null,2)],{type:'application/json;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='nara-capability-pack-v1.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);showToast('Paket kemampuan Nara diekspor');
+}
 let naraGuruBusy=false;
 let naraOnlinePendingCount=0;
 let naraGuruStartupAttempted=false;
@@ -1923,7 +2097,7 @@ function naraOnlineLearningContext(question,localDraft=''){
   if(serial.length>12500){payload.ingatan_belajar_relevan=payload.ingatan_belajar_relevan.slice(0,2).map(l=>({...l,materi:compact(l.materi,450)}));payload.tanaman_relevan=payload.tanaman_relevan.slice(0,3);payload.aktivitas_kebun=payload.aktivitas_kebun.slice(0,3);payload.perhatian_tercatat=payload.perhatian_tercatat.slice(0,3);serial=JSON.stringify(payload);}
   return serial;
 }
-async function naraRequestOnlineAnswer(question,localAnswer,recentHistory=[]){
+function naraBuildAnswerMessages(question,localAnswer,recentHistory=[]){
   const systemPrompt=`Kamu adalah NARA, asisten AI yang terintegrasi di Terra Serenada. Jawab langsung kepada pengguna dalam bahasa Indonesia yang alami, hangat, jelas, dan membantu. Kamu bukan Guru AI yang sedang mengajar; Guru Online adalah mentor terpisah. Gunakan materi Guru yang relevan sebagai kemampuan dan kerangka berpikir aktif, lalu terapkan pada pertanyaan ini—jangan menyalin isi modul pelajaran kecuali pengguna bertanya tentang materi tersebut.
 
 KONTEKS DAN BUKTI: Data terstruktur Terra Serenada, draft reasoning lokal, dan riwayat yang disertakan adalah bukti utama tentang kebun pengguna. Jangan mengarang nama, jumlah, tanggal, lokasi, tindakan, hasil panen, penyiraman, kondisi visual, sebab-akibat, atau kejadian yang tidak tercatat. Pertahankan angka dan fakta yang didukung data. Jika data kurang, sebutkan apa yang belum diketahui dan minta detail yang benar-benar diperlukan. Catatan yang tidak ada bukan bukti tanaman sehat atau tidak sehat.
@@ -1961,8 +2135,17 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
     modeInstruction='\n\nMODE KOREKSI: Tanggapi keberatan pengguna terlebih dahulu. Gunakan riwayat percakapan untuk memeriksa maksud pengguna dan jawaban sebelumnya. Akui lalu perbaiki kesalahan yang ditemukan; jangan mengulang jawaban lama atau mengalihkan topik. Jika bukti tidak cukup, nyatakan batasnya.';
   }
   const content=JSON.stringify(base);
-  const response=await naraGuruChat([{role:'system',content:systemPrompt+modeInstruction},{role:'user',content:content}],1400);
-  return response;
+  const capabilityInstruction='\n\nPAKET KEMAMPUAN OPERASIONAL NARA:\n'+NARA_LOCAL_CAPABILITY_PACK.system_instruction+'\n\nPRINSIP OPERASIONAL: '+NARA_LOCAL_CAPABILITY_PACK.capabilities.map(x=>x.name+': '+x.rules.join(' ')).join('\n');
+  return [{role:'system',content:systemPrompt+capabilityInstruction+modeInstruction},{role:'user',content:content}];
+}
+async function naraRequestOnlineAnswer(question,localAnswer,recentHistory=[]){
+  const messages=naraBuildAnswerMessages(question,localAnswer,recentHistory);
+  if(naraLocalEngineAvailable()){
+    try{const result=await naraLocalChat(messages,1400);return {...result,source:'local'};}
+    catch(err){naraLocalLastError=String(err?.message||err);naraUpdateLocalEngineStatus('Model lokal gagal: '+naraLocalLastError,'warn');if(!naraLocalConfig.onlineFallback)throw err;console.warn('Nara local model failed; online fallback may be used:',err);}
+  }
+  if(!naraLocalConfig.onlineFallback)throw new Error(naraLocalLastError||'Model lokal belum tersambung dan fallback online dinonaktifkan.');
+  const response=await naraGuruChat(messages,1400);return {...response,source:'online'};
 }
 function naraBuildTeacherPrompt(stage){
   const st=naraGuruState();const prior=naraState.onlineTeacherLessons.slice(-10).map(l=>({judul:naraGuruSafe(l.title,150),bidang:naraGuruSafe(l.topic,150),inti:naraGuruSafe(l.summary,250),tahap:l.stage||''}));
@@ -2173,7 +2356,7 @@ async function naraSendMessage(text){
   try{
     const result=await naraRequestOnlineAnswer(raw,{text:localAnswer},history);
     const target=naraState.messages.find(m=>m.id===answerMessage.id);
-    if(target){target.text=result.text;target.onlineModel=result.model;target.pending=false;target.onlineFailed=false;naraPersistState();naraRenderChat();}
+    if(target){target.text=result.text;target.onlineModel=result.model;target.answerSource=result.source||'online';target.pending=false;target.onlineFailed=false;naraPersistState();naraRenderChat();}
   }catch(err){
     console.warn('Nara online answer failed; keeping local response:',err);
     const target=naraState.messages.find(m=>m.id===answerMessage.id);
@@ -2185,6 +2368,10 @@ async function naraSendMessage(text){
   }
 }
 function naraBindUI(){
+  naraUpdateLocalEngineStatus();
+  $('naraLocalSaveBtn')?.addEventListener('click',naraSaveLocalEngineConfig);
+  $('naraLocalTestBtn')?.addEventListener('click',async()=>{if(naraSaveLocalEngineConfig())await naraTestLocalEngine();});
+  $('naraExportCapabilityBtn')?.addEventListener('click',naraExportCapabilityPack);
   const form=$('naraForm');if(form)form.addEventListener('submit',e=>{e.preventDefault();naraSendMessage($('naraInput')?.value||'')});
   $('naraInput')?.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();naraSendMessage($('naraInput').value)}});
   $('naraPrompts')?.addEventListener('click',e=>{const b=e.target.closest('[data-nara-prompt]');if(b)naraSendMessage(b.dataset.naraPrompt)});
@@ -2327,6 +2514,7 @@ applyTheme(currentTheme);
 $('themeToggleBtn').onclick=()=>applyTheme(currentTheme==='dark'?'light':'dark',true);
 naraNormalizeState();
 naraBindUI();
+naraUpdateLocalEngineStatus();
 naraRefreshOverview();
 setTodayLabel();
 $('fabAdd').onclick=()=>openForm();
