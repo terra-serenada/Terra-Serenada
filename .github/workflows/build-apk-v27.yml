@@ -77,6 +77,26 @@ jobs:
           print("Application version configured: versionCode 2000 + workflow run number, versionName 1.0.22.<run>.")
           PYTHON
 
+      - name: Bundle native integration sources from the known-good v26 workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The repository's standalone patch script is older and uses Kotlin 2.2.x.
+          # Extract the exact self-contained integration step from v26, which passed its checks.
+          ruby -ryaml -e '
+            workflow = YAML.safe_load_file(".github/workflows/build-apk-v26.yml")
+            steps = workflow.fetch("jobs").values.first.fetch("steps")
+            step = steps.find { |item| item["name"] == "Bundle native integration sources (self-contained v26 workflow)" }
+            abort "ERROR: Could not locate the known-good native integration bundle in build-apk-v26.yml." unless step && step["run"]
+            File.write(ENV.fetch("RUNNER_TEMP") + "/bundle-native-sources.sh", step["run"])
+          '
+          test -s "$RUNNER_TEMP/bundle-native-sources.sh"
+          bash "$RUNNER_TEMP/bundle-native-sources.sh"
+          test -s android-local/NaraLocalEngine.kt
+          test -s .github/scripts/patch_nara_android.py
+          test -s .github/scripts/patch_nara_local_index.py
+          echo "Known-good v26 Kotlin 2.4.21 integration sources are prepared in the runner."
+
       - name: Integrate Nara LiteRT-LM runtime and native bridge
         shell: bash
         run: |
@@ -132,16 +152,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'org.jetbrains.kotlin.android.*2.4.21' android/build.gradle.kts
-          grep -q 'litertlm-android:0.18.0' android/app/build.gradle.kts
-          grep -q 'compilerOptions {' android/app/build.gradle.kts
-          grep -q 'JvmTarget.JVM_17' android/app/build.gradle.kts
-          if grep -q 'kotlinOptions { jvmTarget' android/app/build.gradle.kts; then
-            echo "ERROR: Legacy Kotlin jvmTarget DSL is not allowed with Kotlin 2.4.21."
+          require_pattern() {
+            local pattern="$1" file="$2" description="$3"
+            if ! grep -Eq "$pattern" "$file"; then
+              echo "ERROR: Verification failed: $description"
+              echo "File inspected: $file"
+              echo "Relevant configuration follows:"
+              grep -n -E 'plugins|kotlin|compilerOptions|jvmTarget|litertlm|versionCode|versionName|RECOMMENDED_MODEL_URL|URL\(' "$file" || true
+              exit 1
+            fi
+            echo "PASS: $description"
+          }
+          require_pattern 'org\.jetbrains\.kotlin\.android.*2\.4\.21' android/build.gradle.kts 'Kotlin Android plugin version 2.4.21'
+          require_pattern 'litertlm-android:0\.18\.0' android/app/build.gradle.kts 'LiteRT-LM dependency version 0.18.0'
+          require_pattern 'compilerOptions[[:space:]]*\{' android/app/build.gradle.kts 'typed Kotlin compilerOptions block'
+          require_pattern 'JvmTarget\.JVM_17' android/app/build.gradle.kts 'Kotlin JVM target 17'
+          if grep -Eq 'kotlinOptions[[:space:]]*\{[[:space:]]*jvmTarget' android/app/build.gradle.kts; then
+            echo "ERROR: Legacy kotlinOptions/jvmTarget DSL remains alongside Kotlin 2.4.21."
+            grep -n -E 'kotlinOptions|jvmTarget|compilerOptions' android/app/build.gradle.kts || true
             exit 1
           fi
-          grep -q 'URL(RECOMMENDED_MODEL_URL)' android/app/src/main/java/com/terra/serenada/NaraLocalEngine.kt
-          grep -q 'versionCode = 2000 + ciRunNumber' android/app/build.gradle.kts
+          require_pattern 'URL\(RECOMMENDED_MODEL_URL\)' android/app/src/main/java/com/terra/serenada/NaraLocalEngine.kt 'recommended LiteRT-LM model URL is present'
+          require_pattern 'versionCode = 2000 \+ ciRunNumber' android/app/build.gradle.kts 'monotonically increased application versionCode'
           echo "Kotlin, runtime and application version configuration checks passed."
 
       - name: Build signed release APK
