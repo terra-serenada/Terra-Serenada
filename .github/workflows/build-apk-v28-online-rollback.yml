@@ -1,0 +1,259 @@
+name: Build and publish APK v1.0.23 — Terra Serenada (Guru Online rollback v28)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-apk-v28-online-rollback.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: terra-serenada-apk-release-v28-online-rollback
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: Build and validate rollback APK with previous Nara online behavior
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Create Android project from the known-good v26 generator (no repository push)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Generate the project in this runner only. Never commit or push from a build job;
+          # doing so can race with user uploads and cause non-fast-forward failures.
+          ruby -ryaml -e '
+            workflow = YAML.safe_load_file(".github/workflows/build-apk-v26.yml")
+            steps = workflow.fetch("jobs").values.first.fetch("steps")
+            step = steps.find { |item| item["name"] == "Create Android project (preserve the existing Terra Serenada bridges)" }
+            abort "ERROR: Could not locate the known Android project-generation step in build-apk-v26.yml." unless step && step["run"]
+            File.write(ENV.fetch("RUNNER_TEMP") + "/create-android-project.sh", step["run"])
+          '
+          test -s "$RUNNER_TEMP/create-android-project.sh"
+          bash "$RUNNER_TEMP/create-android-project.sh"
+          echo "Android project generated in the runner; no repository files were committed or pushed."
+
+      - name: Set monotonically newer application version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          p = Path("android/app/build.gradle.kts")
+          s = p.read_text(encoding="utf-8")
+          old_code = "versionCode = 1000 + ciRunNumber"
+          new_code = "versionCode = 3000 + ciRunNumber"
+          old_name = 'versionName = "1.0.21.$ciRunNumber"'
+          new_name = 'versionName = "1.0.23.$ciRunNumber"'
+          if s.count(old_code) != 1 or s.count(old_name) != 1:
+              raise SystemExit("ERROR: Could not safely update the app version in the generated Gradle file.")
+          p.write_text(s.replace(old_code, new_code, 1).replace(old_name, new_name, 1), encoding="utf-8")
+          print("Rollback version configured: versionCode 3000 + workflow run number, versionName 1.0.23.<run>.")
+          PYTHON
+
+      - name: Restore previous Nara online-first HTML source
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Exact index.html from commit immediately before local LiteRT-LM UI/routing was added.
+          # Verify the Git blob hash so a changed or partial download fails closed.
+          source_url="https://raw.githubusercontent.com/terra-serenada/Terra-Serenada/15ae13f359645216d509d33c2299c43361f6a854/index.html"
+          curl --fail --location --retry 3 --silent --show-error "$source_url" --output android/app/src/main/assets/index.html
+          actual_blob="$(git hash-object android/app/src/main/assets/index.html)"
+          expected_blob="b7385127cc91e43225a3ed625b732387d8ff4c3f"
+          if [ "$actual_blob" != "$expected_blob" ]; then
+            echo "ERROR: Historical Nara HTML checksum mismatch. Refusing to build an unverified rollback."
+            exit 1
+          fi
+          grep -q 'async function naraRequestOnlineAnswer' android/app/src/main/assets/index.html
+          grep -q "NARA_GURU_MODEL='gpt-4o-mini'" android/app/src/main/assets/index.html
+          if grep -q 'naraLocalEnginePanel\|NaraLocalAI\|naraLocalFitMessages' android/app/src/main/assets/index.html; then
+            echo "ERROR: Local-engine UI or routing unexpectedly remains in rollback HTML."
+            exit 1
+          fi
+          echo "Previous online-first Nara HTML restored and checksum verified."
+
+      - name: Ensure native backup and notification hooks in HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          p = Path("android/app/src/main/assets/index.html")
+          s = p.read_text(encoding="utf-8")
+          if "AndroidBridge.saveBackup" not in s and "buildBackupJson" not in s:
+              raise SystemExit("HTML backup bridge marker not found; refusing to build an incompatible APK.")
+          old = "async function requestNotifications(){if(!('Notification' in window)){showToast('Browser ini tidak mendukung notifikasi');return false}const p=await Notification.requestPermission();if(p==='granted'){showToast('Notifikasi diaktifkan');scheduleNotifications();return true}showToast('Izin notifikasi belum diberikan');return false}"
+          new = "async function requestNotifications(){if(window.AndroidBridge&&typeof window.AndroidBridge.requestNotifications==='function'){window.AndroidBridge.requestNotifications();showToast('Permintaan izin notifikasi dibuka');scheduleNotifications();return true}if(!('Notification' in window)){showToast('Browser ini tidak mendukung notifikasi');return false}const p=await Notification.requestPermission();if(p==='granted'){showToast('Notifikasi diaktifkan');scheduleNotifications();return true}showToast('Izin notifikasi belum diberikan');return false}"
+          if "AndroidBridge.requestNotifications" not in s:
+              if old not in s:
+                  raise SystemExit("Native notification function not found; cannot connect Android permission bridge safely.")
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding="utf-8")
+          PYTHON
+      - name: Prepare permanent signing key
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ] || [ -z "${KEYSTORE_PASSWORD:-}" ]; then
+            echo "ERROR: GitHub Secrets ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD are required."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/terra-serenada-release.p12"
+          test -s "$RUNNER_TEMP/terra-serenada-release.p12"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/terra-serenada-release.p12" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_ALIAS=terra-serenada" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Verify online-first rollback configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 3000 + ciRunNumber' android/app/build.gradle.kts
+          grep -q 'versionName = "1.0.23.$ciRunNumber"' android/app/build.gradle.kts
+          grep -q 'async function naraRequestOnlineAnswer' android/app/src/main/assets/index.html
+          grep -q "NARA_GURU_MODEL='gpt-4o-mini'" android/app/src/main/assets/index.html
+          if grep -R -E 'com\.google\.ai\.edge\.litertlm|NaraLocalEngine|NaraLocalAI' android/app/src/main android/app/build.gradle.kts; then
+            echo "ERROR: LiteRT-LM native runtime or bridge unexpectedly exists in the rollback APK source."
+            exit 1
+          fi
+          echo "Rollback checks passed: previous online-first Nara route is restored; native LiteRT-LM runtime is absent."
+
+      - name: Build signed release APK
+        run: gradle -p android assembleRelease --no-daemon --stacktrace
+
+      - name: Prepare APK for validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          cp android/app/build/outputs/apk/release/app-release.apk Terra-Serenada.apk
+          test -s Terra-Serenada.apk
+          ls -lh Terra-Serenada.apk
+          sha256sum Terra-Serenada.apk
+
+      - name: Validate APK archive, signing certificate, metadata and alignment
+        shell: bash
+        env:
+          BASELINE_APK_URL: https://github.com/terra-serenada/Terra-Serenada/releases/download/apk-v1.0.19-10/Terra-Serenada.apk
+        run: |
+          set -euo pipefail
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$APKSIGNER" && test -x "$ZIPALIGN" && test -x "$AAPT"
+          curl --fail --location --retry 3 --silent --show-error "$BASELINE_APK_URL" --output baseline.apk
+          test -s baseline.apk && test -s Terra-Serenada.apk
+          unzip -t Terra-Serenada.apk
+          "$APKSIGNER" verify --verbose --print-certs baseline.apk 2>&1 | tee baseline-signature.txt
+          "$APKSIGNER" verify --verbose --print-certs Terra-Serenada.apk 2>&1 | tee new-signature.txt
+          # Android Build Tools may prefix the signer label differently. Parse the stable certificate digest label.
+          extract_certificate_sha256() {
+            local signature_file="$1"
+            awk '/certificate SHA-256 digest:/ { sub(/^.*certificate SHA-256 digest:[[:space:]]*/, ""); print; exit }' "$signature_file" \
+              | tr -d ':' \
+              | tr -d '[:space:]' \
+              | tr '[:upper:]' '[:lower:]'
+          }
+          baseline_fingerprint="$(extract_certificate_sha256 baseline-signature.txt)"
+          new_fingerprint="$(extract_certificate_sha256 new-signature.txt)"
+          if [ -z "$baseline_fingerprint" ] || [ -z "$new_fingerprint" ]; then
+            echo "ERROR: Unable to extract APK certificate SHA-256 fingerprint. Raw signer details follow:"
+            grep -Ei 'certificate DN|certificate SHA-256 digest|Number of signers|Verified using' baseline-signature.txt new-signature.txt || true
+            exit 1
+          fi
+          echo "Known previous APK certificate SHA-256: $baseline_fingerprint"
+          echo "New APK certificate SHA-256:            $new_fingerprint"
+          if [ "$baseline_fingerprint" != "$new_fingerprint" ]; then
+            echo "ERROR: New APK certificate does not match the known older release. Publishing is blocked to protect the installed app and its data."
+            exit 1
+          fi
+          "$ZIPALIGN" -c -v 4 Terra-Serenada.apk
+          "$AAPT" dump badging Terra-Serenada.apk | tee apk-metadata.txt
+          expected_code=$((3000 + GITHUB_RUN_NUMBER))
+          expected_name="1.0.23.${GITHUB_RUN_NUMBER}"
+          grep -F "package: name='com.terra.serenada' versionCode='${expected_code}' versionName='${expected_name}'" apk-metadata.txt
+          echo "APK package, version, certificate, archive and alignment checks passed."
+
+      - name: Enable KVM permissions for Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -e /dev/kvm ]; then
+            echo "ERROR: /dev/kvm is not available on this runner; hardware-accelerated Android emulator tests cannot run reliably."
+            exit 1
+          fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Android emulator install and launch smoke test
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          # IMPORTANT: keep this script as ONE folded command because android-emulator-runner
+          # invokes each newline-separated script line through /usr/bin/sh -c. The entire
+          # test is delegated to a single Bash process so loops/conditionals stay intact.
+          script: >-
+            bash -c 'set -euo pipefail; adb wait-for-device; adb install -r Terra-Serenada.apk; adb logcat -c; adb shell monkey -p com.terra.serenada -c android.intent.category.LAUNCHER 1; app_pid=""; for attempt in $(seq 1 30); do app_pid="$(adb shell pidof com.terra.serenada 2>/dev/null || true)"; if [ -n "$app_pid" ]; then break; fi; sleep 1; done; if [ -z "$app_pid" ]; then echo "ERROR: Terra Serenada did not remain running after launch. Android runtime logs follow:"; adb logcat -d -s AndroidRuntime:E ActivityManager:E || true; exit 1; fi; crash_log="$(adb logcat -d -s AndroidRuntime:E 2>&1)" || { echo "ERROR: Unable to read Android runtime logs after launching the app."; exit 1; }; if printf "%s\n" "$crash_log" | grep -q "FATAL EXCEPTION"; then printf "%s\n" "$crash_log"; exit 1; fi; echo "APK installed and app process remained running in Android emulator."'
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Terra-Serenada-APK-v1.0.23-online-rollback-${{ github.run_number }}
+          path: Terra-Serenada.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-v1.0.23-online-rollback-${{ github.run_number }}
+          name: Terra Serenada APK 1.0.23 — Guru Online rollback (build ${{ github.run_number }})
+          body: |
+            Rollback sementara Terra Serenada ke perilaku Nara sebelumnya: jawaban AI menggunakan jalur Guru Online (gpt-4o-mini), dengan reasoning JavaScript terbatas sebagai fallback offline. UI impor/unduh model .litertlm dan runtime LiteRT-LM native tidak disertakan.
+
+            Application ID dan signing certificate dipertahankan. versionCode dinaikkan agar APK dapat dipasang sebagai pembaruan tanpa uninstall. Model .litertlm yang telanjur tersimpan di penyimpanan privat tidak dihapus, tetapi rollback ini tidak menggunakannya.
+
+            Rilis hanya dipublikasikan setelah pemeriksaan arsip APK, metadata paket, fingerprint tanda tangan digital yang cocok dengan rilis lama, alignment, serta uji instalasi dan peluncuran di emulator.
+          files: Terra-Serenada.apk
+          fail_on_unmatched_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
