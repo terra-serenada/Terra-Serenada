@@ -1,4 +1,4 @@
-name: Build and publish APK v1.0.42 — Terra Serenada (Nara exact retrieval Step 2Q regression fix)
+name: Build and publish APK v1.0.42 — Terra Serenada (Nara exact retrieval Step 2Q regression fix 2)
 
 on:
   workflow_dispatch:
@@ -7,12 +7,13 @@ on:
       - main
     paths:
       - ".github/workflows/build-apk-v48-exact-retrieval.yml"
+      - ".github/workflows/build-apk-v48-exact-retrieval-regression-fix.yml"
 
 permissions:
   contents: write
 
 concurrency:
-  group: terra-serenada-apk-release-v48-exact-retrieval-regression-fix
+  group: terra-serenada-apk-release-v48-exact-retrieval-regression-fix2
   cancel-in-progress: false
 
 jobs:
@@ -1785,7 +1786,9 @@ jobs:
           const html = fs.readFileSync('android/app/src/main/assets/index.html', 'utf8');
           const start = html.indexOf('function naraMemoryTokens(value){');
           const end = html.indexOf('function naraLessonContextText(lesson,max=900){', start);
+          const normalizerMatch = html.match(/function naraNormalizeState\(\)\{[\s\S]*?\n\}/);
           if (start < 0 || end <= start) throw new Error('Cannot isolate exact retrieval functions.');
+          if (!normalizerMatch) throw new Error('Cannot isolate Nara state normalizer for the regression fixture.');
 
           const code = 'KODE_UJI_RETRIEVAL_582';
           const userLesson = {
@@ -1803,12 +1806,21 @@ jobs:
             {id:'guru-3',title:'Integrasi Pengetahuan',topic:'Ingatan',summary:'Gabungkan konteks',text:'Aturan operasional: Gunakan pengetahuan yang relevan dan jangan membuat asumsi.',createdAt:'2026-10-13T00:00:00.000Z',origin:'Guru AI Online',learningType:'model_language'}
           ];
           const context = {
-            naraState: { userLessons: [userLesson], teacherLessons },
-            naraNormalizeState() {},
+            naraState: {
+              version: 3,
+              messages: [],
+              lessons: [],
+              userLessons: [userLesson],
+              teacherLessons,
+              onlineTeacherLessons: [],
+              teacherLearning: {}
+            },
             console
           };
           vm.createContext(context);
-          vm.runInContext(html.slice(start, end), context);
+          // Run the production normalizer, not a no-op stub. Otherwise the test can
+          // diverge from the real startup path and fail when an expected array is absent.
+          vm.runInContext(normalizerMatch[0] + '\n' + html.slice(start, end), context);
 
           const question = 'Nara, apa frasa yang terkait dengan KODE_UJI_RETRIEVAL_582? Jawab berdasarkan pengetahuan yang diajarkan dan data yang tersedia. Jangan menebak jika tidak ditemukan.';
           const retrieved = context.naraGetTaughtKnowledge(question);
