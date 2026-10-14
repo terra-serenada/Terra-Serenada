@@ -1816,7 +1816,7 @@ jobs:
           fi
           "$ZIPALIGN" -c -v 4 Terra-Serenada.apk
           "$AAPT" dump badging Terra-Serenada.apk | tee apk-metadata.txt
-          expected_code=$((25000 + GITHUB_RUN_NUMBER))
+          expected_code=$((26000 + GITHUB_RUN_NUMBER))
           expected_name="1.0.41.${GITHUB_RUN_NUMBER}"
           grep -F "package: name='com.terra.serenada' versionCode='${expected_code}' versionName='${expected_name}'" apk-metadata.txt
           echo "APK package, version, certificate, archive and alignment checks passed."
@@ -1861,7 +1861,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-v1.0.41-retrieval-diagnostics-${{ github.run_number }}
-          name: Terra Serenada APK 1.0.41 — Nara note preservation and correction-aware fallback Step 2O (build ${{ github.run_number }})
+          name: Terra Serenada APK 1.0.41 — Nara retrieval diagnostics Step 2P (build ${{ github.run_number }})
           body: |
             Nara Step 2P adds a read-only in-app retrieval diagnostic. It reports local taught-memory matches, whether matched memories enter the constructed online context payload, and which memories were present in the most recent online request payload. It does not reset, rewrite, or delete garden data or taught memories, and it does not claim the online model necessarily used every supplied memory.
 
