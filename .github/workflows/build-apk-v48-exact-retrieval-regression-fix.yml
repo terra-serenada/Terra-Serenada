@@ -1,4 +1,4 @@
-name: Build and publish APK v1.0.42 — Terra Serenada (Nara exact retrieval Step 2Q regression fix 2)
+name: Build and publish APK v1.0.42 — Terra Serenada (Nara exact retrieval Step 2Q regression fix 3)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: terra-serenada-apk-release-v48-exact-retrieval-regression-fix2
+  group: terra-serenada-apk-release-v48-exact-retrieval-regression-fix-32
   cancel-in-progress: false
 
 jobs:
@@ -1818,12 +1818,38 @@ jobs:
             console
           };
           vm.createContext(context);
-          // Run the production normalizer, not a no-op stub. Otherwise the test can
-          // diverge from the real startup path and fail when an expected array is absent.
+          // Load the production normalizer and retrieval functions into the same VM context.
           vm.runInContext(normalizerMatch[0] + '\n' + html.slice(start, end), context);
 
+          // Exercise the production normalizer first and fail with an explicit message
+          // if it does not establish the split-memory arrays expected by retrieval.
+          const normalizerState = vm.runInContext(`
+            naraNormalizeState();
+            ({
+              hasUserLessons: Array.isArray(naraState.userLessons),
+              hasTeacherLessons: Array.isArray(naraState.teacherLessons),
+              hasLegacyLessons: Array.isArray(naraState.lessons)
+            });
+          `, context);
+          assert(normalizerState.hasUserLessons && normalizerState.hasTeacherLessons && normalizerState.hasLegacyLessons,
+            'Production normalizer did not initialize memory arrays: ' + JSON.stringify(normalizerState));
+
           const question = 'Nara, apa frasa yang terkait dengan KODE_UJI_RETRIEVAL_582? Jawab berdasarkan pengetahuan yang diajarkan dan data yang tersedia. Jangan menebak jika tidak ditemukan.';
-          const retrieved = context.naraGetTaughtKnowledge(question);
+          // Seed the fixture inside the VM after normalization. This makes the arrays
+          // the exact objects read by the function and avoids host/VM state ambiguity.
+          context.__regressionUserLesson = userLesson;
+          context.__regressionTeacherLessons = teacherLessons;
+          context.__regressionQuestion = question;
+          vm.runInContext(`
+            naraState.userLessons = [globalThis.__regressionUserLesson];
+            naraState.teacherLessons = globalThis.__regressionTeacherLessons;
+            naraState.lessons = [...naraState.userLessons, ...naraState.teacherLessons];
+            if (!Array.isArray(naraState.userLessons) || !Array.isArray(naraState.teacherLessons)) {
+              throw new Error('Regression fixture did not seed memory arrays in the VM context.');
+            }
+            globalThis.__regressionRetrieved = naraGetTaughtKnowledge(globalThis.__regressionQuestion);
+          `, context);
+          const retrieved = context.__regressionRetrieved;
           if (!retrieved.length) {
             throw new Error('Retrieval returned no memories. Check query tokenization and memory-store setup.');
           }
