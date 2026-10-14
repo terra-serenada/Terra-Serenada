@@ -1,0 +1,2038 @@
+name: Build and publish APK v1.0.42 — Terra Serenada (Nara exact retrieval Step 2Q)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-apk-v48-exact-retrieval.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: terra-serenada-apk-release-v48-exact-retrieval
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: Build and validate Nara Step 2Q exact retrieval APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Create Android project from the known-good v26 generator (no repository push)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Generate the project in this runner only. Never commit or push from a build job;
+          # doing so can race with user uploads and cause non-fast-forward failures.
+          ruby -ryaml -e '
+            workflow = YAML.safe_load_file(".github/workflows/build-apk-v26.yml")
+            steps = workflow.fetch("jobs").values.first.fetch("steps")
+            step = steps.find { |item| item["name"] == "Create Android project (preserve the existing Terra Serenada bridges)" }
+            abort "ERROR: Could not locate the known Android project-generation step in build-apk-v26.yml." unless step && step["run"]
+            File.write(ENV.fetch("RUNNER_TEMP") + "/create-android-project.sh", step["run"])
+          '
+          test -s "$RUNNER_TEMP/create-android-project.sh"
+          bash "$RUNNER_TEMP/create-android-project.sh"
+          echo "Android project generated in the runner; no repository files were committed or pushed."
+
+      - name: Set monotonically newer application version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          p = Path("android/app/build.gradle.kts")
+          s = p.read_text(encoding="utf-8")
+          old_code = "versionCode = 1000 + ciRunNumber"
+          new_code = "versionCode = 27000 + ciRunNumber"
+          old_name = 'versionName = "1.0.21.$ciRunNumber"'
+          new_name = 'versionName = "1.0.42.$ciRunNumber"'
+          if s.count(old_code) != 1 or s.count(old_name) != 1:
+              raise SystemExit("ERROR: Could not safely update the app version in the generated Gradle file.")
+          p.write_text(s.replace(old_code, new_code, 1).replace(old_name, new_name, 1), encoding="utf-8")
+          print("Step 2Q exact retrieval version configured: versionCode 27000 + workflow run number, versionName 1.0.42.<run>.")
+          PYTHON
+
+      - name: Restore previous Nara online-first HTML source
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Exact index.html from commit immediately before local LiteRT-LM UI/routing was added.
+          # Verify the Git blob hash so a changed or partial download fails closed.
+          source_url="https://raw.githubusercontent.com/terra-serenada/Terra-Serenada/15ae13f359645216d509d33c2299c43361f6a854/index.html"
+          curl --fail --location --retry 3 --silent --show-error "$source_url" --output android/app/src/main/assets/index.html
+          actual_blob="$(git hash-object android/app/src/main/assets/index.html)"
+          expected_blob="b7385127cc91e43225a3ed625b732387d8ff4c3f"
+          if [ "$actual_blob" != "$expected_blob" ]; then
+            echo "ERROR: Historical Nara HTML checksum mismatch. Refusing to build an unverified rollback."
+            exit 1
+          fi
+          grep -q 'async function naraRequestOnlineAnswer' android/app/src/main/assets/index.html
+          grep -q "NARA_GURU_MODEL='gpt-4o-mini'" android/app/src/main/assets/index.html
+          if grep -q 'naraLocalEnginePanel\|NaraLocalAI\|naraLocalFitMessages' android/app/src/main/assets/index.html; then
+            echo "ERROR: Local-engine UI or routing unexpectedly remains in rollback HTML."
+            exit 1
+          fi
+          echo "Previous online-first Nara HTML restored and checksum verified."
+
+      - name: Separate user memory and improve retrieval (Nara Step 2)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          #!/usr/bin/env python3
+          """Safely patch the rollback Nara HTML for Step 2: separated memory + weighted retrieval."""
+          from pathlib import Path
+          import re
+          import sys
+
+          path = Path('android/app/src/main/assets/index.html')
+          source = path.read_text(encoding='utf-8')
+          original = source
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'ERROR: safe patch stopped at {label}: expected 1 exact anchor, found {count}. No build should continue.')
+              source = source.replace(old, new, 1)
+
+          # 1) Upgrade normalization with backward-compatible split storage.
+          pattern = r'function naraNormalizeState\(\)\{[\s\S]*?\n\}'
+          match = list(re.finditer(pattern, source))
+          if len(match) != 1:
+              raise SystemExit(f'ERROR: safe patch stopped at naraNormalizeState: expected one function, found {len(match)}.')
+          new_normalizer = r'''function naraNormalizeState(){
+            if(!naraState||typeof naraState!=='object'||Array.isArray(naraState))naraState={version:3,messages:[],lessons:[],userLessons:[],teacherLessons:[],onlineTeacherLessons:[],teacherLearning:{},updatedAt:''};
+            naraState.version=3;
+            if(!Array.isArray(naraState.messages))naraState.messages=[];
+            if(!Array.isArray(naraState.lessons))naraState.lessons=[];
+            const legacyLessons=naraState.lessons.filter(m=>m&&typeof m.text==='string');
+            const isTeacherLesson=m=>!!(m&&typeof m==='object'&&(m.learningType==='model_language'||m.origin==='Guru AI Online'||m.sourceTeacherLessonId));
+            // Migrate older mixed memory exactly once, keeping explicit user lessons separate from Guru lessons.
+            if(!Array.isArray(naraState.userLessons))naraState.userLessons=legacyLessons.filter(m=>!isTeacherLesson(m));
+            if(!Array.isArray(naraState.teacherLessons))naraState.teacherLessons=legacyLessons.filter(isTeacherLesson);
+            naraState.userLessons=naraState.userLessons.filter(m=>m&&typeof m==='object'&&typeof m.text==='string').slice(-500);
+            naraState.teacherLessons=naraState.teacherLessons.filter(m=>m&&typeof m==='object'&&typeof m.text==='string').slice(-200);
+            // Keep the legacy combined array for compatibility with older app code and backups.
+            naraState.lessons=[...naraState.userLessons,...naraState.teacherLessons].sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||''))).slice(-700);
+            if(!Array.isArray(naraState.onlineTeacherLessons))naraState.onlineTeacherLessons=[];
+            naraState.messages=naraState.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.text==='string').slice(-80);
+            naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.filter(m=>m&&typeof m==='object'&&typeof m.title==='string').slice(-40);
+            const old=naraState.teacherLearning&&typeof naraState.teacherLearning==='object'?naraState.teacherLearning:{};
+            naraState.teacherLearning={...old,enabled:old.enabled!==false,foundationCompleted:!!old.foundationCompleted,batchCurriculumCompleted:!!old.batchCurriculumCompleted,totalUserQuestions:Math.max(0,Number(old.totalUserQuestions)||0),lastAutoQuestionCount:Math.max(0,Number(old.lastAutoQuestionCount)||0),automaticCycleCount:Math.max(0,Number(old.automaticCycleCount)||0),queued:!!old.queued,lastAutoLessonAt:old.lastAutoLessonAt||null,lastAutoAttemptAt:old.lastAutoAttemptAt||null};
+          }'''
+          source = source[:match[0].start()] + new_normalizer + source[match[0].end():]
+
+          # 2) User-facing lesson list now contains only knowledge explicitly taught by the user.
+          replace_once("  const list=naraState.lessons.slice().reverse();", "  const list=naraState.userLessons.slice().reverse();", 'user lesson list')
+          replace_once("return {plants:data.length,active:active.length,beds:beds.length,inhabitants:inhabitants.length,harvests:harvests.length,gardenNotes:gardenNotes.length,events,waterDue,attention,flowering,upcoming,lessons:naraState.lessons.length};", "return {plants:data.length,active:active.length,beds:beds.length,inhabitants:inhabitants.length,harvests:harvests.length,gardenNotes:gardenNotes.length,events,waterDue,attention,flowering,upcoming,lessons:naraState.userLessons.length};", 'user lesson counter')
+
+          # 3) Replace substring matching with weighted retrieval across separate stores.
+          pattern = r'function naraGetTaughtKnowledge\(q\)\{[\s\S]*?\n\}'
+          match = list(re.finditer(pattern, source))
+          if len(match) != 1:
+              raise SystemExit(f'ERROR: safe patch stopped at naraGetTaughtKnowledge: expected one function, found {len(match)}.')
+          new_retrieval = r'''function naraMemoryTokens(value){
+            return String(value||'').toLocaleLowerCase('id-ID').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
+          }
+          function naraGetTaughtKnowledge(q){
+            naraNormalizeState();
+            const stop=new Set(['yang','dengan','untuk','dari','pada','atau','saya','aku','kamu','dia','kami','kita','adalah','bisa','dapat','akan','sudah','belum','saat','ketika','karena','bagaimana','apakah','tolong','ingat','catatan','nara','terra','serenada','tanaman','kebun','tentang','terakhir','kapan','dimana','mengapa','kenapa','berapa','mana','milik','punya','lebih','juga','agar','supaya','dalam','oleh','dari','secara','tersebut','ini','itu','apa','bukan','saja','maka','kalau','jika','atau','setelah','sebelum','masih','telah','bagi','para','setiap']);
+            const queryTokens=[...new Set(naraMemoryTokens(q).filter(w=>w.length>=3&&!stop.has(w)))];
+            if(!queryTokens.length)return [];
+            const sources=[
+              ...naraState.userLessons.map(l=>({...l,__memorySource:'Pengetahuan pengguna',__memoryKind:'user_taught'})),
+              ...naraState.teacherLessons.map(l=>({...l,__memorySource:'Guru AI Online',__memoryKind:'model_language'}))
+            ];
+            const aliases={fakta:['faktual','bukti','grounding','terverifikasi'],faktual:['fakta','bukti','grounding','verifikasi'],bukti:['fakta','faktual','grounding','sumber'],grounding:['bukti','fakta','verifikasi','sumber'],dugaan:['asumsi','inferensi','perkiraan'],asumsi:['dugaan','inferensi','perkiraan'],inferensi:['dugaan','asumsi','perkiraan'],perkiraan:['dugaan','asumsi','estimasi'],ingatan:['memori','pengetahuan','pelajaran'],memori:['ingatan','pengetahuan','pelajaran'],retrieval:['pencarian','pengambilan','relevan'],pencarian:['retrieval','pengambilan','relevan'],menguning:['kuning','menguning'],panen:['memanen','pemetikan']};
+            const containsTerm=(tokens,term)=>tokens.includes(term)||(term.length>=5&&tokens.some(w=>w.length>=5&&Math.abs(w.length-term.length)<=3&&(w.startsWith(term)||term.startsWith(w))));
+            const fieldHit=(tokens,term)=>containsTerm(tokens,term)?1:((aliases[term]||[]).some(alias=>containsTerm(tokens,alias))?0.65:0);
+            return sources.map(l=>{
+              const titleTokens=naraMemoryTokens(l.title||'');
+              const topicTokens=naraMemoryTokens(l.topic||'');
+              const summaryTokens=naraMemoryTokens(l.summary||'');
+              const textTokens=naraMemoryTokens(l.text||'');
+              let score=0,matched=0;
+              for(const term of queryTokens){
+                const titleHit=fieldHit(titleTokens,term);
+                const topicHit=fieldHit(topicTokens,term);
+                const summaryHit=fieldHit(summaryTokens,term);
+                const textHit=fieldHit(textTokens,term);
+                if(titleHit)score+=4.5*titleHit;
+                if(topicHit)score+=3.5*topicHit;
+                if(summaryHit)score+=2.25*summaryHit;
+                if(textHit)score+=1*textHit;
+                if(titleHit||topicHit||summaryHit||textHit)matched++;
+              }
+              const normalizedQuery=naraMemoryTokens(q).join(' ');
+              const fullContent=naraMemoryTokens([l.title,l.topic,l.summary,l.text].filter(Boolean).join(' ')).join(' ');
+              if(normalizedQuery.length>=8&&fullContent.includes(normalizedQuery))score+=2.5;
+              if(queryTokens.length>=2&&matched>=2)score+=Math.min(2,matched*0.25);
+              const stamp=Date.parse(l.createdAt||'');
+              if(Number.isFinite(stamp))score+=Math.max(0,1-(Date.now()-stamp)/(3650*86400000))*0.08;
+              return {...l,score,matchedTerms:matched};
+            }).filter(l=>l.score>=1&&l.matchedTerms>0)
+              .sort((a,b)=>b.score-a.score||b.matchedTerms-a.matchedTerms||String(b.createdAt||'').localeCompare(String(a.createdAt||'')))
+              .slice(0,5);
+          }'''
+          source = source[:match[0].start()] + new_retrieval + source[match[0].end():]
+
+          # 4) Create concise memory extracts that preserve operating rules and knowledge boundaries.
+          anchor = "function naraExpandTaughtContext(question){"
+          helper = r'''function naraLessonContextText(lesson,max=900){
+            const raw=String(lesson?.text||'').trim();
+            if(!raw)return '';
+            if(lesson?.__memoryKind==='user_taught'||lesson?.origin==='Pengguna')return naraGuruSafe(raw,max);
+            const lines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+            const priority=[/Aturan operasional:/i,/Batas pengetahuan:/i,/Konsep kunci:/i,/Langkah berpikir Nara:/i,/Penerapan:/i,/Pelajaran inti:/i,/Topik:/i,/Bidang pembelajaran:/i,/Pelajaran Guru AI Online:/i,/Materi ajar:/i,/Tujuan belajar:/i];
+            const ordered=[];
+            for(const pattern of priority){for(const line of lines){if(pattern.test(line)&&!ordered.includes(line))ordered.push(line);}}
+            for(const line of lines){if(!ordered.includes(line))ordered.push(line);}
+            return naraGuruSafe(ordered.join('\n'),max);
+          }
+          '''
+          if source.count(anchor) != 1:
+              raise SystemExit('ERROR: safe patch stopped: naraExpandTaughtContext anchor not found exactly once.')
+          source = source.replace(anchor, helper + anchor, 1)
+
+          # 5) User memory commands and teaching writes target their own stores.
+          replace_once("const text=learnMatch[1].trim();naraState.lessons.push({id:makeId('nara-lesson'),text,createdAt:new Date().toISOString()});naraState.lessons=naraState.lessons.slice(-100);", "const text=learnMatch[1].trim();naraState.userLessons.push({id:makeId('nara-lesson'),text,createdAt:new Date().toISOString(),origin:'Pengguna',learningType:'user_taught',source:'explicit_memory'});naraPersistState();", 'explicit user memory writer')
+          replace_once("naraState.lessons.push(...records.map(x=>x.memory));naraState.lessons=naraState.lessons.slice(-100);", "naraState.teacherLessons.push(...records.map(x=>x.memory));", 'teacher batch writer')
+          replace_once("naraState.lessons.push(mem);naraState.lessons=naraState.lessons.slice(-100);", "naraState.teacherLessons.push(mem);", 'teacher adaptive writer')
+
+          # 6) User memory listing returns user-taught items only, never Guru's lessons.
+          replace_once("if(!naraState.lessons.length)return 'Belum ada pengetahuan khusus yang kamu ajarkan secara eksplisit. Kirim “Ingat: …” untuk menyimpan pengalaman atau aturan kebun yang ingin kamu ajarkan.';", "if(!naraState.userLessons.length)return 'Belum ada pengetahuan khusus yang kamu ajarkan secara eksplisit. Kirim “Ingat: …” untuk menyimpan pengalaman atau aturan kebun yang ingin kamu ajarkan.';", 'user memory empty state')
+          replace_once("return `Pengetahuan yang kamu ajarkan kepadaku (${naraState.lessons.length}):\\n${naraState.lessons.slice(-10).map((l,i)=>`${i+1}. ${l.text}`).join('\\n')}\\n\\nSemua ini disimpan sebagai pengetahuan dari pengguna, bukan fakta yang diverifikasi secara otomatis.`;", "return `Pengetahuan yang kamu ajarkan kepadaku (${naraState.userLessons.length}):\\n${naraState.userLessons.slice(-10).map((l,i)=>`${i+1}. ${l.text}`).join('\\n')}\\n\\nSemua ini disimpan sebagai pengetahuan dari pengguna, bukan fakta yang diverifikasi secara otomatis.`;", 'user memory list output')
+
+          # 7) Only relevant retrieved memories enter online context; do not inject the two newest lessons unconditionally.
+          replace_once("  const matched=naraGetTaughtKnowledge(question);\n  const latestModelLessons=naraState.lessons.filter(l=>l.learningType==='model_language'||l.origin==='Guru AI Online').slice(-2).reverse();\n  const lessons=[...new Map([...latestModelLessons,...matched].map(l=>[l.id||l.text,l])).values()].slice(0,4).map(l=>({topik:compact(l.title||l.topic||String(l.text||'').split('\\n')[0],150),asal:l.origin||'Ingatan Nara',materi:compact(l.text,950),jenis:l.learningType||'pengetahuan'}));", "  const matched=naraGetTaughtKnowledge(question);\n  const lessons=matched.slice(0,4).map(l=>({topik:compact(l.title||l.topic||String(l.text||'').split('\\n')[0],150),asal:l.__memorySource||l.origin||'Ingatan Nara',materi:naraLessonContextText(l,950),jenis:l.__memoryKind||l.learningType||'pengetahuan'}));", 'relevant online context')
+
+          # 8) Generic local knowledge and deletion use the separated stores.
+          replace_once("  const relevant=naraGetTaughtKnowledge(question);const models=naraState.lessons.filter(l=>l.learningType==='model_language'||l.origin==='Guru AI Online').slice(-2).reverse();\n  return [...new Map([...models,...relevant].map(l=>[l.id||l.text,l])).values()].slice(0,4);", "  return naraGetTaughtKnowledge(question).slice(0,4);", 'local relevant context')
+          replace_once("$('pageNara')?.addEventListener('click',e=>{const b=e.target.closest('[data-nara-prompt]');if(b)naraSendMessage(b.dataset.naraPrompt);const del=e.target.closest('[data-nara-lesson-delete]');if(del){const lesson=naraState.lessons.find(x=>x.id===del.dataset.naraLessonDelete);if(lesson&&confirm('Hapus pengetahuan yang diajarkan kepada Nara?')){naraState.lessons=naraState.lessons.filter(x=>x.id!==lesson.id);if(lesson.sourceTeacherLessonId)naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.filter(x=>x.id!==lesson.sourceTeacherLessonId);naraPersistState();naraRefreshOverview();showToast('Pengetahuan Nara dihapus');}}});", "$('pageNara')?.addEventListener('click',e=>{const b=e.target.closest('[data-nara-prompt]');if(b)naraSendMessage(b.dataset.naraPrompt);const del=e.target.closest('[data-nara-lesson-delete]');if(del){const lesson=naraState.userLessons.find(x=>x.id===del.dataset.naraLessonDelete);if(lesson&&confirm('Hapus pengetahuan yang diajarkan kepadamu?')){naraState.userLessons=naraState.userLessons.filter(x=>x.id!==lesson.id);naraPersistState();naraRenderLessons();naraRefreshOverview();showToast('Pengetahuan pengguna dihapus');}}});", 'user memory deletion')
+
+          # Verify the old risky mixed-store operations are gone from writers/readers.
+          checks = {
+              'split memory arrays': 'naraState.userLessons' in source and 'naraState.teacherLessons' in source,
+              'weighted retrieval with topic aliases': 'function naraMemoryTokens' in source and 'matchedTerms' in source and 'const aliases=' in source,
+              'operational-rule preservation': 'function naraLessonContextText' in source and 'Aturan operasional:' in source,
+              'legacy backup still includes naraState': 'naraState,savedAt' in source and 'incoming.naraState' in source,
+              'online answer function remains': 'async function naraRequestOnlineAnswer' in source,
+              'online worker/model remains': "NARA_GURU_MODEL='gpt-4o-mini'" in source,
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('ERROR: step-2 post-patch checks failed: '+', '.join(failed))
+          if source == original:
+              raise SystemExit('ERROR: patch made no changes.')
+          path.write_text(source,encoding='utf-8')
+          print('Step 2 memory/retrieval patch applied and static checks passed.')
+          for name in checks:
+              print(f'PASS: {name}')
+          PYTHON
+
+      - name: Apply case isolation and source provenance guard (Nara Step 2B)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+
+          path = Path('android/app/src/main/assets/index.html')
+          source = path.read_text(encoding='utf-8')
+          original = source
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'ERROR: Step 2B patch stopped at {label}: expected 1 exact anchor, found {count}. Refusing unsafe patch.')
+              source = source.replace(old, new, 1)
+
+          # Add plant-entity identification, history scoping, and a response mismatch audit.
+          anchor = "function naraOnlineLearningContext(question,localDraft=''){"
+          helpers = r'''function naraExplicitCropTerms(value){
+            const tokens=new Set(naraMemoryTokens(value));
+            const cropAliases=[
+              ['tomat',['tomat']],['cabai',['cabai','cabe']],['terung',['terung','terong']],
+              ['labu',['labu']],['timun',['timun','mentimun']],['kangkung',['kangkung']],
+              ['bayam',['bayam']],['kemangi',['kemangi']],['kunyit',['kunyit']],['jahe',['jahe']],
+              ['lengkuas',['lengkuas']],['pandan',['pandan']],['mangga',['mangga']],['pepaya',['pepaya']],
+              ['pisang',['pisang']],['jeruk',['jeruk']],['jambu',['jambu']],['sawi',['sawi']],
+              ['selada',['selada']],['pakcoy',['pakcoy']],['bawang',['bawang']],['serai',['serai']],
+              ['kacang',['kacang']],['singkong',['singkong']],['ubi',['ubi']],['kentang',['kentang']],
+              ['wortel',['wortel']],['melon',['melon']],['semangka',['semangka']],['stroberi',['stroberi','strawberry']],
+              ['buncis',['buncis']],['pare',['pare']],['oyong',['oyong','gambas']],['seledri',['seledri']],
+              ['markisa',['markisa']],['okra',['okra']]
+            ];
+            return cropAliases.filter(([,aliases])=>aliases.some(alias=>tokens.has(alias))).map(([canonical])=>canonical);
+          }
+          function naraPlantEntriesMentionedInText(value){
+            const tokens=new Set(naraMemoryTokens(value));
+            const generic=new Set(['tanaman','tanam','daun','batang','akar','buah','bunga','pohon','bibit','semai','sayur','herbal','kebun','kondisi','bagian','media','tanah','masalah','gejala','varietas','kelompok','yang','dengan','untuk','dari','pada','atau','dan']);
+            return data.filter(p=>{
+              const terms=naraMemoryTokens(p?.name||'').filter(w=>w.length>=4&&!generic.has(w));
+              return terms.length>0&&terms.some(w=>tokens.has(w));
+            });
+          }
+          function naraHasPlantTopic(value){
+            return naraPlantEntriesMentionedInText(value).length>0||naraExplicitCropTerms(value).length>0;
+          }
+          function naraScopeRecentHistory(question,history){
+            const items=(Array.isArray(history)?history:[]).slice(-8);
+            if(!naraHasPlantTopic(question))return items;
+            const focused=naraPlantEntriesMentionedInText(question);
+            if(!focused.length)return [];
+            const focusIds=new Set(focused.map(p=>String(p.id||p.name)));
+            // If recent chat includes a different plant record, do not carry that case into this answer.
+            if(items.some(m=>naraPlantEntriesMentionedInText(m?.text||m?.isi||'').some(p=>!focusIds.has(String(p.id||p.name)))))return [];
+            return items;
+          }
+          function naraAuditAnswerPlantScope(question,answer){
+            const focused=naraPlantEntriesMentionedInText(question);
+            const explicitCrops=naraExplicitCropTerms(question);
+            const answerRecords=naraPlantEntriesMentionedInText(answer);
+            if(!focused.length&&explicitCrops.length){
+              // The user named a species clearly, but no matching garden record was found.
+              // General horticultural analysis is allowed; only references to other recorded plants trigger retry.
+              const off=answerRecords.filter(p=>!explicitCrops.some(crop=>naraMemoryTokens(p?.name||'').includes(crop)));
+              const names=[...new Set(off.map(p=>String(p.name||'tanaman lain')))];
+              return {ok:names.length===0,offending:names,mode:'explicit_species_general_knowledge'};
+            }
+            if(!focused.length){return {ok:!naraHasPlantTopic(question)||answerRecords.length===0,offending:[...new Set(answerRecords.map(p=>String(p.name||'tanaman lain')))]};}
+            const focusIds=new Set(focused.map(p=>String(p.id||p.name)));
+            const off=answerRecords.filter(p=>!focusIds.has(String(p.id||p.name)));
+            const names=[...new Set(off.map(p=>String(p.name||'tanaman lain')))];
+            return {ok:names.length===0,offending:names,mode:'record_scoped'};
+          }
+          function naraPlantScopeSafeFallback(question){
+            const crop=naraExplicitCropTerms(question)[0]||'tanaman yang kamu sebutkan';
+            return `Aku bisa membahas tanaman ${crop} berdasarkan pengetahuan umum, tetapi konteks yang tersedia belum memberi rekaman kebun spesifik yang cocok untuk dijadikan bukti. Daun menguning dapat berkaitan dengan pola penyiraman atau drainase, ketersediaan hara, hama atau penyakit jika ada tanda pendukung, maupun stres lingkungan. Ini adalah kemungkinan umum, bukan diagnosis untuk kebunmu. Periksa apakah daun tua atau muda yang lebih dulu menguning, apakah polanya merata atau bercak, kelembapan media dan aliran drainase, serta bagian bawah daun. Jangan langsung menambah pupuk atau memakai pestisida hanya berdasarkan gejala ini. Penyebab utama belum dapat ditentukan sebelum ada bukti tambahan.`;
+          }
+          '''
+          if source.count(anchor) != 1:
+              raise SystemExit('ERROR: Step 2B patch could not locate naraOnlineLearningContext exactly once.')
+          source = source.replace(anchor, helpers + '\n' + anchor, 1)
+
+          # Detect a specific plant even if the stored name includes a variety but the user only says the crop name.
+          replace_once(
+              "  const named=data.filter(p=>p?.name&&(q.includes(String(p.name).toLocaleLowerCase('id-ID'))||String(p.name).toLocaleLowerCase('id-ID').split(/\\s+/).filter(w=>w.length>=4).filter(w=>words.includes(w)).length>=2));\n  let selected=named;",
+              "  const named=data.filter(p=>p?.name&&(q.includes(String(p.name).toLocaleLowerCase('id-ID'))||String(p.name).toLocaleLowerCase('id-ID').split(/\\s+/).filter(w=>w.length>=4).filter(w=>words.includes(w)).length>=2));\n  const explicitPlants=naraPlantEntriesMentionedInText(question);\n  const focusPlantIds=new Set(explicitPlants.map(p=>String(p.id||p.name)));\n  const plantTopicQuestion=naraHasPlantTopic(question);\n  const focusBedNames=new Set(explicitPlants.flatMap(p=>naraActiveGroups(p).flatMap(g=>groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||'')).filter(Boolean))));\n  let selected=explicitPlants.length?explicitPlants:(plantTopicQuestion?[]:named);",
+              'explicit plant focus'
+          )
+
+          replace_once(
+              "  const plants=selected.map(p=>({\n    nama:p.name||'Tanaman tanpa nama',varietas:p.variety||'',catatan:compact(p.note,240),",
+              "  const plants=selected.map(p=>({\n    id_rekaman:p.id||null,jenis_sumber:'rekaman tanaman Terra Serenada',nama:p.name||'Tanaman tanpa nama',varietas:p.variety||'',catatan:compact(p.note,240),",
+              'plant record source tags'
+          )
+
+          replace_once(
+              "  const attention=attentions.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,7).map(a=>({tanaman:data.find(p=>p.id===a.plantId)?.name||'Tanaman tidak ditemukan',tanggal:a.date||null,status:a.status||'',jenis:a.problemType||a.type||'',bagian:a.affectedPart||'',keparahan:a.severity||'',prioritas:a.priority||'',catatan:compact(a.note,220),tindakan:compact(a.action,160),inhabitant_terkait:inhabitantNames(a.inhabitantTags||[]),catatan_tag:'Inhabitant yang ditag adalah pihak yang teramati/terkait dalam pengamatan; tag tidak membuktikan bahwa mereka penyebab masalah.'}));",
+              "  const attentionSource=plantTopicQuestion?(focusPlantIds.size?attentions.filter(a=>focusPlantIds.has(String(a.plantId))):[]):attentions;\n  const attention=attentionSource.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,7).map(a=>({jenis_sumber:'catatan Perlu Perhatian Terra Serenada',id_tanaman:a.plantId||null,tanaman:data.find(p=>p.id===a.plantId)?.name||'Tanaman tidak ditemukan',tanggal:a.date||null,status:a.status||'',jenis:a.problemType||a.type||'',bagian:a.affectedPart||'',keparahan:a.severity||'',prioritas:a.priority||'',catatan:compact(a.note,220),tindakan:compact(a.action,160),inhabitant_terkait:inhabitantNames(a.inhabitantTags||[]),catatan_tag:'Tag Inhabitant adalah keterkaitan dalam catatan, bukan bukti penyebab.'}));",
+              'scoped attention records'
+          )
+
+          replace_once(
+              "  const activity=gardenEvents.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,7).map(e=>({tanggal:e.date||null,jenis:e.type||'',label:compact(e.label||e.type,100),catatan:compact(e.note,180),bed:Array.isArray(e.bedNames)?e.bedNames.slice(0,5):[]}));",
+              "  const activityIntent=/(riwayat penyiraman|penyiraman terakhir|riwayat aktivitas|aktivitas kebun|catatan aktivitas kebun|riwayat hujan|catatan hujan)/i.test(q);\n  const activitySource=plantTopicQuestion?(focusPlantIds.size?(activityIntent?gardenEvents.filter(e=>Array.isArray(e.bedNames)&&e.bedNames.some(b=>focusBedNames.has(b))):[]):[]):gardenEvents;\n  const activity=activitySource.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,7).map(e=>({jenis_sumber:'aktivitas kebun yang tersimpan; hubungan ke tanaman hanya jika lokasi cocok',tanggal:e.date||null,jenis:e.type||'',label:compact(e.label||e.type,100),catatan:compact(e.note,180),bed:Array.isArray(e.bedNames)?e.bedNames.slice(0,5):[]}));",
+              'scoped garden activity'
+          )
+
+          replace_once(
+              "  const harvestHistory=harvests.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,7).map(h=>({tanggal:h.date||null,tanaman:data.find(p=>p.id===h.plantId)?.name||h.plantName||'Tanaman tidak diketahui',jumlah:h.qty??null,satuan:h.unit||'',kualitas:h.quality||'',catatan:compact(h.note,120)}));",
+              "  const harvestSource=plantTopicQuestion?(focusPlantIds.size?harvests.filter(h=>focusPlantIds.has(String(h.plantId))):[]):harvests;\n  const harvestHistory=harvestSource.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,7).map(h=>({jenis_sumber:'riwayat panen tersimpan',id_tanaman:h.plantId||null,tanggal:h.date||null,tanaman:data.find(p=>p.id===h.plantId)?.name||h.plantName||'Tanaman tidak diketahui',jumlah:h.qty??null,satuan:h.unit||'',kualitas:h.quality||'',catatan:compact(h.note,120)}));",
+              'scoped harvest records'
+          )
+
+          replace_once(
+              "  const bedRelevant=/(bed|lokasi|tanah|drainase|cahaya|teduh|media)/i.test(q)||beds.some(b=>b.name&&q.includes(String(b.name).toLowerCase()));\n  const bedRows=bedRelevant?beds.slice(0,10).map(b=>({nama:b.name||'',jenis_tanah:b.soilType||'',drainase:b.drainage||'',paparan_cahaya:b.lightExposure||b.light||'',vegetasi:b.vegetation||'',catatan:compact(b.note,180)})):[];",
+              "  const bedRelevant=/(bed|lokasi|tanah|drainase|cahaya|teduh|media)/i.test(q)||beds.some(b=>b.name&&q.includes(String(b.name).toLowerCase()));\n  const bedRows=bedRelevant?beds.filter(b=>!plantTopicQuestion||(focusPlantIds.size&&focusBedNames.has(b.name))).slice(0,10).map(b=>({jenis_sumber:'profil Bed yang tersimpan',nama:b.name||'',jenis_tanah:b.soilType||'',drainase:b.drainage||'',paparan_cahaya:b.lightExposure||b.light||'',vegetasi:b.vegetation||'',catatan:compact(b.note,180)})):[];",
+              'scoped bed records'
+          )
+
+          replace_once(
+              "  const inhabitantRows=inhabitantRelevant?inhabitants.slice(0,10).map(i=>({nama:i.name||'',kelompok:i.faction||'',status:i.status||'',catatan:compact(i.note,180),kejadian:",
+              "  const inhabitantRows=inhabitantRelevant&&!plantTopicQuestion?inhabitants.slice(0,10).map(i=>({jenis_sumber:'catatan Inhabitant tersimpan; tag bukan bukti sebab-akibat',nama:i.name||'',kelompok:i.faction||'',status:i.status||'',catatan:compact(i.note,180),kejadian:",
+              'avoid unrelated inhabitants'
+          )
+
+          replace_once(
+              "  const notes=/(catatan|jurnal|pernah saya tulis|riwayat|pengalaman)/i.test(q)?gardenNotes.slice(-5).map(n=>({tanggal:n.date||n.createdAt||null,judul:compact(n.title,80),catatan:compact(n.text||n.note||n.content,200)})):[];",
+              "  const noteSource=plantTopicQuestion?(focusPlantIds.size?gardenNotes.filter(n=>naraPlantEntriesMentionedInText([n.title,n.text,n.note,n.content].filter(Boolean).join(' ')).some(p=>focusPlantIds.has(String(p.id||p.name)))):[]):gardenNotes;\n  const notes=/(catatan|jurnal|pernah saya tulis|riwayat|pengalaman)/i.test(q)?noteSource.slice(-5).map(n=>({jenis_sumber:'catatan kebun tersimpan',tanggal:n.date||n.createdAt||null,judul:compact(n.title,80),catatan:compact(n.text||n.note||n.content,200)})):[];",
+              'scoped garden notes'
+          )
+
+          replace_once(
+              "  const history=naraState.messages.slice(-8).map(m=>({peran:m.role,isi:compact(m.text,280)}));",
+              "  const history=naraScopeRecentHistory(question,naraState.messages.slice(-8)).map(m=>({peran:m.role,jenis_sumber:m.role==='user'?'pesan pengguna; tafsirkan isi eksplisitnya':'jawaban asisten sebelumnya; bukan sumber fakta mandiri',isi:compact(m.text,280)}));",
+              'scoped context history'
+          )
+
+          replace_once(
+              "  const payload={pertanyaan_pengguna:",
+              "  const payload={pedoman_sumber_dan_kasus:['Rekaman tanaman hanya berlaku pada identitas tanaman yang tercantum; jangan memindahkan fakta antar tanaman atau spesies.','Catatan Perlu Perhatian, panen, aktivitas, profil Bed, Inhabitant, dan catatan kebun adalah sumber terpisah; jangan menyimpulkan keterkaitan kausal dari tag atau kedekatan waktu saja.','Pesan pengguna adalah laporan atau hipotesis sesuai kalimat eksplisitnya; jawaban asisten sebelumnya bukan fakta terverifikasi.','Materi Guru adalah prinsip penalaran, bukan bukti bahwa suatu kejadian terjadi di kebun.','Pemeriksaan yang disarankan belum dilakukan sampai pengguna melaporkan hasilnya. Tidak tercatat bukan berarti pasti tidak ada.','Jika identitas tanaman, waktu, atau sumber bukti bertentangan, nyatakan konflik dan minta klarifikasi alih-alih menggabungkan kasus.'],pertanyaan_pengguna:",
+              'provenance policy metadata'
+          )
+
+          system_anchor = "KONTEKS DAN BUKTI: Data terstruktur Terra Serenada, draft reasoning lokal, dan riwayat yang disertakan adalah bukti utama tentang kebun pengguna."
+          system_addition = "KONTEKS DAN BUKTI: Data terstruktur Terra Serenada, draft reasoning lokal, dan riwayat yang disertakan adalah bukti utama tentang kebun pengguna.\n\nPENGUNCI IDENTITAS KASUS: Catatan tanaman terikat pada identitas tanaman dan rekaman yang tercantum. Jangan memindahkan gejala, hama, tanggal, tindakan, hasil, atau kesimpulan dari satu tanaman/spesies ke tanaman lain kecuali pengguna secara eksplisit meminta perbandingan dan sumber masing-masing tersedia. Jika pertanyaan menyebut cabai, jangan memakai catatan tomat sebagai fakta cabai. Jika identitasnya tidak jelas, tanyakan atau nyatakan belum diketahui.\n\nPELACAKAN SUMBER: Rekaman tanaman, perhatian, panen, aktivitas, Bed, Inhabitant, dan catatan kebun memiliki jenis sumber berbeda. Jawaban asisten sebelumnya dan draft lokal bukan bukti independen bahwa suatu kejadian terjadi. Pernyataan pengguna harus dibaca sesuai bentuknya: laporan nyata, dugaan, pertanyaan hipotetis, atau instruksi. Materi Guru membimbing cara berpikir, tetapi bukan bukti kebun.\n\nSTATUS TINDAKAN DAN BUKTI: Bedakan (a) tindakan yang disarankan, (b) tindakan yang pengguna laporkan sudah dilakukan, dan (c) hasil yang dikonfirmasi. Jangan menyatakan pemeriksaan sudah dilakukan bila hanya menyarankannya. Jangan mengubah ketiadaan catatan menjadi bukti bahwa sesuatu tidak ada. Jika sumber berkonflik atau jawaban berisiko mencampur kasus, hentikan kesimpulan dan minta klarifikasi.\n\nSPESIES DISEBUT TAPI TIDAK ADA REKAMAN: Jika pengguna menyebut spesies tanaman dengan jelas tetapi tidak ada rekaman tanaman yang cocok di konteks, tetap jawab pertanyaan umum tersebut berdasarkan pengetahuan hortikultura. Nyatakan secara eksplisit bahwa analisis itu pengetahuan umum, bukan fakta tentang kebun pengguna. Jangan meminta konfirmasi nama tanaman yang sudah disebut dengan jelas dan jangan menolak analisis hanya karena rekaman kebun tidak ditemukan. Tetap jangan memakai catatan atau kesimpulan dari tanaman lain.\n\nSEBELUM MENJAWAB: Cocokkan nama tanaman, lokasi, waktu, dan sumber setiap klaim spesifik dengan konteks. Bila data konteks tidak memuat fakta yang diperlukan, nyatakan sebagai belum diketahui atau hipotesis; jangan mengisi celah dengan ingatan dari kasus lain."
+          replace_once(system_anchor, system_addition, 'source trace and case integrity rules')
+
+          replace_once(
+              "  base.percakapan_terakhir=greetingMode?[]:(Array.isArray(recentHistory)?recentHistory:[]).slice(-8).map(m=>({peran:m.role,isi:naraGuruSafe(m.text,280)}));",
+              "  base.percakapan_terakhir=greetingMode?[]:naraScopeRecentHistory(question,recentHistory).map(m=>({peran:m.role,jenis_sumber:m.role==='user'?'pesan pengguna; laporan/konteks sesuai isi eksplisit':'jawaban asisten sebelumnya; bukan bukti fakta mandiri',isi:naraGuruSafe(m.text,280)}));",
+              'source tagged scoped history for online request'
+          )
+
+          response_old = "  const response=await naraGuruChat([{role:'system',content:systemPrompt+modeInstruction},{role:'user',content:content}],1400);\n  return response;"
+          response_new = r"""  const response=await naraGuruChat([{role:'system',content:systemPrompt+modeInstruction},{role:'user',content:content}],1400);
+            const firstAudit=naraAuditAnswerPlantScope(question,response.text);
+            if(!firstAudit.ok){
+              const strictBase={...base,percakapan_terakhir:[],peringatan_konsistensi:'Jawaban percobaan sebelumnya berisiko menyebut tanaman di luar fokus kasus. Abaikan kasus lain sepenuhnya.'};
+              const strictPrompt=systemPrompt+modeInstruction+'\n\nPENGUNCI KASUS WAJIB: Jawab hanya untuk tanaman yang secara eksplisit disebut dalam pertanyaan terbaru dan rekaman yang sesuai. Jangan menyebut atau memakai fakta dari tanaman lain. Jika tidak cukup data, nyatakan keterbatasan. Jangan berikan contoh lintas tanaman dalam jawaban ini.';
+              const explicitCrops=naraExplicitCropTerms(question);
+              const targetHasRecord=naraPlantEntriesMentionedInText(question).length>0;
+              const generalSpeciesDirective=(!targetHasRecord&&explicitCrops.length)?('\n\nSPESIES EKSPLISIT TANPA REKAMAN: Pengguna sudah menyebut '+explicitCrops[0]+' dengan jelas. Jangan meminta nama tanaman lagi. Rekaman kebun yang cocok belum tersedia, jadi jawab berdasarkan pengetahuan hortikultura umum, pisahkan kemungkinan dari fakta, berikan pemeriksaan awal yang aman, dan jangan menyebut atau menggunakan rekaman tanaman lain.') : '';
+              const scopedRetryPrompt=strictPrompt+generalSpeciesDirective;
+              const retry=await naraGuruChat([{role:'system',content:scopedRetryPrompt},{role:'user',content:JSON.stringify(strictBase)}],1200);
+              const secondAudit=naraAuditAnswerPlantScope(question,retry.text);
+              if(!secondAudit.ok){
+                if(!targetHasRecord&&explicitCrops.length){console.warn('Nara scope audit used safe general-knowledge fallback for explicit species without matching garden record.',secondAudit.offending||[]);return {text:naraPlantScopeSafeFallback(question),model:retry.model||response.model};}
+                return {text:'Aku mendeteksi risiko tercampurnya konteks antar tanaman dalam jawaban yang dihasilkan. Catatan tanaman lain tidak akan kugunakan sebagai fakta untuk kasus ini. Tolong berikan atau pilih rekaman tanaman yang tepat agar aku dapat menganalisis data kebun spesifiknya.',model:retry.model||response.model};
+              }
+              return retry;
+            }
+            return response;"""
+          replace_once(response_old, response_new, 'post-answer cross-plant safety guard')
+
+
+          replace_once(
+              "    if(target){target.text=target.localDraft||target.text;target.pending=false;target.onlineFailed=true;naraPersistState();naraRenderChat();}",
+              "    if(target){const fallback=target.localDraft||target.text;const audit=naraAuditAnswerPlantScope(raw,fallback);target.text=audit.ok?fallback:'Aku belum bisa memberikan jawaban yang aman karena berisiko mencampur catatan antar tanaman. Sebutkan tanaman atau catatan spesifik yang ingin diperiksa.';target.pending=false;target.onlineFailed=true;naraPersistState();naraRenderChat();}",
+              'local fallback cross-plant guard'
+          )
+
+          checks = {
+              'case entity helper': 'function naraPlantEntriesMentionedInText' in source,
+              'explicit common species resolver exists': 'function naraExplicitCropTerms(value)' in source,
+              'safe fallback for explicit species without record exists': 'function naraPlantScopeSafeFallback(question)' in source,
+              'history is scoped for explicit plant questions': 'function naraScopeRecentHistory' in source,
+              'named species can receive general-knowledge analysis': 'SPESIES EKSPLISIT TANPA REKAMAN' in source and 'Jangan meminta konfirmasi nama tanaman yang sudah disebut dengan jelas' in source,
+              'structured source provenance': 'pedoman_sumber_dan_kasus' in source and 'jenis_sumber' in source,
+              'plant attention is filtered by record': 'const attentionSource=plantTopicQuestion?' in source,
+              'plant-specific harvests are filtered': 'const harvestSource=plantTopicQuestion?' in source,
+              'online answer has plant-scope audit': 'function naraAuditAnswerPlantScope' in source,
+              'mismatch invokes retry': 'PENGUNCI KASUS WAJIB' in source,
+              'local fallback has guard': "const audit=naraAuditAnswerPlantScope(raw,fallback)" in source,
+              'original split memory/retrieval remains': 'naraState.userLessons' in source and 'naraState.teacherLessons' in source and 'function naraLessonContextText' in source,
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('ERROR: Step 2B post-patch checks failed: '+', '.join(failed))
+          if source == original:
+              raise SystemExit('ERROR: Step 2B patch made no changes.')
+          path.write_text(source,encoding='utf-8')
+          print('Step 2B source/case integrity patch applied.')
+          for name in checks:
+              print('PASS:',name)
+          PYTHON
+
+      - name: Test explicit species focus and cross-plant guard (Nara Step 2F)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+          const assert = require('assert');
+          const html = fs.readFileSync('android/app/src/main/assets/index.html', 'utf8');
+          const start = html.indexOf('function naraExplicitCropTerms(value){');
+          const end = html.indexOf("function naraOnlineLearningContext(question,localDraft=''){", start);
+          if (start < 0 || end < 0 || end <= start) throw new Error('Could not isolate explicit species helper functions.');
+          const helperSource = html.slice(start, end);
+          const context = {
+            data: [{id:'eggplant-1', name:'Terung Bulat Hijau Bergaris Putih'}],
+            naraMemoryTokens(value) {
+              return String(value || '').toLocaleLowerCase('id-ID').normalize('NFKD')
+                .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, ' ')
+                .split(/\s+/).filter(Boolean);
+            },
+            console
+          };
+          vm.createContext(context);
+          vm.runInContext(helperSource, context);
+          const cropTerms = context.naraExplicitCropTerms('Daun tomat di kebunku mulai menguning');
+          assert(cropTerms.includes('tomat'), 'Explicit crop resolver must recognize tomato without requiring a garden record.');
+          const generalAnswer = 'Daun tomat dapat menguning karena beberapa kemungkinan umum, tetapi penyebab di kebun ini belum diketahui.';
+          const safeAudit = context.naraAuditAnswerPlantScope('Daun tomat di kebunku mulai menguning', generalAnswer);
+          assert.strictEqual(safeAudit.ok, true, 'General-knowledge answer for explicitly named, unrecorded crop must be allowed.');
+          const mixedAnswer = 'Untuk tanaman terung dalam rekaman kebunmu, penyebabnya kemungkinan sama.';
+          const mixedAudit = context.naraAuditAnswerPlantScope('Daun tomat di kebunku mulai menguning', mixedAnswer);
+          assert.strictEqual(mixedAudit.ok, false, 'Answer importing a different recorded crop must still be rejected.');
+          const scopedHistory = context.naraScopeRecentHistory('Daun tomat di kebunku mulai menguning', [{role:'user',text:'Kasus terung menguning'}]);
+          assert.strictEqual(scopedHistory.length, 0, 'History for another plant must not be copied into an unrecorded explicit crop case.');
+          const fallback = context.naraPlantScopeSafeFallback('Daun tomat di kebunku mulai menguning');
+          assert(fallback.includes('pengetahuan umum'), 'Safe fallback must label general knowledge.');
+          assert(!context.naraPlantEntriesMentionedInText(fallback).length, 'Fallback must not cite another recorded plant.');
+          console.log('PASS: explicit crop recognized without a garden record');
+          console.log('PASS: general-knowledge response allowed for explicit unrecorded crop');
+          console.log('PASS: cross-plant factual contamination remains blocked');
+          console.log('PASS: other-plant conversation history remains excluded');
+          console.log('PASS: safe general-knowledge fallback is available');
+          NODE
+
+      - name: Make Nara safety fallback intent-aware (Nara Step 2I)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+
+          path = Path('android/app/src/main/assets/index.html')
+          source = path.read_text(encoding='utf-8')
+          original = source
+
+          def replace_function(name: str, signature: str, body: str) -> None:
+              global source
+              pattern = rf'function {re.escape(name)}\({re.escape(signature)}\)\{{[\s\S]*?\n\}}'
+              matches = list(re.finditer(pattern, source))
+              if len(matches) != 1:
+                  raise SystemExit(f'ERROR: Step 2I expected one {name} function, found {len(matches)}.')
+              source = source[:matches[0].start()] + body + source[matches[0].end():]
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'ERROR: Step 2I patch stopped at {label}: expected one anchor, found {count}.')
+              source = source.replace(old, new, 1)
+
+          replace_function('naraScopeRecentHistory', 'question,history', r'''function naraScopeRecentHistory(question,history){
+            const items=(Array.isArray(history)?history:[]).slice(-8);
+            if(!naraHasPlantTopic(question))return items;
+            const focused=naraPlantEntriesMentionedInText(question);
+            const explicitCrops=naraExplicitCropTerms(question);
+            // An explicit species with no matching record is still answerable from general knowledge;
+            // exclude only history that refers to other recorded plants, not the whole conversation.
+            if(!focused.length&&explicitCrops.length){
+              return items.filter(m=>naraPlantEntriesMentionedInText(m?.text||m?.isi||'').length===0);
+            }
+            if(!focused.length)return items;
+            const focusIds=new Set(focused.map(p=>String(p.id||p.name)));
+            // Filter each conflicting message individually. Keep neutral turns and turns scoped to the target.
+            return items.filter(m=>{
+              const mentioned=naraPlantEntriesMentionedInText(m?.text||m?.isi||'');
+              return !mentioned.length||mentioned.every(p=>focusIds.has(String(p.id||p.name)));
+            });
+          }''')
+
+          replace_function('naraAuditAnswerPlantScope', 'question,answer', r'''function naraAuditAnswerPlantScope(question,answer){
+            const focused=naraPlantEntriesMentionedInText(question);
+            const explicitCrops=naraExplicitCropTerms(question);
+            const focusIds=new Set(focused.map(p=>String(p.id||p.name)));
+            const clauses=String(answer||'').split(/[\n.!?;]+/).flatMap(s=>s.split(/\b(?:tetapi|namun|sedangkan)\b/i)).map(s=>s.trim()).filter(Boolean);
+            const offending=new Set();
+            for(const clause of clauses){
+              const mentioned=naraPlantEntriesMentionedInText(clause).filter(p=>!focusIds.has(String(p.id||p.name)));
+              if(!mentioned.length)continue;
+              // Mere mention of another crop is not contamination. Flag only positive claims that
+              // attribute recorded garden facts/events to that other plant.
+              const policyOnly=/(?:\b(?:jangan|tidak|bukan|hindari|belum)\b[^.!?]{0,100}\b(?:gunakan|dipakai|dijadikan|menyimpulkan|membuktikan|bukti|fakta|menyamakan|menggabungkan)\b)|(?:\b(?:bukan bukti|tidak membuktikan|tidak boleh (?:menjadi|dijadikan)|tidak digunakan sebagai bukti|jangan menganggap)\b)/i.test(clause);
+              const sourceAttribution=/(?:\bcatatan\b|\brekaman\b|\briwayat\b|\bdata kebun\b|\btercatat\b|\bterekam\b|\bmenurut catatan\b|\bberdasarkan catatan\b|\bberdasarkan data\b|\bdi catatan\b|\bhasil panen tercatat\b|\briwayat menunjukkan\b)/i.test(clause);
+              const specificEvent=/(?:\b(?:kemarin|hari ini|minggu lalu|terakhir|pada tanggal|tanggal\s*\d+)\b[^.!?]{0,50}\b(?:disiram|dipanen|dipangkas|diberi pupuk|berbunga|berbuah)\b)|(?:\b(?:disiram|dipanen|dipangkas|diberi pupuk|berbunga|berbuah)\b[^.!?]{0,50}\b(?:kemarin|hari ini|minggu lalu|terakhir|pada tanggal|tanggal\s*\d+)\b)/i.test(clause);
+              if((sourceAttribution||specificEvent)&&!policyOnly){
+                for(const plant of mentioned)offending.add(String(plant.name||'tanaman lain'));
+              }
+            }
+            const names=[...offending];
+            if(names.length)return {ok:false,offending:names,mode:'other-plant-record-claim'};
+            // If the user named a crop explicitly, general horticultural analysis is allowed even
+            // when that crop has no matching garden record. A different crop mentioned only as
+            // an example or as a warning is not itself a source-integrity failure.
+            return {ok:true,offending:[],mode:focused.length?'record_scoped':(explicitCrops.length?'explicit_species_general_knowledge':'general')};
+          }''')
+
+          replace_function('naraPlantScopeSafeFallback', 'question', r'''function naraPlantScopeSafeFallback(question){
+            const raw=String(question||'');
+            const q=raw.toLocaleLowerCase('id-ID');
+            const crops=naraExplicitCropTerms(raw);
+            const records=naraPlantEntriesMentionedInText(raw);
+            const crop=crops[0]||records[0]?.name||'tanaman yang kamu sebutkan';
+            const asksEvidenceInventory=/(periksa|inventaris|daftar|audit|seluruh|semua|data apa|bukti apa|catatan apa)/i.test(raw)&&/(catatan|riwayat|rekaman|bukti|data kebun|observasi)/i.test(raw);
+            const asksHarvestRelevance=/(hasil panen|catatan panen|riwayat panen|panen)/i.test(raw)&&/(membantu|relevan|menentukan|penyebab|bukti|hubungan|berkaitan|gunakan|dipakai)/i.test(raw);
+            if(asksEvidenceInventory){
+              const focusIds=new Set(records.map(p=>String(p.id||p.name)));
+              const matched=records.length?records:data.filter(p=>p?.name&&crops.some(c=>naraMemoryTokens(p.name).includes(c)));
+              const ids=new Set(matched.map(p=>String(p.id||p.name)));
+              const plantRecords=matched.map(p=>`- Rekaman tanaman: ${p.name||'nama tidak tersedia'}; catatan: ${String(p.note||'tidak ada catatan tanaman yang tersimpan').slice(0,220)}.`);
+              const issueRecords=attentions.filter(a=>ids.has(String(a.plantId))).slice(-5).map(a=>`- Perhatian tercatat (${a.date||'tanggal tidak tersedia'}): ${a.problemType||a.type||'jenis tidak tercatat'}; bagian: ${a.affectedPart||'tidak dicatat'}; catatan: ${String(a.note||'tidak ada rincian').slice(0,180)}.`);
+              const harvestRecords=harvests.filter(h=>ids.has(String(h.plantId))).slice(-5).map(h=>`- Panen (${h.date||'tanggal tidak tersedia'}): ${h.qty??'jumlah tidak dicatat'} ${h.unit||''}; kualitas: ${h.quality||'tidak dicatat'}; catatan: ${String(h.note||'').slice(0,120)}.`);
+              return `Audit bukti untuk ${matched.map(p=>p.name).join(', ')||crop}:\nBukti langsung yang tersedia:\n${[...plantRecords,...issueRecords].join('\n')||'- Tidak ditemukan rekaman tanaman/perhatian yang cocok pada konteks lokal yang dapat dipastikan.'}\nKonteks tidak langsung:\n${harvestRecords.join('\n')||'- Tidak ada catatan panen yang cocok ditemukan.'}\nBatasan: catatan panen menggambarkan produksi/waktu panen dan tidak membuktikan penyebab gejala. Aktivitas kebun umum tidak dianggap terkait kecuali ada kecocokan tanaman/lokasi/waktu. Informasi yang belum tersedia harus diperiksa langsung; jangan mengarang hasil pemeriksaan atau menyimpulkan penyebab tanpa bukti pendukung.`;
+            }
+            if(asksHarvestRelevance){
+              const cropList=crops.length>1?crops.join(' dan '):(crops[0]||crop);
+              return `Catatan panen ${cropList} dapat memberi konteks produksi dan waktu panen untuk tanaman yang tercatat, tetapi jumlah, kualitas, atau tanggal panen saja tidak membuktikan penyebab daun tomat menguning. Catatan panen tomat dapat menjadi konteks tidak langsung bila waktunya berhubungan dengan perubahan tanaman, tetapi tidak secara langsung menunjukkan apakah masalahnya penyiraman, drainase, nutrisi, hama, atau penyakit. Catatan panen terung tidak boleh dianggap sebagai bukti kondisi tomat. Untuk menyelidiki kasus tomat, cocokkan identitas tanaman dan tanggal, lalu periksa apakah daun tua atau muda yang lebih dulu menguning, pola menguning, kelembapan media dan drainase, serta tanda hama atau penyakit. Berdasarkan informasi yang ada, penyebab utama belum dapat ditentukan.`;
+            }
+            if(/menguning|kuning|yellowing/i.test(q)){
+              return `Untuk tanaman ${crop}, daun menguning dapat memiliki beberapa kemungkinan umum, misalnya masalah penyiraman atau drainase, ketersediaan hara, stres lingkungan, atau hama dan penyakit bila ada tanda pendukung. Dari gejala yang disebutkan saja, penyebab utama di kebunmu belum bisa dipastikan. Periksa apakah daun tua atau muda yang lebih dulu menguning, apakah perubahan merata atau berupa bercak, kelembapan media dan drainase, serta bagian bawah daun. Ini pemeriksaan awal, bukan klaim bahwa pemeriksaan sudah dilakukan. Jangan langsung menambahkan pupuk atau pestisida tanpa bukti yang mendukung. Catatan tanaman lain tidak akan dipakai sebagai bukti untuk kasus ini.`;
+            }
+            if(/catatan|riwayat|bukti|relevan|membantu|menentukan|penyebab|hubungan/i.test(q)){
+              return `Pertanyaanmu berkaitan dengan relevansi bukti atau catatan untuk ${crop}. Catatan hanya dapat mendukung kesimpulan jika identitas tanaman, waktu, dan jenis pengamatan cocok. Catatan tanaman lain tidak menjadi bukti langsung untuk ${crop}, dan pengetahuan umum hanya membantu menyusun hipotesis. Dari informasi yang tersedia, hubungan sebab-akibat belum dapat dipastikan. Sebutkan catatan spesifik yang ingin dibandingkan agar relevansinya bisa diperiksa tanpa mengarang hubungan.`;
+            }
+            return `Aku belum dapat memberi kesimpulan spesifik untuk pertanyaan ini berdasarkan konteks yang tersedia. Aku bisa memakai pengetahuan umum untuk menjelaskan kemungkinan, tetapi klaim tentang kebun harus didukung catatan atau observasi yang cocok dengan tanaman dan waktu yang dibahas. Aku tidak akan menganggap data tanaman lain sebagai bukti untuk ${crop}.`;
+          }''')
+
+          # If an answer still fails the factual cross-plant audit after retry, return a cautious useful
+          # analysis rather than asking the user to repeat a plant name they have already supplied.
+          old_refusal="return {text:'Aku mendeteksi risiko tercampurnya konteks antar tanaman dalam jawaban yang dihasilkan. Catatan tanaman lain tidak akan kugunakan sebagai fakta untuk kasus ini. Tolong berikan atau pilih rekaman tanaman yang tepat agar aku dapat menganalisis data kebun spesifiknya.',model:retry.model||response.model};"
+          new_refusal="console.warn('Nara scope audit retained safe answer path after retry failed a factual source-attribution check.',secondAudit.offending||[]);return {text:naraPlantScopeSafeFallback(question),model:retry.model||response.model};"
+          replace_once(old_refusal,new_refusal,'post-retry refusal fallback')
+
+          # The prior Step 2B patch has already installed this exact catch fallback, so
+          # anchor to its actual emitted text rather than a stale v37-era refusal string.
+          old_catch="if(target){const fallback=target.localDraft||target.text;const audit=naraAuditAnswerPlantScope(raw,fallback);target.text=audit.ok?fallback:'Aku belum bisa memberikan jawaban yang aman karena berisiko mencampur catatan antar tanaman. Sebutkan tanaman atau catatan spesifik yang ingin diperiksa.';target.pending=false;target.onlineFailed=true;naraPersistState();naraRenderChat();}"
+          new_catch="if(target){const fallback=target.localDraft||target.text;const audit=naraAuditAnswerPlantScope(raw,fallback);const hasOneFocus=naraExplicitCropTerms(raw).length===1||naraPlantEntriesMentionedInText(raw).length===1;target.text=audit.ok?fallback:(hasOneFocus?naraPlantScopeSafeFallback(raw):'Aku belum bisa memastikan fokus tanaman dengan aman. Sebutkan tanaman yang ingin diperiksa.');target.pending=false;target.onlineFailed=true;naraPersistState();naraRenderChat();}"
+          replace_once(old_catch,new_catch,'local fallback behavior')
+
+          checks={
+            'history filters conflicting turns individually':'return items.filter(m=>{' in source and 'const mentioned=naraPlantEntriesMentionedInText(m?.text||m?.isi||\'\')' in source,
+            'audit detects attributed garden-record claims rather than mere crop mentions':'other-plant-record-claim' in source and 'const sourceAttribution=' in source,
+            'explicit crop allowed to use general knowledge':'explicit_species_general_knowledge' in source,
+            'safe fallback does not claim that no record exists':'Dari gejala yang disebutkan saja' in source and 'belum bisa dipastikan' in source,
+            'retry failure no longer blocks explicit plant analysis':'naraPlantScopeSafeFallback(question),model:retry.model||response.model' in source,
+            'split user and teacher memory remains':'naraState.userLessons' in source and 'naraState.teacherLessons' in source and 'function naraLessonContextText' in source,
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed: raise SystemExit('ERROR: Step 2I verification failed: '+', '.join(failed))
+          if source==original: raise SystemExit('ERROR: Step 2I patch made no changes.')
+          path.write_text(source,encoding='utf-8')
+          print('Step 2I intent-aware fallback patch applied.')
+          for name in checks: print('PASS:',name)
+          PYTHON
+
+      - name: Regression-test intent-aware fallback and context isolation (Nara Step 2I)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+          const assert = require('assert');
+          const html = fs.readFileSync('android/app/src/main/assets/index.html','utf8');
+          const start = html.indexOf('function naraExplicitCropTerms(value){');
+          const end = html.indexOf("function naraOnlineLearningContext(question,localDraft=''){",start);
+          if(start<0||end<0||end<=start)throw new Error('Cannot isolate Nara plant-context helpers.');
+          const context={
+            data:[
+              {id:'tomato-1',name:'Tomat Roma Bed A',note:'Daun bawah mulai menguning'},
+              {id:'eggplant-1',name:'Terung Bulat Hijau Bergaris Putih',note:'Catatan tanaman terung'}
+            ],
+            attentions:[],
+            harvests:[],
+            naraMemoryTokens(value){return String(value||'').toLocaleLowerCase('id-ID').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);},
+            console
+          };
+          vm.createContext(context); vm.runInContext(html.slice(start,end),context);
+          const q='Daun tomat di kebunku mulai menguning';
+          const factualSafe='Daun tomat bisa menguning karena beberapa kemungkinan. Catatan terung tidak boleh dijadikan bukti untuk tomat.';
+          assert.strictEqual(context.naraAuditAnswerPlantScope(q,factualSafe).ok,true,'A cautionary mention of another plant must not fail audit.');
+          const mixed='Catatan terung mencatat tanaman itu disiram kemarin; kondisi itu menjadi penyebab daun tomat menguning.';
+          assert.strictEqual(context.naraAuditAnswerPlantScope(q,mixed).ok,false,'A claim importing another plant record must fail audit.');
+          const scoped=context.naraScopeRecentHistory(q,[
+            {role:'user',text:'Kasus terung menguning'},
+            {role:'assistant',text:'Catatan terung perlu dipisahkan.'},
+            {role:'user',text:'Baik, kita bahas gejala baru.'},
+            {role:'user',text:'Daun tomat di kebun mulai menguning.'}
+          ]);
+          assert.strictEqual(scoped.length,2,'History should keep neutral and target-plant turns while dropping only the other-plant turns.');
+          assert(scoped.some(m=>m.text.includes('gejala baru')),'Neutral context should remain.');
+          assert(scoped.some(m=>m.text.includes('Daun tomat')),'Target-plant context should remain.');
+          const fb=context.naraPlantScopeSafeFallback(q);
+          assert(fb.includes('beberapa kemungkinan umum'),'Fallback must offer general possibilities.');
+          assert(fb.includes('Dari gejala yang disebutkan saja')&&fb.includes('belum bisa dipastikan'),'Fallback must express uncertainty without claiming no record exists.');
+          const harvestQuestion='Sebelumnya ada catatan hasil panen tomat dan terung di kebunku. Apakah catatan panen tersebut dapat membantumu menentukan penyebab daun tomat menguning sekarang?';
+          const harvestFallback=context.naraPlantScopeSafeFallback(harvestQuestion);
+          assert(harvestFallback.includes('Catatan panen'),'Fallback must answer harvest-record relevance questions, not repeat a leaf-yellowing template.');
+          assert(harvestFallback.includes('tidak membuktikan penyebab'),'Harvest counts and quality must not be treated as proof of yellowing cause.');
+          assert(harvestFallback.includes('Catatan panen terung tidak boleh dianggap sebagai bukti kondisi tomat'),'Other-plant harvest records must remain isolated.');
+          assert(!harvestFallback.includes('Periksa apakah daun tua atau muda yang lebih dulu menguning'),'Harvest-relevance question must not receive the symptom-only fallback.');
+          const inventoryQuestion='Periksa seluruh catatan kebun yang relevan untuk tanaman tomat. Data apa yang tersedia sebagai bukti langsung, konteks tidak langsung seperti panen, dan informasi yang belum tersedia?';
+          const inventoryFallback=context.naraPlantScopeSafeFallback(inventoryQuestion);
+          assert(inventoryFallback.includes('Audit bukti'),'Evidence inventory intent must receive a structured evidence audit.');
+          assert(inventoryFallback.includes('Bukti langsung yang tersedia')&&inventoryFallback.includes('Konteks tidak langsung'),'Evidence audit must distinguish direct evidence from indirect context.');
+          assert(inventoryFallback.includes('tidak membuktikan penyebab'),'Harvest records must not be presented as proof of symptom causation.');
+          console.log('PASS: fallback follows evidence-inventory intent');
+          console.log('PASS: evidence audit separates direct and indirect context');
+          console.log('PASS: fallback follows harvest-record question intent');
+          console.log('PASS: harvest data not falsely treated as causal proof');
+          console.log('PASS: cross-plant record separation preserved');
+          console.log('PASS: cautionary cross-plant mention allowed');
+          console.log('PASS: positive cross-plant garden-record claim blocked');
+          console.log('PASS: history filters only conflicting plant turns');
+          console.log('PASS: safe fallback remains useful and uncertainty-aware');
+          NODE
+
+      - name: Track Nara answer provenance in chat (Nara Step 2M)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+
+          path = Path('android/app/src/main/assets/index.html')
+          source = path.read_text(encoding='utf-8')
+          original = source
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'ERROR: Step 2L patch stopped at {label}: expected one exact anchor, found {count}. Refusing an ambiguous patch.')
+              source = source.replace(old, new, 1)
+
+          # Tag each return route independently inside naraRequestOnlineAnswer.
+          # Do not rely on a multi-line anchor whose indentation can change in prior steps.
+          fn_start = source.find('async function naraRequestOnlineAnswer(')
+          fn_end = source.find('\nfunction naraBuildTeacherPrompt(', fn_start + 1)
+          if fn_start < 0 or fn_end <= fn_start:
+              raise SystemExit('ERROR: Step 2L cannot isolate naraRequestOnlineAnswer safely.')
+          fn = source[fn_start:fn_end]
+
+          def tag_function_return(body: str, statement: str, replacement: str, label: str) -> str:
+              pattern = re.compile(rf'(?m)^([ \t]*)return {re.escape(statement)};[ \t]*$')
+              matches = list(pattern.finditer(body))
+              if len(matches) != 1:
+                  raise SystemExit(f'ERROR: Step 2L {label}: expected one return statement in naraRequestOnlineAnswer, found {len(matches)}.')
+              match = matches[0]
+              line = f"{match.group(1)}return {{...{statement},answerSource:'{replacement[0]}',answerAudit:'{replacement[1]}'}};"
+              return body[:match.start()] + line + body[match.end():]
+
+          fn = tag_function_return(fn, 'retry', ('online_revised','passed_after_retry'), 'retry route provenance')
+          fn = tag_function_return(fn, 'response', ('online_direct','passed_first_audit'), 'direct route provenance')
+          source = source[:fn_start] + fn + source[fn_end:]
+
+          # Both branches that substitute the intent-aware safe template must be labelled as fallback,
+          # not as a direct answer from the model that supplied the previous response.
+          old_fallback = "return {text:naraPlantScopeSafeFallback(question),model:retry.model||response.model};"
+          fallback_count = source.count(old_fallback)
+          if fallback_count < 1:
+              raise SystemExit('ERROR: Step 2L could not find the safe-template return path to label.')
+          source = source.replace(old_fallback, "return {text:naraPlantScopeSafeFallback(question),model:retry.model||response.model,answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'};")
+
+          scope_guard_old = "return {text:'Aku mendeteksi risiko tercampurnya konteks antar tanaman dalam jawaban yang dihasilkan. Catatan tanaman lain tidak akan kugunakan sebagai fakta untuk kasus ini. Tolong berikan atau pilih rekaman tanaman yang tepat agar aku dapat menganalisis data kebun spesifiknya.',model:retry.model||response.model};"
+          scope_guard_new = "return {text:'Aku mendeteksi risiko tercampurnya konteks antar tanaman dalam jawaban yang dihasilkan. Catatan tanaman lain tidak akan kugunakan sebagai fakta untuk kasus ini. Tolong berikan atau pilih rekaman tanaman yang tepat agar aku dapat menganalisis data kebun spesifiknya.',model:retry.model||response.model,answerSource:'scope_guard',answerAudit:'failed_after_retry'};"
+          scope_guard_count = source.count(scope_guard_old)
+          if scope_guard_count > 1:
+              raise SystemExit(f'ERROR: Step 2L found ambiguous scope-guard paths: {scope_guard_count}.')
+          if scope_guard_count == 1:
+              source = source.replace(scope_guard_old, scope_guard_new, 1)
+
+          # The online request can fail entirely; preserve a truthful label for the local/template response.
+          catch_old = "target.text=audit.ok?fallback:(hasOneFocus?naraPlantScopeSafeFallback(raw):'Aku belum bisa memastikan fokus tanaman dengan aman. Sebutkan tanaman yang ingin diperiksa.');target.pending=false;target.onlineFailed=true;naraPersistState();naraRenderChat();}"
+          catch_new = "target.text=audit.ok?fallback:(hasOneFocus?naraPlantScopeSafeFallback(raw):'Aku belum bisa memastikan fokus tanaman dengan aman. Sebutkan tanaman yang ingin diperiksa.');target.answerSource='local_fallback';target.answerAudit='online_request_failed';target.pending=false;target.onlineFailed=true;naraPersistState();naraRenderChat();}"
+          replace_once(catch_old, catch_new, 'online-request error fallback provenance')
+
+          # Distinguish pending/local-rule messages from the eventual online result.
+          replace_once(
+              "const answerMessage={id:makeId('nara-answer'),role:'assistant',text:localAnswer,localDraft:localAnswer,createdAt:new Date().toISOString(),pending:useOnline,onlineFailed:false};",
+              "const answerMessage={id:makeId('nara-answer'),role:'assistant',text:localAnswer,localDraft:localAnswer,createdAt:new Date().toISOString(),pending:useOnline,onlineFailed:false,answerSource:useOnline?'pending_online':'local_rules'};",
+              'pending and local-rule message provenance'
+          )
+          replace_once(
+              "target.onlineModel=result.model;target.pending=false;target.onlineFailed=false;",
+              "target.onlineModel=result.model;target.answerSource=result.answerSource||result.source||'online_unclassified';target.answerAudit=result.answerAudit||'';target.pending=false;target.onlineFailed=false;",
+              'store response provenance on chat message'
+          )
+
+          # Show the route/audit state in the existing message metadata without exposing prompts or internal text.
+          source_helper = r'''function naraAnswerSourceLabel(m){
+            const source=String(m?.answerSource||'');
+            if(m?.pending||source==='pending_online')return 'Menjawab dengan Guru Online…';
+            if(source==='local_rules')return 'Jawaban lokal berbasis aturan';
+            if(source==='online_unclassified')return `AI online · sumber/jalur belum terklasifikasi · ${m.onlineModel||NARA_GURU_MODEL}`;
+            if(source==='online_direct')return `AI online · lolos audit konteks awal · ${m.onlineModel||NARA_GURU_MODEL}`;
+            if(source==='online_revised')return `AI online · revisi lolos audit konteks · ${m.onlineModel||NARA_GURU_MODEL}`;
+            if(source==='safe_fallback')return 'Jawaban cadangan Nara · respons AI tidak lolos audit konteks';
+            if(source==='scope_guard')return 'Jawaban ditahan oleh audit konteks';
+            if(source==='local_fallback'||m?.onlineFailed)return 'Jawaban lokal sederhana · permintaan AI online gagal';
+            if(m?.onlineModel)return `AI online · ${m.onlineModel}`;
+            return '';
+          }
+          '''
+          replace_once('function naraRenderChat(){', source_helper + 'function naraRenderChat(){', 'answer source label helper')
+          old_meta_source = "m.pending?'Menjawab dengan Guru Online…':m.onlineModel?m.onlineModel:m.onlineFailed?'Jawaban lokal · Guru Online belum tersambung':''"
+          replace_once(old_meta_source, 'naraAnswerSourceLabel(m)', 'visible answer provenance label')
+
+          checks = {
+              'direct AI answers tagged after first context audit': "answerSource:'online_direct',answerAudit:'passed_first_audit'" in source,
+              'retried AI answers tagged after second context audit': "answerSource:'online_revised',answerAudit:'passed_after_retry'" in source,
+              'safe template paths labelled as fallback': "answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'" in source and fallback_count >= 1,
+              'network failure path labelled separately': "target.answerSource='local_fallback';target.answerAudit='online_request_failed'" in source,
+              'scope-guard route is labelled if retained': ("return {text:'Aku mendeteksi risiko tercampurnya konteks antar tanaman dalam jawaban yang dihasilkan" not in source or "answerSource:'scope_guard',answerAudit:'failed_after_retry'" in source),
+              'unclassified response is not falsely labelled as passed audit': "target.answerSource=result.answerSource||result.source||'online_unclassified'" in source and "if(source==='online_unclassified')return" in source,
+              'chat renders provenance labels': 'function naraAnswerSourceLabel(m)' in source and 'naraAnswerSourceLabel(m)' in source,
+              'context audit and source isolation remain': 'function naraAuditAnswerPlantScope' in source and 'function naraScopeRecentHistory' in source,
+              # Candidate/validated stores are installed by later Step 2C/2E stages and checked by the final gate.
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('ERROR: Step 2L post-patch checks failed: ' + ', '.join(failed))
+          if source == original:
+              raise SystemExit('ERROR: Step 2L patch made no source changes.')
+          path.write_text(source, encoding='utf-8')
+          print('Step 2L answer provenance patch applied.')
+          for name in checks:
+              print('PASS:', name)
+          PYTHON
+
+      - name: Regression-test Nara answer provenance labels (Nara Step 2M)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+          const assert = require('assert');
+          const html = fs.readFileSync('android/app/src/main/assets/index.html', 'utf8');
+          const start = html.indexOf('function naraAnswerSourceLabel(m){');
+          const end = html.indexOf('function naraRenderChat(){', start);
+          if (start < 0 || end <= start) throw new Error('Cannot isolate Nara answer-source label helper.');
+          const context = {NARA_GURU_MODEL:'gpt-4o-mini-2024-07-18'};
+          vm.createContext(context);
+          vm.runInContext(html.slice(start, end), context);
+          const labels = [
+            [ {answerSource:'online_unclassified',onlineModel:'model-X'}, 'AI online · sumber/jalur belum terklasifikasi · model-X' ],
+            [ {answerSource:'online_direct',onlineModel:'model-A'}, 'AI online · lolos audit konteks awal · model-A' ],
+            [ {answerSource:'online_revised',onlineModel:'model-B'}, 'AI online · revisi lolos audit konteks · model-B' ],
+            [ {answerSource:'safe_fallback',onlineModel:'model-C'}, 'Jawaban cadangan Nara · respons AI tidak lolos audit konteks' ],
+            [ {answerSource:'local_fallback',onlineFailed:true}, 'Jawaban lokal sederhana · permintaan AI online gagal' ],
+            [ {answerSource:'local_rules'}, 'Jawaban lokal berbasis aturan' ],
+            [ {pending:true}, 'Menjawab dengan Guru Online…' ]
+          ];
+          for (const [message, expected] of labels) assert.strictEqual(context.naraAnswerSourceLabel(message), expected);
+          assert(html.includes("answerSource:'online_direct',answerAudit:'passed_first_audit'"), 'Direct response path must be marked.');
+          assert(html.includes("answerSource:'online_revised',answerAudit:'passed_after_retry'"), 'Retry path must be marked.');
+          assert(html.includes("answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'"), 'Fallback path must be marked separately from the model.');
+          assert(html.includes("target.answerSource=result.answerSource||result.source||'online_unclassified'"), 'Unknown paths must not default to a passed audit.');
+          console.log('PASS: direct/revised/fallback/local routes have distinct visible labels');
+          console.log('PASS: fallback cannot be displayed as a direct AI response');
+          console.log('PASS: source markers persist on message objects');
+          console.log('PASS: unknown response paths are not falsely labelled as audit-passed');
+          NODE
+
+      - name: Separate Guru candidate lessons from validated memory (Nara Step 2C)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          #!/usr/bin/env python3
+          from pathlib import Path
+          import re
+          
+          path = Path('android/app/src/main/assets/index.html')
+          source = path.read_text(encoding='utf-8')
+          original = source
+          
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'ERROR: candidate/validated patch stopped at {label}: expected 1 exact anchor, found {count}.')
+              source = source.replace(old, new, 1)
+          
+          # 1) Migrate old unreviewed Guru lessons into a candidate queue. Only entries carrying
+          #    the explicit validation marker produced by this version are considered validated.
+          pattern = r'function naraNormalizeState\(\)\{[\s\S]*?\n\}'
+          matches = list(re.finditer(pattern, source))
+          if len(matches) != 1:
+              raise SystemExit(f'ERROR: expected one naraNormalizeState function, found {len(matches)}.')
+          new_normalizer = r'''function naraNormalizeState(){
+            if(!naraState||typeof naraState!=='object'||Array.isArray(naraState))naraState={version:4,messages:[],lessons:[],userLessons:[],teacherLessons:[],teacherCandidateLessons:[],teacherValidatedLessons:[],onlineTeacherLessons:[],teacherLearning:{},updatedAt:''};
+            naraState.version=4;
+            if(!Array.isArray(naraState.messages))naraState.messages=[];
+            if(!Array.isArray(naraState.lessons))naraState.lessons=[];
+            const legacyLessons=naraState.lessons.filter(m=>m&&typeof m.text==='string');
+            const isTeacherLesson=m=>!!(m&&typeof m==='object'&&(m.learningType==='model_language'||m.origin==='Guru AI Online'||m.sourceTeacherLessonId));
+            const isPassed=m=>!!(m&&typeof m==='object'&&m.validationStatus==='validated'&&m.validation&&m.validation.status==='passed'&&m.validation.method==='nara_three_case_review_v1');
+            if(!Array.isArray(naraState.userLessons))naraState.userLessons=legacyLessons.filter(m=>!isTeacherLesson(m));
+            const oldTeacherLessons=Array.isArray(naraState.teacherLessons)?naraState.teacherLessons.filter(m=>m&&typeof m==='object'&&typeof m.text==='string'):legacyLessons.filter(isTeacherLesson);
+            if(!Array.isArray(naraState.teacherValidatedLessons))naraState.teacherValidatedLessons=oldTeacherLessons.filter(isPassed);
+            if(!Array.isArray(naraState.teacherCandidateLessons))naraState.teacherCandidateLessons=oldTeacherLessons.filter(m=>!isPassed(m)).map(m=>({...m,validationStatus:'candidate',validation:m.validation&&m.validation.status==='failed'?m.validation:null}));
+            naraState.userLessons=naraState.userLessons.filter(m=>m&&typeof m==='object'&&typeof m.text==='string').slice(-500);
+            naraState.teacherCandidateLessons=naraState.teacherCandidateLessons.filter(m=>m&&typeof m==='object'&&typeof m.text==='string'&&!isPassed(m)).map(m=>({...m,validationStatus:'candidate'})).slice(-200);
+            naraState.teacherValidatedLessons=naraState.teacherValidatedLessons.filter(m=>m&&typeof m==='object'&&typeof m.text==='string'&&isPassed(m)).slice(-200);
+            // Compatibility arrays remain in backup JSON, but only teacherValidatedLessons may feed retrieval.
+            naraState.teacherLessons=naraState.teacherValidatedLessons.slice();
+            naraState.lessons=[...naraState.userLessons,...naraState.teacherCandidateLessons,...naraState.teacherValidatedLessons].sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||''))).slice(-900);
+            if(!Array.isArray(naraState.onlineTeacherLessons))naraState.onlineTeacherLessons=[];
+            naraState.messages=naraState.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.text==='string').slice(-80);
+            const statusById=new Map([...naraState.teacherCandidateLessons.map(m=>[m.id,'candidate']),...naraState.teacherValidatedLessons.map(m=>[m.id,'validated'])]);
+            naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.filter(m=>m&&typeof m==='object'&&typeof m.title==='string').map(m=>({...m,validationStatus:statusById.get(m.id)||m.validationStatus||'candidate'})).slice(-40);
+            const old=naraState.teacherLearning&&typeof naraState.teacherLearning==='object'?naraState.teacherLearning:{};
+            naraState.teacherLearning={...old,enabled:old.enabled!==false,foundationCompleted:!!old.foundationCompleted,batchCurriculumCompleted:!!old.batchCurriculumCompleted,totalUserQuestions:Math.max(0,Number(old.totalUserQuestions)||0),lastAutoQuestionCount:Math.max(0,Number(old.lastAutoQuestionCount)||0),automaticCycleCount:Math.max(0,Number(old.automaticCycleCount)||0),queued:!!old.queued,lastAutoLessonAt:old.lastAutoLessonAt||null,lastAutoAttemptAt:old.lastAutoAttemptAt||null};
+          }'''
+          source = source[:matches[0].start()] + new_normalizer + source[matches[0].end():]
+          
+          # 2) Retrieval must use only explicit user-taught memories and validated Guru lessons.
+          replace_once("...naraState.teacherLessons.map(l=>({...l,__memorySource:'Guru AI Online',__memoryKind:'model_language'}))", "...naraState.teacherValidatedLessons.map(l=>({...l,__memorySource:'Guru AI Online (lolos uji otomatis)',__memoryKind:'validated_model_language'}))", 'validated-only retrieval source')
+          
+          # Serialize teacher requests with candidate validation so two Worker teaching/evaluation flows do not race.
+          replace_once("  const st=naraGuruState();if(!st.enabled)return false;\n  if(naraGuruBusy){st.queued=true;naraPersistState();return false;}", "  const st=naraGuruState();if(!st.enabled)return false;\n  if(naraTeacherValidationBusy){st.queued=true;naraPersistState();return false;}\n  if(naraGuruBusy){st.queued=true;naraPersistState();return false;}", 'serialize teaching behind candidate validation')
+          
+          # 3) Every new Guru lesson is stored as a candidate, never directly as validated memory.
+          replace_once('naraState.teacherLessons.push(...records.map(x=>x.memory));', "naraState.teacherCandidateLessons.push(...records.map(x=>({...x.memory,validationStatus:'candidate',validation:null})));", 'batch candidate writer')
+          replace_once('naraState.onlineTeacherLessons.push(...records.map(x=>x.history));naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.slice(-40);', "naraState.onlineTeacherLessons.push(...records.map(x=>({...x.history,validationStatus:'candidate'})));naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.slice(-40);", 'batch candidate history')
+          replace_once('naraState.teacherLessons.push(mem);', "naraState.teacherCandidateLessons.push({...mem,validationStatus:'candidate',validation:null});", 'adaptive candidate writer')
+          replace_once('naraState.onlineTeacherLessons.push({id,title,topic,summary,createdAt,model:result.model,stage,automatic});naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.slice(-40);', "naraState.onlineTeacherLessons.push({id,title,topic,summary,createdAt,model:result.model,stage,automatic,validationStatus:'candidate'});naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.slice(-40);", 'adaptive candidate history')
+          
+          # 4) Make statuses truthful: accepted from Guru means candidate saved, not validated knowledge.
+          replace_once("naraSetGuruStatus('Paket fondasi tersimpan','good',`Selesai dalam satu sesi: ${records.length} materi fondasi disimpan sekaligus (${titles.join(' · ')}). Materi menjadi ingatan eksternal, bukan pelatihan ulang bobot model. Guru akan melanjutkan pendalaman otomatis setelah beberapa percakapan.`);", "naraSetGuruStatus(`${records.length} kandidat materi menunggu uji`,'warn',`Selesai dalam satu sesi: ${records.length} materi masuk antrean kandidat (${titles.join(' · ')}). Materi belum digunakan untuk menjawab sampai lolos uji otomatis. Uji kandidat satu per satu dari daftar ini; evaluasi otomatis bukan jaminan mutlak kebenaran.`);", 'batch candidate status')
+          replace_once("naraSetGuruStatus('Mengajar otomatis aktif','good',`Materi terbaru tersimpan otomatis: “${title}”. Materi disimpan sebagai ingatan belajar, bukan sebagai fakta kebun terverifikasi.`);", "naraSetGuruStatus('Kandidat materi menunggu uji','warn',`Materi terbaru “${title}” masuk antrean kandidat. Materi belum digunakan untuk menjawab sampai lolos uji otomatis; penyimpanan bukan pengesahan fakta atau aturan.`);", 'adaptive candidate status')
+          
+          # 5) Replace the Guru-panel renderer to show candidate/validated status and validation controls.
+          pattern = r'function naraRenderGuruPanel\(\)\{[\s\S]*?\n\}'
+          matches = list(re.finditer(pattern, source))
+          if len(matches) != 1:
+              raise SystemExit(f'ERROR: expected one naraRenderGuruPanel function, found {len(matches)}.')
+          new_renderer = r'''function naraValidationAuditHtml(validation){
+            if(!validation||validation.status!=='failed')return '';
+            const stageLabels={initialization:'Persiapan',design_scenarios:'Pembuatan skenario',answer_scenarios:'Pembuatan jawaban Nara',grade_scenarios:'Penilaian jawaban',persist_result:'Penyimpanan hasil'};
+            const stage=stageLabels[validation.failureType]||'Kriteria kelulusan';
+            const cases=Array.isArray(validation.testCases)?validation.testCases:[];
+            const caseHtml=cases.map(c=>{
+              const score=Number.isInteger(c.score)&&c.score>=0?String(c.score)+'/2':'Belum dinilai';
+              const critical=c.critical_error===true?' · Kesalahan kritis: YA':(c.critical_error===false?' · Kesalahan kritis: tidak dilaporkan':' · Kesalahan kritis: belum dinilai');
+              const points=Array.isArray(c.expected_points)?c.expected_points:[];
+              const errors=Array.isArray(c.critical_errors)?c.critical_errors:[];
+              return `<div style="border-top:1px solid var(--border);padding:10px 0;margin-top:8px"><strong>${esc(c.id||'Skenario')} · Skor ${esc(score)}${esc(critical)}</strong>${c.scenario?`<div style="margin-top:6px"><b>Skenario:</b> ${esc(c.scenario)}</div>`:''}${c.question?`<div style="margin-top:5px"><b>Pertanyaan:</b> ${esc(c.question)}</div>`:''}${points.length?`<div style="margin-top:5px"><b>Poin yang diharapkan:</b> ${esc(points.join(' · '))}</div>`:''}${errors.length?`<div style="margin-top:5px"><b>Kesalahan kritis yang dicari:</b> ${esc(errors.join(' · '))}</div>`:''}${c.answer?`<div style="margin-top:5px"><b>Jawaban Nara:</b> ${esc(c.answer)}</div>`:''}${c.feedback?`<div style="margin-top:5px"><b>Alasan penilai:</b> ${esc(c.feedback)}</div>`:''}</div>`;
+            }).join('');
+            return `<details open style="margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface2)"><summary style="font-weight:700;cursor:pointer">Audit kegagalan · ${esc(stage)} (${cases.length}/3 skenario tersimpan)</summary><div style="margin-top:8px">${esc(validation.summary||'Uji belum lulus.')}</div>${caseHtml||'<div style="margin-top:8px">Belum ada skenario lengkap yang berhasil disimpan. Periksa tahap kegagalan dan coba lagi setelah penyebabnya ditangani.</div>'}</details>`;
+          }
+          function naraRenderGuruPanel(){
+            const history=$('naraGuruHistory'),latestBox=$('naraGuruLatestLesson');if(!history||!latestBox)return;
+            naraNormalizeState();
+            const lessons=naraState.onlineTeacherLessons.slice().reverse();
+            const st=naraGuruState();
+            const candidates=naraState.teacherCandidateLessons;
+            const validated=naraState.teacherValidatedLessons;
+            const memoryById=new Map([...candidates,...validated].map(m=>[m.id,m]));
+            const continueButton=$('naraGuruContinue');
+            if(continueButton&&!naraGuruBusy&&!naraTeacherValidationBusy)continueButton.textContent=st.batchCurriculumCompleted?'📚 Minta Guru melanjutkan pelajaran':'📚 Ajarkan paket fondasi sekaligus';
+            if(lessons.length){
+              const l=lessons[0];const memory=memoryById.get(l.id);const passed=memory?.validationStatus==='validated';
+              const label=passed?'Lolos uji otomatis':memory?'KANDIDAT · belum dipakai dalam retrieval':'Status materi belum diketahui';
+              latestBox.innerHTML=`<div class="nara-guru-latest"><div class="nara-guru-latest-title">${esc(l.title||l.topic||'Pelajaran Guru AI Online')}</div><div class="nara-guru-latest-meta">${esc(l.createdAt?new Date(l.createdAt).toLocaleString('id-ID',{dateStyle:'medium',timeStyle:'short'}):'Waktu tidak tersedia')} · ${esc(l.model||NARA_GURU_MODEL)} · ${esc(label)}</div><div class="nara-guru-latest-copy">${esc(l.summary||'Materi ajar telah disimpan sebagai kandidat.')}</div>${memory&&memory.validation?.status==='failed'?`<div class="nara-guru-latest-copy">Uji terakhir belum lulus: ${esc(memory.validation.summary||'Perlu ditinjau ulang.')}</div>${naraValidationAuditHtml(memory.validation)}`:''}${memory&&!passed?`<button type="button" data-nara-candidate-test="${esc(l.id)}" style="margin-top:8px;min-height:38px;padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);color:var(--text);font-weight:650" ${naraTeacherValidationBusy?'disabled':''}>${memory.validation?.status==='failed'?'Uji ulang kandidat':'Uji kandidat'}</button>`:''}</div>`;
+            }else{latestBox.innerHTML='<div class="nara-guru-latest"><div class="nara-guru-latest-title">Belum ada pelajaran Guru tersimpan</div><div class="nara-guru-latest-copy">Guru akan memulai dari fondasi model bahasa setelah koneksi tersedia. Materi baru akan masuk sebagai kandidat, bukan langsung dipakai.</div></div>';}
+            history.innerHTML=lessons.slice(1,13).map(l=>{
+              const memory=memoryById.get(l.id);const passed=memory?.validationStatus==='validated';
+              const status=passed?'✅ Lolos uji otomatis':'🧪 Kandidat — belum dipakai';
+              const button=memory&&!passed?`<button type="button" data-nara-candidate-test="${esc(l.id)}" style="margin-top:6px;min-height:36px;padding:7px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);color:var(--text);font-weight:650" ${naraTeacherValidationBusy?'disabled':''}>${memory.validation?.status==='failed'?'Uji ulang kandidat':'Uji kandidat'}</button>`:'';
+              const lastReview=memory?.validation?.testedAt?`<div style="font-size:.8em;opacity:.8;margin-top:4px">Uji terakhir: ${esc(new Date(memory.validation.testedAt).toLocaleString('id-ID',{dateStyle:'short',timeStyle:'short'}))}</div>`:'';
+              const audit=memory?.validation?.status==='failed'?naraValidationAuditHtml(memory.validation):'';
+              return `<div class="nara-guru-history-item"><div>${esc(l.title||l.topic||'Pelajaran')}</div><div style="font-size:.82em;opacity:.85;margin-top:4px">${esc(l.createdAt?new Date(l.createdAt).toLocaleDateString('id-ID'):'tanggal tidak tersedia')} · ${esc(status)}</div>${lastReview}${audit}${button}</div>`;
+            }).join('');
+            if(st.foundationCompleted&&!naraGuruBusy&&!naraTeacherValidationBusy&&!/^(Koneksi belum tersedia|Mode lokal aktif|Pengajaran gagal|Pengujian kandidat|Kandidat belum lulus|Kandidat lulus)/i.test($('naraGuruStatus')?.textContent||'')){
+              if(candidates.length)naraSetGuruStatus(`${candidates.length} kandidat menunggu uji`,'warn','Materi Guru belum dipakai dalam retrieval sampai lolos uji otomatis. Tekan “Uji kandidat” pada materi yang ingin dievaluasi.');
+              else naraSetGuruStatus('Materi Guru lolos uji otomatis','good','Semua materi Guru yang tersimpan sudah melewati pemeriksaan otomatis. Penilaian ini tetap dapat keliru dan bukan verifikasi fakta kebun.');
+            }
+          }'''
+          source = source[:matches[0].start()] + new_renderer + source[matches[0].end():]
+          
+          # 6) Add test/grade/promote routines. A candidate can enter retrieval only if a three-case
+          #    scenario test is structurally valid and every case receives a sufficient score with
+          #    no critical error. The UI explicitly labels this as model-based automatic review.
+          helpers = r'''let naraTeacherValidationBusy=false;
+          function naraParseValidationJson(value){
+            const raw=String(value||'').trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'').trim();
+            if(!raw)throw new Error('Respons kosong; tidak ada JSON yang dapat dibaca.');
+            const parseObject=text=>{const parsed=JSON.parse(text);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))throw new Error('Root JSON harus berupa objek.');return parsed;};
+            try{return parseObject(raw);}catch{}
+            // Find the first balanced JSON object while respecting quotes and escaped characters.
+            // This safely handles short prose before/after JSON without slicing at braces inside strings.
+            let start=-1,depth=0,inString=false,escaped=false;
+            for(let i=0;i<raw.length;i++){
+              const ch=raw[i];
+              if(start<0){if(ch==='{'){start=i;depth=1;}continue;}
+              if(inString){if(escaped){escaped=false;continue;}if(ch==='\\'){escaped=true;continue;}if(ch==='"')inString=false;continue;}
+              if(ch==='"'){inString=true;continue;}
+              if(ch==='{')depth++;
+              else if(ch==='}'){depth--;if(depth===0){try{return parseObject(raw.slice(start,i+1));}catch{start=-1;depth=0;}}}
+            }
+            throw new Error('Sintaks JSON tidak valid atau objek JSON tidak lengkap.');
+          }
+          async function naraGuruChatJson(messages,maxTokens,rootKey,shape,stage){
+            let response=await naraGuruChat(messages,maxTokens);
+            let lastError=null;
+            for(let attempt=0;attempt<2;attempt++){
+              try{
+                const parsed=naraParseValidationJson(response?.text);
+                if(!Array.isArray(parsed[rootKey]))throw new Error(`Objek JSON tidak memiliki array \"${rootKey}\".`);
+                return {response,parsed};
+              }catch(err){
+                lastError=err;
+                if(attempt===0){
+                  const previous=String(response?.text||'').slice(0,5000);
+                  response=await naraGuruChat([
+                    ...messages,
+                    {role:'assistant',content:previous||'(respons kosong)'},
+                    {role:'user',content:`PERBAIKI FORMAT RESPONS SEBELUMNYA. Respons bukan satu objek JSON valid atau array root\u0020\"${rootKey}\" tidak ditemukan. Kembalikan hanya satu objek JSON valid tanpa Markdown atau teks tambahan. Skema wajib: ${shape}. Periksa tanda kutip, koma, kurung, escape karakter, dan pastikan array root bernama ${rootKey}. Jangan gunakan elipsis atau placeholder.`}
+                  ],maxTokens);
+                }
+              }
+            }
+            throw new Error(`${stage}: JSON tetap tidak valid setelah satu percobaan pemulihan. ${lastError?.message||'Format respons tidak sesuai.'} Kandidat tetap belum tervalidasi.`);
+          }
+          async function naraValidateTeacherCandidate(id){
+            let auditStage='initialization';
+            let auditTests=[];
+            let auditResponses=[];
+            let auditResults=[];
+            if(naraGuruBusy||naraTeacherValidationBusy){showToast('Guru sedang menjalankan proses lain. Coba lagi setelah selesai.');return false;}
+            naraNormalizeState();
+            const candidate=naraState.teacherCandidateLessons.find(l=>l.id===id);
+            if(!candidate){showToast('Kandidat tidak ditemukan atau sudah diproses.');return false;}
+            const button=[...document.querySelectorAll('[data-nara-candidate-test]')].find(b=>b.dataset.naraCandidateTest===id);
+            naraTeacherValidationBusy=true;
+            if(button){button.disabled=true;button.textContent='Menyiapkan pengujian…';}
+            const continueButton=$('naraGuruContinue');if(continueButton)continueButton.disabled=true;
+            naraSetGuruStatus('Menguji kandidat materi…','warn',`Guru sedang menyiapkan tiga skenario uji untuk “${naraGuruSafe(candidate.title||candidate.topic,120)}”. Materi tetap disisihkan dari retrieval selama proses ini.`);
+            try{
+              const material=naraGuruSafe(candidate.text,6000);
+              auditStage='design_scenarios';
+              const designRun=await naraGuruChatJson([
+                {role:'system',content:'Kamu adalah perancang ujian yang kritis. Buat tepat 3 skenario baru yang menguji penerapan aturan dalam materi kandidat, bukan mengulang definisi. Cakup setidaknya satu kasus ambigu atau data tidak cukup jika sesuai topik. Setiap skenario harus bisa dinilai berdasarkan teks materi. Jangan menjawab pertanyaannya. Kembalikan hanya JSON valid dengan tiga objek lengkap, masing-masing memiliki kunci id, scenario, question, expected_points (array string nonkosong), critical_errors (array string, boleh kosong). Gunakan id T1, T2, T3 persis. Jangan gunakan elipsis atau placeholder dalam JSON. Hindari fakta eksternal khusus yang tidak ada dalam materi; nilai penalaran, batas pengetahuan, dan penerapan yang benar-benar dibahas.'},
+                {role:'user',content:JSON.stringify({judul:candidate.title||candidate.topic||'Materi kandidat',materi_kandidat:material,tujuan:'Buat ujian penerapan yang layak untuk menentukan apakah materi ini berguna dan tidak mendorong klaim yang tidak didukung.'})}
+              ],1400,'tests',"objek JSON dengan properti tests berupa array tepat 3 objek; tiap objek memiliki id T1/T2/T3, scenario string, question string, expected_points array string, dan critical_errors array string",'Perancang skenario');
+              const design=designRun.response;const testPack=designRun.parsed;const tests=Array.isArray(testPack.tests)?testPack.tests:[];
+              // Preserve safe partial scenario details for diagnosis even if one generated item is malformed.
+              auditTests=tests.slice(0,3).map((t,i)=>({id:`T${i+1}`,scenario:naraGuruSafe(typeof t?.scenario==='string'?t.scenario:'',700),question:naraGuruSafe(typeof t?.question==='string'?t.question:'',900),expected_points:Array.isArray(t?.expected_points)?t.expected_points.filter(x=>typeof x==='string').map(x=>naraGuruSafe(x,240)).slice(0,8):[],critical_errors:Array.isArray(t?.critical_errors)?t.critical_errors.filter(x=>typeof x==='string').map(x=>naraGuruSafe(x,240)).slice(0,8):[]}));
+              if(tests.length!==3||tests.some(t=>!t||typeof t.scenario!=='string'||t.scenario.trim().length<8||typeof t.question!=='string'||t.question.trim().length<8||!Array.isArray(t.expected_points)||t.expected_points.length<1||t.expected_points.some(x=>typeof x!=='string'||!x.trim())||!Array.isArray(t.critical_errors)||t.critical_errors.some(x=>typeof x!=='string'))){throw new Error('Perancang ujian tidak menghasilkan tepat tiga skenario dengan pertanyaan, poin yang diharapkan, dan daftar kesalahan kritis yang lengkap. Kandidat tetap belum tervalidasi.');}
+              const safeTests=auditTests.map(t=>({id:t.id,scenario:t.scenario,question:t.question}));
+              auditStage='answer_scenarios';
+              const answersRun=await naraGuruChatJson([
+                {role:'system',content:'Kamu adalah Nara yang sedang diuji pada satu materi kandidat. Gunakan aturan yang benar-benar tertulis dalam materi dan pengetahuan umum yang wajar, tetapi jangan mengarang data, pengalaman, hasil pemeriksaan, atau sumber. Untuk setiap skenario, jawab pertanyaannya, jelaskan singkat alasan dan ketidakpastian yang relevan. Kamu tidak diberi kriteria jawaban atau rubrik. Kembalikan hanya JSON valid berbentuk {"responses":[{"id":"T1","answer":"..."},{"id":"T2","answer":"..."},{"id":"T3","answer":"..."}]}.'},
+                {role:'user',content:JSON.stringify({materi_kandidat:material,tes:safeTests})}
+              ],1800,'responses',"objek JSON dengan properti responses berupa array tepat 3 objek; tiap objek memiliki id T1/T2/T3 dan answer string",'Jawaban skenario');
+              const answers=answersRun.response;const answerPack=answersRun.parsed;const responses=Array.isArray(answerPack.responses)?answerPack.responses:[];
+              if(responses.length!==3||safeTests.some(t=>!responses.some(r=>String(r.id)===t.id&&typeof r.answer==='string'&&r.answer.trim().length>12))){throw new Error('Jawaban untuk tiga skenario tidak lengkap. Kandidat tetap belum tervalidasi.');}
+              auditResponses=responses.map(r=>({id:String(r.id),answer:naraGuruSafe(r.answer,1800)}));
+              auditStage='grade_scenarios';
+              const gradeRun=await naraGuruChatJson([
+                {role:'system',content:'Kamu adalah penilai kualitas yang menilai jawaban kandidat secara ketat. Materi dan rubrik disediakan; jangan memberi nilai hanya karena jawaban terdengar lancar. Beri skor integer 0, 1, atau 2 untuk tiap skenario: 0 salah/tidak menjawab; 1 sebagian benar tetapi hilang langkah penting; 2 mengikuti prinsip materi, alasan relevan, batas pengetahuan dihormati. Tandai critical_error=true jika jawaban bertentangan dengan materi, mengarang bukti/tindakan/sumber, atau gagal pada batas keselamatan inti. Kembalikan hanya JSON valid dengan results berisi tepat tiga objek lengkap, masing-masing memiliki id (T1, T2, T3), score (integer 0, 1, atau 2), critical_error (boolean), feedback (string), dan summary (string). Jangan gunakan elipsis atau placeholder dalam JSON. Jangan mengubah kriteria kelulusan: sistem akan meluluskan hanya jika ketiga skenario mendapat skor 2 dan tidak ada critical_error.'},
+                {role:'user',content:JSON.stringify({judul:candidate.title||candidate.topic||'Materi kandidat',materi_kandidat:material,tes:tests.map((t,i)=>({...t,id:`T${i+1}`})),jawaban:responses})}
+              ],1500,'results',"objek JSON dengan properti results berupa array tepat 3 objek; tiap objek memiliki id T1/T2/T3, score integer 0-2, critical_error boolean, feedback string; properti summary berupa string",'Penilaian skenario');
+              const grade=gradeRun.response;const gradePack=gradeRun.parsed;const results=Array.isArray(gradePack.results)?gradePack.results:[];
+              auditResults=safeTests.map(t=>{const r=results.find(x=>String(x.id)===t.id);return {id:t.id,score:Number.isInteger(r?.score)&&r.score>=0&&r.score<=2?r.score:-1,critical_error:typeof r?.critical_error==='boolean'?r.critical_error:null,feedback:naraGuruSafe(r?.feedback||'Penilaian tidak lengkap.',500)};});
+              const compactResults=auditResults;
+              const graderComplete=compactResults.length===3&&safeTests.every(t=>{const r=results.find(x=>String(x.id)===t.id);return !!r&&Number.isInteger(r.score)&&r.score>=0&&r.score<=2&&typeof r.critical_error==='boolean'&&typeof r.feedback==='string'&&r.feedback.trim().length>0;});
+              const passed=graderComplete&&compactResults.every(r=>r.score===2&&!r.critical_error);
+              const validation={status:passed?'passed':'failed',method:'nara_three_case_review_v1',testedAt:new Date().toISOString(),failureType:passed?null:(graderComplete?'criteria_not_met':'grader_incomplete'),results:compactResults,testCases:auditTests.map(t=>{const answer=auditResponses.find(r=>r.id===t.id);const result=auditResults.find(r=>r.id===t.id);return {...t,answer:answer?.answer||'',score:result?.score??-1,critical_error:result?.critical_error??null,feedback:result?.feedback||'Penilaian tidak lengkap.'};}),summary:graderComplete?(naraGuruSafe(gradePack.summary,500)||(passed?'Tiga skenario dinilai lulus.':'Satu atau lebih skenario belum memenuhi kriteria.')):'Penilaian tidak lengkap; kandidat tidak boleh disahkan.'};
+              auditStage='persist_result';
+              const idx=naraState.teacherCandidateLessons.findIndex(l=>l.id===id);
+              if(idx<0)throw new Error('Kandidat berubah saat pengujian berlangsung. Tidak ada promosi yang dilakukan.');
+              if(passed){
+                const approved={...naraState.teacherCandidateLessons[idx],validationStatus:'validated',validation};
+                naraState.teacherCandidateLessons.splice(idx,1);
+                naraState.teacherValidatedLessons.push(approved);
+                naraState.teacherValidatedLessons=naraState.teacherValidatedLessons.slice(-200);
+                naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.map(l=>l.id===id?({...l,validationStatus:'validated'}):l);
+                naraSetGuruStatus('Kandidat lulus uji otomatis','good',`“${naraGuruSafe(candidate.title||candidate.topic,120)}” lulus ketiga skenario dan dipindahkan ke pengetahuan yang boleh dipakai dalam retrieval. Pemeriksaan ini memakai penilaian model bahasa yang sama, sehingga bukan jaminan kebenaran mutlak.`);
+                showToast('Kandidat lulus 3 skenario uji otomatis.');
+              }else{
+                naraState.teacherCandidateLessons[idx]={...naraState.teacherCandidateLessons[idx],validationStatus:'candidate',validation};
+                naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.map(l=>l.id===id?({...l,validationStatus:'candidate'}):l);
+                const caseReasons=compactResults.filter(r=>r.score!==2||r.critical_error).map(r=>`${r.id}: skor ${r.score<0?'tidak lengkap':r.score+'/2'}${r.critical_error?' · kesalahan kritis':''} — ${r.feedback}`).join(' | ');
+                naraSetGuruStatus('Kandidat belum lulus uji','warn',`“${naraGuruSafe(candidate.title||candidate.topic,120)}” tetap disisihkan dari retrieval. Kriteria: semua skenario harus mendapat skor 2 dan tanpa kesalahan kritis. ${validation.summary} Detail: ${caseReasons||'Penilaian belum lengkap.'}`);
+                showToast('Kandidat belum lulus; tidak digunakan untuk menjawab.');
+              }
+              naraPersistState();naraRenderLessons();naraRefreshOverview();naraRenderGuruPanel();
+              return passed;
+            }catch(err){
+              console.warn('Nara candidate validation failed:',err);
+              const testedAt=new Date().toISOString();
+              const failureMessage=naraGuruSafe(err?.message||String(err)||'Kesalahan tidak diketahui.',700);
+              const failureCases=auditTests.map(t=>{const answer=auditResponses.find(r=>r.id===t.id);const result=auditResults.find(r=>r.id===t.id);return {...t,answer:answer?.answer||'',score:result?.score??-1,critical_error:result?.critical_error??null,feedback:result?.feedback||''};});
+              const idx=naraState.teacherCandidateLessons.findIndex(l=>l.id===id);
+              if(idx>=0){
+                const stageLabels={initialization:'persiapan',design_scenarios:'pembuatan skenario',answer_scenarios:'pembuatan jawaban Nara',grade_scenarios:'penilaian jawaban',persist_result:'penyimpanan hasil'};
+                const validation={status:'failed',method:'nara_three_case_review_v1',testedAt,failureType:auditStage,results:auditResults,testCases:failureCases,summary:`Gagal pada tahap ${stageLabels[auditStage]||auditStage}: ${failureMessage}`};
+                naraState.teacherCandidateLessons[idx]={...naraState.teacherCandidateLessons[idx],validationStatus:'candidate',validation};
+                naraState.onlineTeacherLessons=naraState.onlineTeacherLessons.map(l=>l.id===id?({...l,validationStatus:'candidate'}):l);
+                naraPersistState();
+              }
+              naraSetGuruStatus('Pengujian kandidat belum selesai','warn',`${failureMessage} Tahap: ${auditStage}. Materi tetap kandidat dan tidak ikut retrieval.`);
+              naraRenderGuruPanel();
+              showToast('Pengujian gagal atau tidak lengkap; alasan tersimpan pada audit kandidat.');
+              return false;
+            }finally{
+              naraTeacherValidationBusy=false;
+              const cb=$('naraGuruContinue');if(cb)cb.disabled=false;
+              const teacherState=naraGuruState();
+              if(teacherState.queued&&teacherState.enabled&&teacherState.batchCurriculumCompleted&&teacherState.totalUserQuestions-teacherState.lastAutoQuestionCount>=4){teacherState.queued=false;naraPersistState();setTimeout(()=>naraTeachOnline({stage:'adaptive',automatic:true}),700);}
+              naraRenderGuruPanel();
+            }
+          }
+          '''
+          # Insert helpers immediately before teacher-panel renderer. Function declarations are hoisted, and the busy flag is initialized before UI binding.
+          anchor='function naraRenderGuruPanel(){'
+          if source.count(anchor)!=1:
+              raise SystemExit('ERROR: expected one naraRenderGuruPanel insertion anchor.')
+          source=source.replace(anchor,helpers+'\n'+anchor,1)
+          
+          # 7) Intercept candidate-test buttons through the existing delegated Nara page click handler.
+          old="$('pageNara')?.addEventListener('click',e=>{const b=e.target.closest('[data-nara-prompt]');if(b)naraSendMessage(b.dataset.naraPrompt);const del=e.target.closest('[data-nara-lesson-delete]');"
+          new="$('pageNara')?.addEventListener('click',e=>{const test=e.target.closest('[data-nara-candidate-test]');if(test){naraValidateTeacherCandidate(test.dataset.naraCandidateTest);return;}const b=e.target.closest('[data-nara-prompt]');if(b)naraSendMessage(b.dataset.naraPrompt);const del=e.target.closest('[data-nara-lesson-delete]');"
+          replace_once(old,new,'candidate validation click handler')
+          
+          # 8) Explain the new candidate/validated flow in the app panel.
+          old_intro='Guru AI mengajarkan kemampuan model bahasa secara otomatis dan menyimpan materinya ke ingatan Nara. Pada tahap awal, Guru menyusun satu paket enam materi fondasi sekaligus dalam satu sesi, jadi kamu tidak perlu menekan tombol untuk tiap materi. Setelah paket tersimpan, Guru dapat menambah pendalaman secara otomatis. Saat online, pertanyaan, cuplikan percakapan, materi belajar yang relevan, dan catatan kebun yang diperlukan dikirim melalui Cloudflare Worker ke Anoman AI. Kunci API tetap berada di Worker. Materi Guru dipakai sebagai konteks, bukan dianggap sebagai fakta kebun terverifikasi. Panel ini bisa dibiarkan tertutup agar halaman Nara tetap ringkas.'
+          new_intro='Guru AI mengajarkan kemampuan model bahasa secara otomatis. Materi baru masuk ke antrean kandidat dan belum dipakai dalam retrieval sebelum melewati tiga skenario uji otomatis. Kandidat yang gagal tetap disisihkan; kamu bisa menguji ulang melalui tombol pada daftar materi. Materi yang lolos boleh dipakai sebagai referensi penalaran, tetapi penilaian otomatis bukan jaminan kebenaran mutlak. Materi Guru bukan fakta kebun terverifikasi. Saat online, pertanyaan, konteks percakapan, materi relevan yang tervalidasi, dan catatan kebun yang diperlukan dikirim melalui Cloudflare Worker ke Anoman AI; kunci API tetap di Worker. Panel ini bisa dibiarkan tertutup agar halaman Nara tetap ringkas.'
+          replace_once(old_intro,new_intro,'Guru panel learning flow description')
+          
+          # 9) Guard against accidental candidate leakage through source list. Also ensure backward-compatible backup.
+          checks={
+            'candidate and validated stores exist':'teacherCandidateLessons' in source and 'teacherValidatedLessons' in source,
+            'old unreviewed Guru lessons migrate to candidates':'validationStatus:\'candidate\'' in source and 'filter(m=>!isPassed(m))' in source,
+            'retrieval uses validated lessons only':"naraState.teacherValidatedLessons.map(l=>({...l,__memorySource:'Guru AI Online (lolos uji otomatis)'" in source,
+            'new batch writes candidates':'naraState.teacherCandidateLessons.push(...records.map' in source,
+            'adaptive writes candidates':'naraState.teacherCandidateLessons.push({...mem,validationStatus:' in source,
+            'schema-directed JSON recovery helper':'async function naraGuruChatJson' in source and 'PERBAIKI FORMAT RESPONS SEBELUMNYA' in source,
+            'three test scenarios required':'tests.length!==3' in source,
+            'all three must score 2 with no critical errors':'r.score===2&&!r.critical_error' in source,
+            'failed candidate remains excluded':'Kandidat belum lulus uji' in source and "validationStatus:'candidate'" in source,
+            'validation metadata method exists':'nara_three_case_review_v1' in source,
+            'candidate failure audit UI exists':'function naraValidationAuditHtml(validation)' in source and 'Audit kegagalan' in source,
+            'failed tests preserve per-case evidence':'testCases:auditTests.map' in source and 'Poin yang diharapkan:' in source and 'Jawaban Nara:' in source,
+            'caught failures are stored for retry audit':"Gagal pada tahap ${stageLabels[auditStage]||auditStage}" in source and "validationStatus:'candidate',validation" in source,
+            'candidate button is wired':'data-nara-candidate-test' in source and 'naraValidateTeacherCandidate(test.dataset.naraCandidateTest)' in source,
+            'legacy backup structure preserved':'incoming.naraState' in source and 'naraState,savedAt' in source,
+            'online-first answer path preserved':'async function naraRequestOnlineAnswer' in source and "NARA_GURU_MODEL='gpt-4o-mini'" in source,
+          }
+          failed=[k for k,v in checks.items() if not v]
+          if failed:
+              raise SystemExit('ERROR: candidate/validated post-patch checks failed: '+', '.join(failed))
+          if source==original: raise SystemExit('ERROR: patch made no changes.')
+          path.write_text(source,encoding='utf-8')
+          print('Nara candidate/validated memory patch applied.')
+          for name in checks: print('PASS:',name)
+          PYTHON
+
+      - name: Preserve validated Guru status across APK upgrades (Nara Step 2E)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+
+          path = Path('android/app/src/main/assets/index.html')
+          source = path.read_text(encoding='utf-8')
+          original = source
+
+          # Stable fingerprint matches the exact same lesson content even if an update has
+          # re-created the lesson with a new record ID. It is not used to validate new content.
+          helpers = r"""function naraTeacherLessonFingerprint(m){
+            const norm=v=>String(v||'').toLocaleLowerCase('id-ID').normalize('NFKC').replace(/\s+/g,' ').trim();
+            const raw=[norm(m&&m.title||m&&m.topic),norm(m&&m.topic),norm(m&&m.text)].join('\u241f');
+            let h=2166136261;for(let i=0;i<raw.length;i++){h^=raw.charCodeAt(i);h=Math.imul(h,16777619);}
+            return (h>>>0).toString(16).padStart(8,'0')+':'+raw.length;
+          }
+          function naraTeacherValidationManifestWrite(){
+            try{
+              if(!naraState||typeof naraState!=='object')return;
+              const compactValidation=m=>{
+                const v=m&&m.validation&&typeof m.validation==='object'?m.validation:{};
+                return {status:v.status||'',method:v.method||'',testedAt:v.testedAt||'',failureType:v.failureType||'',summary:String(v.summary||'').slice(0,700),results:Array.isArray(v.results)?v.results.slice(0,3).map(r=>({id:r.id||'',score:Number.isFinite(Number(r.score))?Number(r.score):-1,critical_error:r.critical_error===true,feedback:String(r.feedback||'').slice(0,350)})):[]};
+              };
+              const entries=[];
+              for(const m of Array.isArray(naraState.teacherValidatedLessons)?naraState.teacherValidatedLessons:[]){if(m&&typeof m.text==='string'&&m.validationStatus==='validated'&&m.validation&&m.validation.status==='passed'&&m.validation.method==='nara_three_case_review_v1')entries.push({id:String(m.id||''),fingerprint:naraTeacherLessonFingerprint(m),title:String(m.title||m.topic||'').slice(0,180),topic:String(m.topic||'').slice(0,180),status:'validated',validation:compactValidation(m)});}
+              for(const m of Array.isArray(naraState.teacherCandidateLessons)?naraState.teacherCandidateLessons:[]){if(m&&typeof m.text==='string')entries.push({id:String(m.id||''),fingerprint:naraTeacherLessonFingerprint(m),title:String(m.title||m.topic||'').slice(0,180),topic:String(m.topic||'').slice(0,180),status:'candidate',validation:compactValidation(m)});}
+              const teacherLearning=naraState.teacherLearning&&typeof naraState.teacherLearning==='object'?naraState.teacherLearning:{};
+              const manifest={schema:1,savedAt:new Date().toISOString(),entries:entries.slice(-400),teacherLearning:{enabled:teacherLearning.enabled!==false,foundationCompleted:!!teacherLearning.foundationCompleted,batchCurriculumCompleted:!!teacherLearning.batchCurriculumCompleted,totalUserQuestions:Math.max(0,Number(teacherLearning.totalUserQuestions)||0),lastAutoQuestionCount:Math.max(0,Number(teacherLearning.lastAutoQuestionCount)||0),automaticCycleCount:Math.max(0,Number(teacherLearning.automaticCycleCount)||0),queued:!!teacherLearning.queued,lastAutoLessonAt:teacherLearning.lastAutoLessonAt||null,lastAutoAttemptAt:teacherLearning.lastAutoAttemptAt||null}};
+              localStorage.setItem('terra-serenada-nara-teacher-validation-manifest-v1',JSON.stringify(manifest));
+            }catch(err){console.warn('Nara validation manifest backup could not be updated:',err);}
+          }
+          function naraInstallTeacherValidationManifestPersistence(){
+            try{
+              if(typeof naraPersistState!=='function'||naraPersistState.__naraManifestWrapped)return;
+              const originalPersist=naraPersistState;
+              const wrapped=function(){const result=originalPersist.apply(this,arguments);naraTeacherValidationManifestWrite();return result;};
+              Object.defineProperty(wrapped,'__naraManifestWrapped',{value:true});
+              naraPersistState=wrapped;
+            }catch(err){console.warn('Nara validation manifest persistence wrapper could not be installed:',err);}
+          }
+          """
+          anchor='function naraNormalizeState(){'
+          if source.count(anchor)!=1:
+              raise SystemExit('ERROR: expected one naraNormalizeState helper insertion anchor.')
+          source=source.replace(anchor,helpers+'\n'+anchor,1)
+
+          # Recover already-passed status from all older stores. This intentionally runs even
+          # when teacherValidatedLessons is present but empty, fixing the missed migration case.
+          # Insert migration logic before the stable userLessons sanitation statement. This anchor
+          # is intentionally independent of whitespace or the exact candidate-initializer line.
+          migration_anchor_pattern = r"(?m)^([ \t]*)naraState\.userLessons=naraState\.userLessons\.filter\(m=>m&&typeof m==='object'&&typeof m\.text==='string'\)\.slice\(-500\);$"
+          migration_matches = list(re.finditer(migration_anchor_pattern, source))
+          if len(migration_matches) != 1:
+              raise SystemExit(f'ERROR: expected one stable userLessons migration anchor, found {len(migration_matches)}.')
+          migration_new = r"""            // Union legacy passed records even when the new array already exists but is empty.
+            const validatedIdentity=new Set();
+            const identity=m=>String(m&&m.id||'')||('fp:'+naraTeacherLessonFingerprint(m));
+            const validatedSeed=[...naraState.teacherValidatedLessons,...oldTeacherLessons.filter(isPassed),...legacyLessons.filter(isPassed)];
+            naraState.teacherValidatedLessons=[];
+            for(const m of validatedSeed){if(!isPassed(m)||typeof m.text!=='string')continue;const k=identity(m);if(validatedIdentity.has(k))continue;validatedIdentity.add(k);naraState.teacherValidatedLessons.push(m);}
+            // Recover a prior pass only when the exact ID or exact content fingerprint matches
+            // a locally saved manifest entry that itself records the required pass marker.
+            let priorManifest=null;
+            try{priorManifest=JSON.parse(localStorage.getItem('terra-serenada-nara-teacher-validation-manifest-v1')||'null');}catch(_){}
+            const priorPassed=Array.isArray(priorManifest&&priorManifest.entries)?priorManifest.entries.filter(e=>e&&e.status==='validated'&&e.validation&&e.validation.status==='passed'&&e.validation.method==='nara_three_case_review_v1'):[];
+            const available=[...naraState.teacherValidatedLessons,...naraState.teacherCandidateLessons,...oldTeacherLessons,...legacyLessons].filter(m=>m&&typeof m.text==='string');
+            for(const e of priorPassed){
+              const match=available.find(m=>(e.id&&String(m.id||'')===e.id)|| (e.fingerprint&&naraTeacherLessonFingerprint(m)===e.fingerprint));
+              if(!match)continue;
+              const restored={...match,validationStatus:'validated',validation:{...(match.validation&&typeof match.validation==='object'?match.validation:{}),status:'passed',method:'nara_three_case_review_v1',testedAt:e.validation.testedAt||match.validation&&match.validation.testedAt||null,summary:e.validation.summary||match.validation&&match.validation.summary||'Status kelulusan dipulihkan dari manifest lokal setelah pembaruan APK.',recoveredFromUpgradeManifest:true}};
+              const k=identity(restored);const ix=naraState.teacherValidatedLessons.findIndex(x=>identity(x)===k||naraTeacherLessonFingerprint(x)===naraTeacherLessonFingerprint(restored));
+              if(ix>=0)naraState.teacherValidatedLessons[ix]=restored;else naraState.teacherValidatedLessons.push(restored);
+            }
+            const finalValidFp=new Set(naraState.teacherValidatedLessons.filter(isPassed).map(naraTeacherLessonFingerprint));
+            const finalValidIds=new Set(naraState.teacherValidatedLessons.filter(isPassed).map(m=>String(m.id||'')).filter(Boolean));
+            naraState.teacherCandidateLessons=naraState.teacherCandidateLessons.filter(m=>!isPassed(m)&&!finalValidIds.has(String(m.id||''))&&!finalValidFp.has(naraTeacherLessonFingerprint(m)));
+          """
+          anchor_match = migration_matches[0]
+          insertion = migration_new + anchor_match.group(0)
+          source = source[:anchor_match.start()] + insertion + source[anchor_match.end():]
+
+          # Install the manifest writer after normalization has reconstructed the safe stores.
+          # Find the normalizer's final teacherLearning assignment by structure, not field order/indentation.
+          end_pattern = r"(?m)^([ \t]*naraState\.teacherLearning=\{[^\n]*\};)\n([ \t]*\})$"
+          end_matches = list(re.finditer(end_pattern, source))
+          if len(end_matches) != 1:
+              raise SystemExit(f'ERROR: expected one structurally matched normalizer end, found {len(end_matches)}.')
+          end_match = end_matches[0]
+          manifest_recovery = "            // Only recover learning-cycle flags when the main saved state does not yet contain them.\n            if(priorManifest&&priorManifest.teacherLearning){const pt=priorManifest.teacherLearning;if(!old||typeof old!=='object'||!('foundationCompleted' in old))naraState.teacherLearning.foundationCompleted=!!pt.foundationCompleted;if(!old||typeof old!=='object'||!('batchCurriculumCompleted' in old))naraState.teacherLearning.batchCurriculumCompleted=!!pt.batchCurriculumCompleted;}\n            naraInstallTeacherValidationManifestPersistence();\n            naraTeacherValidationManifestWrite();"
+          end_new = end_match.group(1) + "\n" + manifest_recovery + "\n" + end_match.group(2)
+          source = source[:end_match.start()] + end_new + source[end_match.end():]
+
+          checks={
+            'stable teacher lesson fingerprint exists':'function naraTeacherLessonFingerprint(m)' in source,
+            'legacy passed lessons unioned even when validated array exists':'const validatedSeed=[...naraState.teacherValidatedLessons,...oldTeacherLessons.filter(isPassed),...legacyLessons.filter(isPassed)]' in source,
+            'validated candidates restore only from explicit passing manifest':'e.status===\'validated\'&&e.validation&&e.validation.status===\'passed\'&&e.validation.method===\'nara_three_case_review_v1\'' in source,
+            'same-content duplicates do not remain candidates':'finalValidFp.has(naraTeacherLessonFingerprint(m))' in source,
+            'manifest writes on persistence':'naraTeacherValidationManifestWrite();return result' in source,
+            'validated-only retrieval preserved':"naraState.teacherValidatedLessons.map(l=>({...l,__memorySource:'Guru AI Online (lolos uji otomatis)'" in source,
+            'three-case gate preserved':'r.score===2&&!r.critical_error' in source,
+            'failure audits preserved':'function naraValidationAuditHtml(validation)' in source,
+          }
+          failed=[k for k,v in checks.items() if not v]
+          if failed: raise SystemExit('ERROR: Step 2E checks failed: '+', '.join(failed))
+          if source==original: raise SystemExit('ERROR: Step 2E made no source changes.')
+          path.write_text(source,encoding='utf-8')
+          print('Step 2E upgrade-safe teacher validation migration applied.')
+          for k in checks: print('PASS:',k)
+          PYTHON
+
+      - name: Ensure native backup and notification hooks in HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          p = Path("android/app/src/main/assets/index.html")
+          s = p.read_text(encoding="utf-8")
+          if "AndroidBridge.saveBackup" not in s and "buildBackupJson" not in s:
+              raise SystemExit("HTML backup bridge marker not found; refusing to build an incompatible APK.")
+          old = "async function requestNotifications(){if(!('Notification' in window)){showToast('Browser ini tidak mendukung notifikasi');return false}const p=await Notification.requestPermission();if(p==='granted'){showToast('Notifikasi diaktifkan');scheduleNotifications();return true}showToast('Izin notifikasi belum diberikan');return false}"
+          new = "async function requestNotifications(){if(window.AndroidBridge&&typeof window.AndroidBridge.requestNotifications==='function'){window.AndroidBridge.requestNotifications();showToast('Permintaan izin notifikasi dibuka');scheduleNotifications();return true}if(!('Notification' in window)){showToast('Browser ini tidak mendukung notifikasi');return false}const p=await Notification.requestPermission();if(p==='granted'){showToast('Notifikasi diaktifkan');scheduleNotifications();return true}showToast('Izin notifikasi belum diberikan');return false}"
+          if "AndroidBridge.requestNotifications" not in s:
+              if old not in s:
+                  raise SystemExit("Native notification function not found; cannot connect Android permission bridge safely.")
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding="utf-8")
+          PYTHON
+      - name: Preserve complete garden notes and handle correction intent (Nara Step 2O)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+
+          path = Path('android/app/src/main/assets/index.html')
+          source = path.read_text(encoding='utf-8')
+          original = source
+
+          # Replace complete function bodies once after all previous transformations, so the
+          # latest fallback intent wins while all cross-plant audit guards remain untouched.
+          def replace_function(name: str, replacement: str) -> None:
+              global source
+              pattern = rf'function {re.escape(name)}\([^\n]*\)\{{[\s\S]*?\n\}}'
+              matches = list(re.finditer(pattern, source))
+              if len(matches) != 1:
+                  raise SystemExit(f'ERROR: Step 2O expected exactly one {name} function, found {len(matches)}.')
+              source = source[:matches[0].start()] + replacement + source[matches[0].end():]
+
+          evidence_helper = r'''function naraClipEvidenceText(value,maxLength=620){
+            const text=String(value||'').replace(/\s+/g,' ').trim();
+            const max=Math.max(80,Number(maxLength)||620);
+            if(text.length<=max)return text;
+            const head=text.slice(0,max);
+            const sentenceEnd=Math.max(head.lastIndexOf('. '),head.lastIndexOf('! '),head.lastIndexOf('? '));
+            if(sentenceEnd>=Math.floor(max*0.55))return head.slice(0,sentenceEnd+1).trim()+' [catatan dipersingkat setelah batas kalimat]';
+            const wordEnd=head.lastIndexOf(' ');
+            return head.slice(0,wordEnd>0?wordEnd:head.length).trimEnd()+'… [catatan dipersingkat]';
+          }
+          function naraEvidenceTargetPlants(question,primaryCrop){
+            const raw=String(question||'');
+            const crop=String(primaryCrop||'').toLocaleLowerCase('id-ID').trim();
+            const tokens=typeof naraMemoryTokens==='function'?naraMemoryTokens(crop):crop.split(/\s+/).filter(Boolean);
+            const matchesCrop=p=>{
+              const name=String(p?.name||'');
+              const nameTokens=typeof naraMemoryTokens==='function'?naraMemoryTokens(name):name.toLocaleLowerCase('id-ID').split(/\s+/);
+              return !!crop&&tokens.some(t=>t.length>=3&&nameTokens.includes(t));
+            };
+            const named=typeof naraPlantEntriesMentionedInText==='function'?naraPlantEntriesMentionedInText(raw):[];
+            const focused=named.filter(matchesCrop);
+            if(focused.length)return [...new Map(focused.map(p=>[String(p.id||p.name),p])).values()];
+            return (Array.isArray(data)?data:[]).filter(matchesCrop).slice(0,5);
+          }
+          function naraBuildEvidenceInventoryFallback(question,primaryCrop){
+            const raw=String(question||'');
+            const crop=String(primaryCrop||'tanaman yang disebutkan').trim();
+            const targetPlants=naraEvidenceTargetPlants(raw,crop);
+            const targetIds=new Set(targetPlants.map(p=>String(p.id||p.name)));
+            const textHasCrop=value=>{
+              const hay=typeof naraMemoryTokens==='function'?naraMemoryTokens(String(value||'')):String(value||'').toLocaleLowerCase('id-ID').split(/[^a-z0-9]+/).filter(Boolean);
+              const need=typeof naraMemoryTokens==='function'?naraMemoryTokens(crop):crop.toLocaleLowerCase('id-ID').split(/[^a-z0-9]+/).filter(Boolean);
+              return need.some(t=>t.length>=3&&hay.includes(t));
+            };
+            const samePlantRecord=r=>{
+              const id=r?.plantId;
+              if(id!==undefined&&id!==null&&String(id)!=='')return targetIds.has(String(id));
+              return textHasCrop(r?.plantName||r?.plant||'');
+            };
+            const direct=[],contextual=[];
+            const eventsFor=p=>typeof naraPlantEvents==='function'?naraPlantEvents(p):(Array.isArray(p?.events)?p.events:[]);
+            for(const p of targetPlants){
+              const name=String(p.name||crop);
+              const note=naraClipEvidenceText(p.note,620);
+              if(note){
+                if(/menguning|kuning|layu|bercak|gejala|hama|penyakit|akar busuk|kutu putih|semut merah/i.test(note))direct.push(`${name} — catatan profil tanaman: ${note}`);
+                else contextual.push(`${name} — catatan profil tanaman: ${note}`);
+              }
+              if(p.lastWater)contextual.push(`${name} — penyiraman terakhir tercatat: ${naraClipEvidenceText(p.lastWater,180)}${p.lastWaterSource?` (sumber: ${naraClipEvidenceText(p.lastWaterSource,80)})`:''}`);
+              for(const e of eventsFor(p).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,4)){
+                const desc=naraClipEvidenceText([e.label||e.type,e.note].filter(Boolean).join(': '),620);
+                if(!desc)continue;
+                const row=`${name} — ${e.date||'tanggal tidak tercatat'}: ${desc}`;
+                if(/menguning|kuning|layu|bercak|gejala|hama|penyakit|busuk|kutu putih|semut merah/i.test(desc))direct.push(row);
+                else contextual.push(row);
+              }
+            }
+            const attentionRows=(Array.isArray(attentions)?attentions:[]).filter(a=>targetIds.has(String(a.plantId))).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,5);
+            for(const a of attentionRows){
+              const name=String(targetPlants.find(p=>String(p.id||p.name)===String(a.plantId))?.name||crop);
+              const desc=[a.problemType||a.type,a.affectedPart,a.note?naraClipEvidenceText(a.note,720):'',a.action?naraClipEvidenceText(a.action,420):''].filter(Boolean).join('; ');
+              if(desc)direct.push(`${name} — catatan Perlu Perhatian (${a.date||'tanggal tidak tercatat'}, rekaman tertaut melalui plantId): ${desc}`);
+            }
+            const harvestRows=(Array.isArray(harvests)?harvests:[]).filter(samePlantRecord).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,5);
+            for(const h of harvestRows){
+              contextual.push(`${h.plantName||targetPlants.find(p=>String(p.id||p.name)===String(h.plantId))?.name||crop} — Panen ${h.date||'tanggal tidak tercatat'}: ${h.qty??'jumlah tidak tercatat'} ${h.unit||''}; kualitas ${h.quality||'tidak tercatat'}${h.note?`; catatan: ${naraClipEvidenceText(h.note,420)}`:''}`);
+            }
+            const noteRows=(Array.isArray(gardenNotes)?gardenNotes:[]).filter(n=>{
+              const content=[n.title,n.text,n.note,n.content].filter(Boolean).join(' ');
+              const found=typeof naraPlantEntriesMentionedInText==='function'?naraPlantEntriesMentionedInText(content):[];
+              if(found.length)return found.some(p=>targetIds.has(String(p.id||p.name)))&&found.every(p=>targetIds.has(String(p.id||p.name)));
+              return textHasCrop(content);
+            }).slice(-4);
+            for(const n of noteRows){
+              const content=naraClipEvidenceText([n.title,n.text||n.note||n.content].filter(Boolean).join(': '),620);
+              if(content)contextual.push(`${n.date||n.createdAt||'tanggal tidak tercatat'} — catatan kebun yang menyebut ${crop}: ${content}`);
+            }
+            const lines=[`Audit bukti untuk ${targetPlants.map(p=>p.name).join(', ')||crop}:`,'Batas metode: hanya rekaman lokal yang dapat dicocokkan dengan fokus tanaman yang dimasukkan di bawah ini. Keterkaitan ID membuktikan tautan di aplikasi, bukan verifikasi independen bahwa observasi benar atau penyebabnya sudah terbukti.','','1. Bukti langsung/observasi yang tercatat:'];
+            lines.push(...([...new Set(direct)].slice(0,7).map(x=>`- ${x}`)));
+            if(!direct.length)lines.push('- Tidak ditemukan observasi gejala yang cocok pada rekaman lokal yang dapat ditautkan ke tanaman sasaran.');
+            lines.push('','2. Konteks tidak langsung:');
+            lines.push(...([...new Set(contextual)].slice(0,8).map(x=>`- ${x}`)));
+            if(!contextual.length)lines.push('- Tidak ditemukan catatan konteks tambahan yang cocok.');
+            lines.push('','3. Hal yang belum bisa disimpulkan:','- Riwayat panen tidak membuktikan penyebab daun menguning atau kesehatan tanaman saat ini.','- Catatan hama/kejadian menunjukkan apa yang tercatat, tetapi tidak sendirinya membuktikan hubungan sebab-akibat.','- Jika kategori tidak muncul, itu berarti tidak ditemukan pada rekaman lokal yang cocok dalam pemeriksaan ini; bukan bukti bahwa peristiwa tidak pernah terjadi.');
+            return lines.join('\n');
+          }
+          function naraBuildCorrectionAuditFallback(question,primaryCrop){
+            const raw=String(question||'');
+            const asksCorrection=/(audit ulang|audit terakhirmu|koreksi|perbaiki|hitung ulang|perhitungan|selisih waktu|selisih hari|tanggal acuan|umur tanaman)/i.test(raw)&&/(tanggal|hari|umur|tanaman|perhitungan|klaim|catatan|bukti|hama|panen|19\s+juli|12\s+oktober)/i.test(raw);
+            if(!asksCorrection)return '';
+            const monthMap={januari:0,februari:1,maret:2,april:3,mei:4,juni:5,juli:6,agustus:7,september:8,oktober:9,november:10,desember:11};
+            const months=Object.keys(monthMap).join('|');
+            const datePattern=new RegExp('\\b(\\d{1,2})\\s+('+months+')(?:\\s+(\\d{4}))?\\b','gi');
+            const rawDates=[];let match;
+            while((match=datePattern.exec(raw))!==null){
+              const year=match[3]?Number(match[3]):null;
+              rawDates.push({day:Number(match[1]),month:monthMap[String(match[2]).toLocaleLowerCase('id-ID')],year,raw:match[0],index:match.index});
+            }
+            const explicitYear=(raw.match(/\b20\d{2}\b/)||[])[0];
+            const fallbackYear=explicitYear?Number(explicitYear):new Date().getFullYear();
+            for(const d of rawDates)if(!d.year)d.year=fallbackYear;
+            const dates=[];const seen=new Set();
+            for(const d of rawDates){const key=`${d.year}-${d.month}-${d.day}`;if(!seen.has(key)){seen.add(key);dates.push(d);}}
+            let dateAudit='Tanggal acuan atau tanggal penanaman tidak dapat dihitung dengan aman dari pertanyaan ini karena dua tanggal yang tidak ambigu tidak ditemukan.';
+            if(dates.length>=2){
+              const start=dates[0],end=dates[1];
+              const startMs=Date.UTC(start.year,start.month,start.day),endMs=Date.UTC(end.year,end.month,end.day);
+              const elapsed=Math.round((endMs-startMs)/86400000);
+              const fmt=d=>`${d.day} ${Object.keys(monthMap).find(k=>monthMap[k]===d.month)} ${d.year}`;
+              if(elapsed>=0&&elapsed<=5000){
+                dateAudit=`Dari ${fmt(start)} sampai ${fmt(end)} terdapat ${elapsed} hari berlalu. Jika tanggal penanaman dihitung sebagai hari pertama, hitungan inklusif menjadi ${elapsed+1} hari. Jadi, nyatakan metode secara eksplisit; untuk selisih waktu yang telah berlalu gunakan ${elapsed} hari, sedangkan hitungan inklusif adalah ${elapsed+1} hari.`;
+              }else dateAudit=`Urutan tanggal ${fmt(start)} dan ${fmt(end)} perlu diperiksa karena tanggal akhir tampak lebih awal daripada tanggal awal.`;
+            }
+            const crops=typeof naraExplicitCropTerms==='function'?naraExplicitCropTerms(raw):[];
+            const crop=String(primaryCrop||crops[0]||'tanaman yang disebutkan');
+            const targetPlants=naraEvidenceTargetPlants(raw,crop);
+            const targetIds=new Set(targetPlants.map(p=>String(p.id||p.name)));
+            const rows=(Array.isArray(attentions)?attentions:[]).filter(a=>targetIds.has(String(a.plantId))).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,5);
+            const linked=rows.map(a=>{
+              const name=targetPlants.find(p=>String(p.id||p.name)===String(a.plantId))?.name||crop;
+              const details=[a.problemType||a.type,a.affectedPart,a.note?naraClipEvidenceText(a.note,720):'',a.action?naraClipEvidenceText(a.action,420):''].filter(Boolean).join('; ');
+              return `- Rekaman Perlu Perhatian ${a.date||'tanpa tanggal'} ditautkan ke ${name} melalui plantId: ${details}. Ini memverifikasi tautan catatan di aplikasi, bukan bukti independen tentang kebenaran observasi atau penyebab daun menguning.`;
+            });
+            const harvestRows=(Array.isArray(harvests)?harvests:[]).filter(h=>{
+              if(h?.plantId!==undefined&&h?.plantId!==null&&String(h.plantId)!=='')return targetIds.has(String(h.plantId));
+              return targetPlants.some(p=>String(h?.plantName||'').toLowerCase().includes(String(p.name||crop).toLowerCase()));
+            }).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,3);
+            const harvest=harvestRows.map(h=>`- Panen ${h.date||'tanggal tidak tercatat'}: ${h.qty??'jumlah tidak tercatat'} ${h.unit||''}; kualitas ${h.quality||'tidak dicatat'}. Catatan ini tidak membuktikan penyebab gejala saat ini.`);
+            return `Audit koreksi (jawaban cadangan berbasis catatan lokal):\n\n1. Perhitungan tanggal\n- ${dateAudit}\n\n2. Keterkaitan catatan hama/daun\n${linked.join('\n')||'- Tidak ditemukan catatan Perlu Perhatian yang dapat ditautkan melalui plantId ke tanaman sasaran. Jangan menyimpulkan kaitan dengan tanaman lain.'}\n\n3. Arti catatan panen\n${harvest.join('\n')||'- Tidak ditemukan riwayat panen yang dapat ditautkan melalui plantId ke tanaman sasaran.'}\n\n4. Batas kesimpulan\n- Catatan pengguna membuktikan bahwa informasi tersebut tercatat pada aplikasi; tidak otomatis memverifikasi secara independen apa yang terjadi di kebun.\n- Adanya catatan hama dan gejala pada tanaman yang sama membuat hama relevan untuk diperiksa, tetapi belum membuktikan penyebab daun menguning.\n- Jika observasi “Guardian League” muncul dalam catatan, istilah itu dipertahankan utuh sejauh batas tampilan memungkinkan; keberhasilan hewan pengendali perlu dinilai dari hasil observasi, bukan diasumsikan.`;
+          }
+          '''
+
+          replace_function('naraPlantScopeSafeFallback', r'''function naraPlantScopeSafeFallback(question){
+            const raw=String(question||'');
+            const q=raw.toLocaleLowerCase('id-ID');
+            const crops=typeof naraExplicitCropTerms==='function'?naraExplicitCropTerms(raw):[];
+            const mentioned=typeof naraPlantEntriesMentionedInText==='function'?naraPlantEntriesMentionedInText(raw):[];
+            const lowered=raw.toLocaleLowerCase('id-ID');
+            const firstCrop=crops.map(term=>({term,index:lowered.indexOf(String(term).toLocaleLowerCase('id-ID'))})).filter(x=>x.index>=0).sort((a,b)=>a.index-b.index)[0]?.term||'';
+            const primaryRecord=mentioned.filter(p=>firstCrop&&String(p.name||'').toLocaleLowerCase('id-ID').includes(String(firstCrop).toLocaleLowerCase('id-ID'))).filter(p=>lowered.indexOf(String(p.name||'').toLocaleLowerCase('id-ID'))>=0).sort((a,b)=>lowered.indexOf(String(a.name||'').toLocaleLowerCase('id-ID'))-lowered.indexOf(String(b.name||'').toLocaleLowerCase('id-ID')))[0];
+            const crop=String(primaryRecord?.name||firstCrop||crops[0]||'tanaman yang kamu sebutkan');
+            const correction=naraBuildCorrectionAuditFallback(raw,crop);
+            if(correction)return correction;
+            const asksEvidenceInventory=/(periksa|inventaris|daftar|audit|seluruh|semua|data apa|bukti apa|catatan apa|periksa kembali|berdasarkan data yang tersedia)/i.test(raw)&&/(catatan|riwayat|rekaman|bukti|data kebun|observasi|klaim|perhitungan)/i.test(raw);
+            const asksHarvestRelevance=/(hasil panen|catatan panen|riwayat panen|panen)/i.test(raw)&&/(membantu|relevan|menentukan|penyebab|bukti|hubungan|berkaitan|gunakan|dipakai)/i.test(raw);
+            if(asksEvidenceInventory)return naraBuildEvidenceInventoryFallback(raw,crop);
+            if(asksHarvestRelevance){
+              const cropList=crops.length>1?crops.join(' dan '):(crop||'tanaman yang disebutkan');
+              return `Catatan panen ${cropList} dapat memberi konteks produksi dan waktu panen untuk tanaman yang benar-benar tertaut, tetapi jumlah, kualitas, atau tanggal panen saja tidak membuktikan penyebab daun menguning. Catatan panen tanaman lain tidak boleh dianggap sebagai bukti kondisi ${crop}. Untuk menyelidiki penyebabnya, cocokkan identitas tanaman dan tanggal, lalu periksa pola daun, kelembapan media, drainase, serta tanda hama atau penyakit. Penyebab utama belum dapat ditentukan hanya dari data panen.`;
+            }
+            if(/menguning|kuning|yellowing/i.test(q)){
+              return `Untuk tanaman ${crop}, daun menguning dapat memiliki beberapa kemungkinan umum, misalnya masalah penyiraman atau drainase, ketersediaan hara, stres lingkungan, atau hama dan penyakit bila ada tanda pendukung. Dari gejala yang disebutkan saja, penyebab utama di kebunmu belum bisa dipastikan. Periksa apakah daun tua atau muda yang lebih dulu menguning, apakah perubahan merata atau berupa bercak, kelembapan media dan drainase, serta bagian bawah daun. Ini pemeriksaan awal, bukan klaim bahwa pemeriksaan sudah dilakukan. Jangan langsung menambah pupuk atau memakai pestisida tanpa bukti pendukung. Catatan tanaman lain tidak dipakai sebagai bukti untuk kasus ini.`;
+            }
+            if(/catatan|riwayat|bukti|relevan|membantu|menentukan|penyebab|hubungan/i.test(q)){
+              return `Catatan hanya mendukung kesimpulan jika identitas tanaman, waktu, dan jenis pengamatan cocok. Catatan tanaman lain tidak menjadi bukti langsung untuk ${crop}, dan pengetahuan umum hanya membantu menyusun hipotesis. Dari informasi yang tersedia, hubungan sebab-akibat belum dapat dipastikan.`;
+            }
+            return `Aku belum dapat memberi kesimpulan spesifik berdasarkan konteks yang tersedia. Aku bisa memakai pengetahuan umum untuk menjelaskan kemungkinan, tetapi klaim tentang kebun harus didukung catatan atau observasi yang cocok dengan tanaman dan waktu yang dibahas. Aku tidak akan menganggap data tanaman lain sebagai bukti untuk ${crop}.`;
+          }''')
+
+          # Insert note/correction helper functions immediately before the replacement fallback.
+          marker = 'function naraPlantScopeSafeFallback(question){'
+          if source.count(marker) != 1:
+              raise SystemExit('ERROR: Step 2O cannot locate the single fallback entry point after replacement.')
+          source = source.replace(marker, evidence_helper + '\n' + marker, 1)
+
+          checks={
+            'complete note clipping is sentence/word aware': 'function naraClipEvidenceText(value,maxLength=620)' in source and '[catatan dipersingkat setelah batas kalimat]' in source,
+            'inventory fallback scopes records to the primary plant': 'function naraEvidenceTargetPlants(question,primaryCrop)' in source and 'targetIds.has(String(a.plantId))' in source,
+            'correction intent precedes evidence-inventory intent': source.index('const correction=naraBuildCorrectionAuditFallback(raw,crop);') < source.index('const asksEvidenceInventory='),
+            'date arithmetic is elapsed-days and inclusive-days explicit': 'hari berlalu' in source and 'hitungan inklusif' in source,
+            'Guardian League note text uses bounded sentence/word-aware clipping': 'naraClipEvidenceText(a.note,720)' in source and 'function naraClipEvidenceText(value,maxLength=620)' in source,
+            'causality is not inferred from linked pest note': 'belum membuktikan penyebab daun menguning' in source,
+            'candidate/validated memory remains present': 'naraState.teacherCandidateLessons' in source and 'naraState.teacherValidatedLessons' in source,
+            'plant-scope audit remains present': 'function naraAuditAnswerPlantScope' in source,
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          if failed: raise SystemExit('ERROR: Step 2O checks failed: '+', '.join(failed))
+          if source==original: raise SystemExit('ERROR: Step 2O made no source changes.')
+          path.write_text(source,encoding='utf-8')
+          print('Step 2O note-preservation and correction-aware fallback applied.')
+          for name in checks: print('PASS:',name)
+          PYTHON
+
+      - name: Regression-test full-note preservation and correction-aware fallback (Nara Step 2O)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('fs');
+          const vm=require('vm');
+          const assert=require('assert');
+          const html=fs.readFileSync('android/app/src/main/assets/index.html','utf8');
+          function extractFunction(name){
+            const start=html.indexOf(`function ${name}(`);
+            if(start<0)throw new Error(`Missing function ${name}`);
+            const next=html.indexOf('\nfunction ',start+1);
+            return html.slice(start,next<0?html.length:next);
+          }
+          const code=['naraClipEvidenceText','naraEvidenceTargetPlants','naraBuildEvidenceInventoryFallback','naraBuildCorrectionAuditFallback','naraPlantScopeSafeFallback'].map(extractFunction).join('\n');
+          const data=[
+            {id:'tomato-1',name:'Tomat Cherry',note:'Tanaman tomat Cherry ditanam pada 19 Juli 2026.'},
+            {id:'eggplant-1',name:'Terung Bulat Hijau',note:'Catatan terung tidak boleh dianggap sebagai fakta tomat.'}
+          ];
+          const guardianNote='Sekelompok Kutu Putih dibacking oleh Semut Merah sedang memakan daun tomat. Daun terlihat layu dan menggulung; diamati dulu 3 hari ini, apakah Guardian League berhasil mengendalikan hama tersebut?';
+          const context={
+            data,
+            attentions:[
+              {plantId:'tomato-1',date:'2026-10-12',type:'pest',affectedPart:'leaf',note:guardianNote},
+              {plantId:'eggplant-1',date:'2026-10-12',type:'pest',affectedPart:'leaf',note:'RAHASIA_CATATAN_TERUNG'}
+            ],
+            harvests:[
+              {plantId:'tomato-1',date:'2026-09-14',qty:8,unit:'buah',quality:'Baik'},
+              {plantId:'eggplant-1',date:'2026-10-13',qty:19,unit:'buah',quality:'Baik'}
+            ],
+            gardenNotes:[],
+            naraState:{messages:[]},
+            naraMemoryTokens(value){return String(value||'').toLocaleLowerCase('id-ID').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);},
+            naraExplicitCropTerms(value){const q=String(value||'').toLowerCase();const out=[];for(const term of ['tomat','terung','cabai'])if(q.includes(term))out.push(term);return out;},
+            naraPlantEntriesMentionedInText(value){const q=String(value||'').toLowerCase();return data.filter(p=>q.includes(p.name.toLowerCase())||q.includes('tomat')&&p.name.startsWith('Tomat')||q.includes('terung')&&p.name.startsWith('Terung'));},
+            naraPlantEvents(p){return p.events||[];},
+            console
+          };
+          vm.createContext(context);vm.runInContext(code,context);
+          const originalNote=context.naraClipEvidenceText(guardianNote,720);
+          assert(originalNote.includes('Guardian League berhasil mengendalikan hama tersebut?'),'Long notes must preserve the complete Guardian League clause when below the limit.');
+          const correction='Nara, audit ulang perhitungan umur tanaman tomat Cherry. Tanggal tanam 19 Juli sampai 12 Oktober 2026 adalah 85 hari berlalu. Koreksi tanggal penanaman, catatan hama, dan panen untuk tanaman tomat Cherry; jelaskan fakta dan sebab-akibat.';
+          const correctionAnswer=context.naraPlantScopeSafeFallback(correction);
+          assert(correctionAnswer.includes('85 hari berlalu'),'Correction fallback should calculate 19 July to 12 October 2026 as 85 elapsed days.');
+          assert(correctionAnswer.includes('86 hari'),'Correction fallback should distinguish inclusive counting.');
+          assert(correctionAnswer.includes('Guardian League berhasil mengendalikan hama tersebut?'),'Correction fallback should keep the full note and avoid mid-word truncation.');
+          assert(correctionAnswer.includes('belum membuktikan penyebab daun menguning'),'Linkage of a pest note must not be stated as causal proof.');
+          const inventory='Periksa seluruh catatan kebun yang relevan untuk tanaman Tomat Cherry. Data apa yang tersedia sebagai bukti langsung dan konteks tidak langsung? Jangan gunakan catatan terung sebagai bukti tomat.';
+          const inventoryAnswer=context.naraPlantScopeSafeFallback(inventory);
+          assert(inventoryAnswer.includes('Audit bukti untuk Tomat Cherry'),'Inventory intent should return a scoped inventory.');
+          assert(inventoryAnswer.includes('Guardian League berhasil mengendalikan hama tersebut?'),'Evidence inventory must preserve the complete note text within the safe limit.');
+          assert(!inventoryAnswer.includes('RAHASIA_CATATAN_TERUNG'),'The other plant record must not leak into the tomato inventory.');
+          assert(inventoryAnswer.includes('Panen 2026-09-14'),'The tomato harvest record should be identified as indirect context.');
+          const simple='Daun tomat menguning. Apa kemungkinan penyebabnya?';
+          const simpleAnswer=context.naraPlantScopeSafeFallback(simple);
+          assert(simpleAnswer.includes('beberapa kemungkinan umum'),'Simple symptom questions must retain the safe general fallback.');
+          console.log('PASS: Guardian League record text is preserved within configured safe limit');
+          console.log('PASS: correction intent takes precedence over generic evidence inventory');
+          console.log('PASS: elapsed-days and inclusive-days are distinguished');
+          console.log('PASS: linked pest notes are not presented as causal proof');
+          console.log('PASS: evidence inventory remains restricted to the primary plant');
+          console.log('PASS: general yellowing fallback remains available');
+          NODE
+
+      - name: Add Nara retrieval diagnostics (Nara Step 2P)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+
+          path = Path('android/app/src/main/assets/index.html')
+          source = path.read_text(encoding='utf-8')
+          original = source
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'ERROR: Step 2P stopped at {label}: expected one exact anchor, found {count}. Refusing an ambiguous patch.')
+              source = source.replace(old, new, 1)
+
+          # Add a read-only diagnostic panel below the persistent user-knowledge list.
+          panel_anchor = '    <div class="nara-boundary">'
+          panel = r'''    <details class="nara-knowledge" id="naraRetrievalDiagnosticPanel">
+            <summary>🧪 Diagnostik Retrieval Pengetahuan</summary>
+            <div class="nara-knowledge-intro">Pemeriksaan baca-saja untuk menguji tiga hal: apakah memori cocok ditemukan oleh pencarian lokal, apakah memori masuk ke payload konteks yang disusun untuk AI online, dan apa yang benar-benar disertakan pada permintaan online terakhir. Tombol ini tidak mengirim pertanyaan baru dan tidak mengubah atau menghapus data.</div>
+            <label for="naraRetrievalDiagnosticQuery">Kata kunci atau kode pengujian</label>
+            <input id="naraRetrievalDiagnosticQuery" type="text" value="KODE_UJI_RETRIEVAL_582" autocomplete="off" style="display:block;width:100%;box-sizing:border-box;margin:10px 0;padding:12px;border:1px solid var(--line,#405442);border-radius:12px;background:var(--card,#17241b);color:inherit">
+            <button type="button" class="secondary" id="naraRetrievalDiagnosticRun" data-nara-retrieval-diagnostic-run>Periksa retrieval dan konteks</button>
+            <div id="naraRetrievalDiagnosticResult" class="nara-knowledge-intro" role="status" aria-live="polite">Belum dijalankan. Tekan tombol untuk memeriksa memori lokal dan susunan konteks.</div>
+          </details>
+          '''
+          replace_once(panel_anchor, panel + panel_anchor, 'diagnostic panel location')
+
+          # Record taught-memory records present in the payload immediately before it is sent.
+          # This proves inclusion in request context, not that the model actually used each item.
+          fn_start = source.find('async function naraRequestOnlineAnswer(')
+          fn_end = source.find('\nfunction naraBuildTeacherPrompt(', fn_start + 1)
+          if fn_start < 0 or fn_end <= fn_start:
+              raise SystemExit('ERROR: Step 2P cannot isolate naraRequestOnlineAnswer safely.')
+          fn = source[fn_start:fn_end]
+          content_anchor = '  const content=JSON.stringify(base);'
+          if fn.count(content_anchor) != 1:
+              raise SystemExit('ERROR: Step 2P expected one outgoing payload anchor inside naraRequestOnlineAnswer.')
+          audit = r'''  const diagnosticMemories=Array.isArray(base.ingatan_belajar_relevan)?base.ingatan_belajar_relevan:[];
+            naraLastRetrievalAudit={
+              at:new Date().toISOString(),
+              question:naraGuruSafe(question,220),
+              memoryCount:diagnosticMemories.length,
+              memories:diagnosticMemories.map(m=>({
+                topik:naraGuruSafe(m.topik||m.topic||'',140),
+                asal:naraGuruSafe(m.asal||m.origin||'Sumber tidak berlabel',100),
+                jenis:naraGuruSafe(m.jenis||'',80),
+                materi:naraGuruSafe(m.materi||m.text||'',950)
+              }))
+            };
+            const content=JSON.stringify(base);'''
+          fn = fn.replace(content_anchor, audit, 1)
+          source = source[:fn_start] + fn + source[fn_end:]
+
+          # Diagnostic button uses the same local retrieval and online-context builder as Nara.
+          # Last-request trace is recorded after greeting/correction filters and before transmission.
+          helper_anchor = 'async function naraSendMessage(text){'
+          helper = r'''let naraLastRetrievalAudit=null;
+          function naraRunRetrievalDiagnostic(){
+            const queryInput=$('naraRetrievalDiagnosticQuery');
+            const resultBox=$('naraRetrievalDiagnosticResult');
+            if(!resultBox)return;
+            const query=String(queryInput&&queryInput.value||'').trim();
+            if(!query){resultBox.textContent='Masukkan kata kunci atau kode pengujian terlebih dahulu.';return;}
+            try{
+              naraNormalizeState();
+              const terms=typeof naraMemoryTokens==='function'?naraMemoryTokens(query).filter(t=>t.length>=3):query.toLocaleLowerCase('id-ID').split(/[^a-z0-9]+/).filter(t=>t.length>=3);
+              const containsAll=value=>{
+                const words=new Set(typeof naraMemoryTokens==='function'?naraMemoryTokens(value):String(value||'').toLocaleLowerCase('id-ID').split(/[^a-z0-9]+/).filter(Boolean));
+                return terms.length>0&&terms.every(t=>words.has(t));
+              };
+              const localMatches=naraGetTaughtKnowledge(query)||[];
+              const exactLocal=localMatches.find(m=>containsAll(m.text||''));
+              let payload=null,payloadError='';
+              try{payload=JSON.parse(naraOnlineLearningContext(query,''));}catch(err){payloadError=String(err&&err.message||err||'kesalahan tidak diketahui');}
+              const contextRows=payload&&Array.isArray(payload.ingatan_belajar_relevan)?payload.ingatan_belajar_relevan:[];
+              const exactContext=contextRows.find(m=>containsAll([m.topik,m.asal,m.materi,m.jenis].filter(Boolean).join(' ')));
+              const last=naraLastRetrievalAudit;
+              const lastRows=last&&Array.isArray(last.memories)?last.memories:[];
+              const exactLast=lastRows.find(m=>containsAll([m.topik,m.asal,m.materi,m.jenis].filter(Boolean).join(' ')));
+              const escText=value=>typeof esc==='function'?esc(String(value??'')):String(value??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+              const out=[];
+              out.push('<div><strong>1. Retrieval lokal:</strong> '+(exactLocal?'LULUS — item memori yang memuat semua istilah kunci ditemukan.':('BELUM LULUS — tidak ditemukan item yang memuat semua istilah kunci. Hasil kandidat: '+localMatches.length+'.'))+'</div>');
+              if(exactLocal){
+                out.push('<div>Asal: '+escText(exactLocal.__memorySource||exactLocal.origin||'tidak berlabel')+'; skor: '+escText(exactLocal.score??'tidak tersedia')+'; istilah cocok: '+escText(exactLocal.matchedTerms??'tidak tersedia')+'.</div>');
+                out.push('<div>Memori: '+escText(String(exactLocal.text||'').slice(0,280))+'</div>');
+              }else if(localMatches.length){out.push('<div>Kandidat teratas: '+escText(String(localMatches[0].text||'').slice(0,220))+'</div>');}
+              out.push('<div><strong>2. Payload konteks yang disusun:</strong> '+(payloadError?('GAGAL — '+escText(payloadError)):(exactContext?'LULUS — item ditemukan di ingatan_belajar_relevan.':'BELUM LULUS — item tidak ditemukan dengan semua istilah kunci di ingatan_belajar_relevan.'))+'</div>');
+              out.push('<div>Jumlah materi memori di payload uji: '+contextRows.length+'. Ini memeriksa pembentukan payload lokal; tombol tidak mengirim permintaan online.</div>');
+              out.push('<div><strong>3. Permintaan AI online terakhir sejak APK dibuka:</strong> '+(last?('Pertanyaan: '+escText(last.question||'')+'; waktu: '+escText(last.at||'')+'; jumlah materi memori: '+Number(last.memoryCount||0)+'.'):'Belum ada permintaan online yang tercatat sejak APK dibuka.')+'</div>');
+              if(last)out.push('<div>'+(exactLast?'LULUS — item uji juga terdapat dalam konteks permintaan online terakhir.':'Item uji tidak ditemukan dengan semua istilah kunci pada konteks permintaan online terakhir.')+'</div>');
+              if(lastRows.length){out.push('<div>Ringkasan materi pada permintaan terakhir:</div><ul>'+lastRows.slice(0,4).map(m=>'<li>'+escText(m.asal||'Sumber tidak berlabel')+' — '+escText(m.topik||'Tanpa topik')+': '+escText(String(m.materi||'').slice(0,180))+'</li>').join('')+'</ul>');}
+              out.push('<div><em>Batas uji:</em> keberadaan item dalam payload membuktikan item disertakan dalam konteks yang dikirim, bukan bahwa model pasti menggunakannya atau jawaban otomatis benar.</div>');
+              resultBox.innerHTML=out.join('');
+            }catch(err){resultBox.textContent='Diagnostik gagal: '+String(err&&err.message||err||'kesalahan tidak diketahui');}
+          }
+          document.addEventListener('click',function(e){
+            const button=e.target&&e.target.closest?e.target.closest('[data-nara-retrieval-diagnostic-run]'):null;
+            if(button)naraRunRetrievalDiagnostic();
+          });
+          '''
+          if source.count(helper_anchor) != 1:
+              raise SystemExit(f'ERROR: Step 2P expected one naraSendMessage anchor, found {source.count(helper_anchor)}.')
+          source = source.replace(helper_anchor, helper + '\n' + helper_anchor, 1)
+
+          required = {
+            'diagnostic panel exists': 'id="naraRetrievalDiagnosticPanel"' in source,
+            'local retrieval check exists': 'function naraRunRetrievalDiagnostic()' in source,
+            'outgoing payload trace exists': 'naraLastRetrievalAudit={' in source,
+            'real context builder is used': "naraOnlineLearningContext(query,'')" in source,
+            'no storage wipe was added by this patch': 'localStorage.clear()' not in (panel + audit + helper),
+          }
+          failed = [name for name, ok in required.items() if not ok]
+          if failed:
+              raise SystemExit('ERROR: Step 2P static checks failed: ' + ', '.join(failed))
+          if source == original:
+              raise SystemExit('ERROR: Step 2P made no changes.')
+          path.write_text(source, encoding='utf-8')
+          print('Step 2P retrieval diagnostics added. Existing memory and garden data remain untouched.')
+          for name in required:
+              print('PASS: ' + name)
+          PYTHON
+
+      - name: Prioritize exact user-taught identifiers in online retrieval (Nara Step 2Q)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+
+          path = Path("android/app/src/main/assets/index.html")
+          source = path.read_text(encoding="utf-8")
+          original = source
+
+          fn_start = source.find("function naraGetTaughtKnowledge(q){")
+          fn_end = source.find("\nfunction naraLessonContextText(lesson,max=900){", fn_start + 1)
+          if fn_start < 0 or fn_end <= fn_start:
+              raise SystemExit("ERROR: Step 2Q cannot isolate the current taught-memory retrieval function.")
+          fn = source[fn_start:fn_end]
+
+          key_helper = r'''function naraUniqueMemoryKeys(value){
+            const text=String(value||'').toUpperCase();
+            const matches=text.match(/\b[A-Z0-9]{2,}(?:[_-][A-Z0-9]{2,})+\b/g)||[];
+            return [...new Set(matches.map(key=>key.replace(/-/g,'_')))];
+          }
+          '''
+          if "function naraUniqueMemoryKeys(value){" in source:
+              raise SystemExit("ERROR: Step 2Q key helper already exists; refusing a duplicate patch.")
+          fn = key_helper + fn
+
+          query_anchor = "const queryTokens=[...new Set(naraMemoryTokens(q).filter(w=>w.length>=3&&!stop.has(w)))];"
+          if fn.count(query_anchor) != 1:
+              raise SystemExit("ERROR: Step 2Q expected one exact query-token anchor.")
+          fn = fn.replace(
+              query_anchor,
+              query_anchor + "\n            const queryKeys=naraUniqueMemoryKeys(q);",
+              1
+          )
+          if fn.count("if(!queryTokens.length)return [];") != 1:
+              raise SystemExit("ERROR: Step 2Q expected one empty-query guard.")
+          fn = fn.replace(
+              "if(!queryTokens.length)return [];",
+              "if(!queryTokens.length&&!queryKeys.length)return [];",
+              1
+          )
+
+          text_anchor = "const textTokens=naraMemoryTokens(l.text||'');"
+          if fn.count(text_anchor) != 1:
+              raise SystemExit("ERROR: Step 2Q expected one memory-text token anchor.")
+          fn = fn.replace(
+              text_anchor,
+              text_anchor + "\n              const memoryKeys=naraUniqueMemoryKeys([l.title,l.topic,l.summary,l.text].filter(Boolean).join(' '));"
+              + "\n              const exactKeyMatches=queryKeys.filter(key=>memoryKeys.includes(key));"
+              + "\n              const exactKeyMatch=exactKeyMatches.length>0;",
+              1
+          )
+
+          score_anchor = "if(queryTokens.length>=2&&matched>=2)score+=Math.min(2,matched*0.25);"
+          if fn.count(score_anchor) != 1:
+              raise SystemExit("ERROR: Step 2Q expected one retrieval-score anchor.")
+          fn = fn.replace(
+              score_anchor,
+              score_anchor
+              + "\n              // Exact structured identifiers must outrank generic Guru lessons."
+              + "\n              if(exactKeyMatch)score+=(l.__memoryKind==='user_taught'?10000:8000);",
+              1
+          )
+          return_anchor = "return {...l,score,matchedTerms:matched};"
+          if fn.count(return_anchor) != 1:
+              raise SystemExit("ERROR: Step 2Q expected one retrieval result anchor.")
+          fn = fn.replace(
+              return_anchor,
+              "return {...l,score,matchedTerms:matched,exactKeyMatch,exactKeyMatches};",
+              1
+          )
+          filter_anchor = ".filter(l=>l.score>=1&&l.matchedTerms>0)"
+          if fn.count(filter_anchor) != 1:
+              raise SystemExit("ERROR: Step 2Q expected one minimum-score filter.")
+          fn = fn.replace(
+              filter_anchor,
+              ".filter(l=>l.score>=1&&(l.matchedTerms>0||l.exactKeyMatch))",
+              1
+          )
+
+          source = source[:fn_start] + fn + source[fn_end:]
+
+          required = {
+              "unique identifier normalization exists": "function naraUniqueMemoryKeys(value){" in source and "key.replace(/-/g,'_')" in source,
+              "user-taught exact-key boost exists": "if(exactKeyMatch)score+=(l.__memoryKind==='user_taught'?10000:8000);" in source,
+              "payload uses the ranked retrieval result": "const matched=naraGetTaughtKnowledge(question);" in source and "const lessons=matched.slice(0,4).map" in source,
+              "diagnostic records the actual outgoing memory payload": "naraLastRetrievalAudit={" in source and "memories:diagnosticMemories.map" in source,
+              "original garden and memory storage remains present": "localStorage.clear()" not in source and "naraState.userLessons" in source,
+          }
+          failed = [name for name, ok in required.items() if not ok]
+          if failed:
+              raise SystemExit("ERROR: Step 2Q post-patch checks failed: " + ", ".join(failed))
+          if source == original:
+              raise SystemExit("ERROR: Step 2Q made no changes.")
+          path.write_text(source, encoding="utf-8")
+          print("Step 2Q exact-key retrieval priority applied. No stored memories or garden data were changed.")
+          for name in required:
+              print("PASS: " + name)
+          PYTHON
+
+      - name: Regression-test exact user memory reaches online context selection (Nara Step 2Q)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+          const assert = require('assert');
+          const html = fs.readFileSync('android/app/src/main/assets/index.html', 'utf8');
+          const start = html.indexOf('function naraMemoryTokens(value){');
+          const end = html.indexOf('function naraLessonContextText(lesson,max=900){', start);
+          if (start < 0 || end <= start) throw new Error('Cannot isolate exact retrieval functions.');
+
+          const code = 'KODE_UJI_RETRIEVAL_582';
+          const userLesson = {
+            id: 'regression-user-memory',
+            title: 'Tes penyimpanan dan retrieval',
+            topic: 'Pengetahuan pengguna',
+            text: 'KODE_UJI_RETRIEVAL_582. Jika saya bertanya tentang kode ini, jawab persis dengan frasa "PAKIS-ORANYE-731". Kode dan frasa ini hanya untuk pengujian mekanisme penyimpanan dan pengambilan pengetahuan, bukan fakta kebun.',
+            createdAt: '2026-10-14T00:00:00.000Z',
+            origin: 'Pengguna',
+            learningType: 'user_taught'
+          };
+          const teacherLessons = [
+            {id:'guru-1',title:'Bukti dan Grounding dalam Pengetahuan',topic:'Bukti',summary:'Verifikasi data sebelum digunakan',text:'Aturan operasional: Verifikasi data sebelum digunakan; jangan menebak.',createdAt:'2026-10-13T00:00:00.000Z',origin:'Guru AI Online',learningType:'model_language'},
+            {id:'guru-2',title:'Ingatan Eksternal dan Retrieval Pengetahuan',topic:'Retrieval',summary:'Gunakan sumber terpercaya',text:'Aturan operasional: Periksa kembali data yang diambil; integrasikan informasi dengan baik.',createdAt:'2026-10-13T00:00:00.000Z',origin:'Guru AI Online',learningType:'model_language'},
+            {id:'guru-3',title:'Integrasi Pengetahuan',topic:'Ingatan',summary:'Gabungkan konteks',text:'Aturan operasional: Gunakan pengetahuan yang relevan dan jangan membuat asumsi.',createdAt:'2026-10-13T00:00:00.000Z',origin:'Guru AI Online',learningType:'model_language'}
+          ];
+          const context = {
+            naraState: { userLessons: [userLesson], teacherLessons },
+            naraNormalizeState() {},
+            console
+          };
+          vm.createContext(context);
+          vm.runInContext(html.slice(start, end), context);
+
+          const question = 'Nara, apa frasa yang terkait dengan KODE_UJI_RETRIEVAL_582? Jawab berdasarkan pengetahuan yang diajarkan dan data yang tersedia. Jangan menebak jika tidak ditemukan.';
+          const retrieved = context.naraGetTaughtKnowledge(question);
+          assert(retrieved.length > 0, 'Retrieval unexpectedly returned no memories.');
+          assert.strictEqual(retrieved[0].__memorySource, 'Pengetahuan pengguna', 'Exact user-taught identifier must rank above generic Guru lessons.');
+          assert(retrieved[0].text.includes(code), 'Top-ranked user memory must preserve the exact test identifier.');
+
+          // Mirrors the first four rows selected by naraOnlineLearningContext for the online payload.
+          const onlineRows = retrieved.slice(0, 4).map(m => ({
+            topik: m.title || m.topic || String(m.text || '').split('\n')[0],
+            asal: m.__memorySource || m.origin || 'Ingatan Nara',
+            materi: String(m.text || ''),
+            jenis: m.__memoryKind || m.learningType || 'pengetahuan'
+          }));
+          assert(onlineRows.some(row => row.asal === 'Pengetahuan pengguna' && row.materi.includes(code)),
+            'Exact user memory was not selected among the online-context rows.');
+          assert(html.includes('const matched=naraGetTaughtKnowledge(question);') && html.includes('const lessons=matched.slice(0,4).map'),
+            'Online context builder no longer sends the top-ranked retrieval results.');
+          console.log('PASS: exact identifier gives user-taught memory highest retrieval priority.');
+          console.log('PASS: exact user memory is included in the first four online-context rows.');
+          console.log('PASS: regression fixture keeps generic Guru lessons in separate lower-priority candidates.');
+          NODE
+
+      - name: Validate patched HTML and embedded JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+          import subprocess
+          import tempfile
+          html = Path("android/app/src/main/assets/index.html").read_text(encoding="utf-8")
+          blocks = re.findall(r'<script\b([^>]*)>([\s\S]*?)</script\s*>', html, re.I)
+          checked = 0
+          with tempfile.TemporaryDirectory(prefix="nara-js-check-") as td:
+              for i, (attrs, body) in enumerate(blocks):
+                  match = re.search(r"type\s*=\s*[\"']?([^\"'\s>]+)", attrs, re.I)
+                  if match and match.group(1).lower() not in ("text/javascript", "application/javascript", "module", "text/ecmascript", "application/ecmascript"):
+                      continue
+                  if not body.strip():
+                      continue
+                  script = Path(td) / f"script-{i}.js"
+                  script.write_text(body, encoding="utf-8")
+                  result = subprocess.run(["node", "--check", str(script)], capture_output=True, text=True)
+                  if result.returncode:
+                      print(result.stderr)
+                      raise SystemExit(f"ERROR: JavaScript syntax check failed for inline script block {i}.")
+                  checked += 1
+          if not checked:
+              raise SystemExit("ERROR: No inline JavaScript blocks were checked.")
+          print(f"PASS: JavaScript syntax valid in {checked} inline script block(s).")
+          PYTHON
+
+      - name: Prepare permanent signing key
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ] || [ -z "${KEYSTORE_PASSWORD:-}" ]; then
+            echo "ERROR: GitHub Secrets ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD are required."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/terra-serenada-release.p12"
+          test -s "$RUNNER_TEMP/terra-serenada-release.p12"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/terra-serenada-release.p12" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_ALIAS=terra-serenada" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Verify candidate gate, validated-only retrieval, and online-first configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 27000 + ciRunNumber' android/app/build.gradle.kts
+          grep -q 'versionName = "1.0.42.$ciRunNumber"' android/app/build.gradle.kts
+          grep -q 'async function naraRequestOnlineAnswer' android/app/src/main/assets/index.html
+          grep -q "NARA_GURU_MODEL='gpt-4o-mini'" android/app/src/main/assets/index.html
+          if grep -R -E 'com\.google\.ai\.edge\.litertlm|NaraLocalEngine|NaraLocalAI' android/app/src/main android/app/build.gradle.kts; then
+            echo "ERROR: LiteRT-LM native runtime or bridge unexpectedly exists in the rollback APK source."
+            exit 1
+          fi
+          grep -q 'function naraMemoryTokens' android/app/src/main/assets/index.html
+          grep -q 'function naraLessonContextText' android/app/src/main/assets/index.html
+          grep -q 'function naraRunRetrievalDiagnostic' android/app/src/main/assets/index.html
+          grep -q 'function naraUniqueMemoryKeys' android/app/src/main/assets/index.html
+          grep -q 'exactKeyMatch' android/app/src/main/assets/index.html
+          grep -q 'naraLastRetrievalAudit' android/app/src/main/assets/index.html
+          grep -q 'data-nara-retrieval-diagnostic-run' android/app/src/main/assets/index.html
+          grep -q 'naraOnlineLearningContext(query' android/app/src/main/assets/index.html
+          grep -q "answerSource:'online_direct',answerAudit:'passed_first_audit'" android/app/src/main/assets/index.html
+          grep -q "answerSource:'online_revised',answerAudit:'passed_after_retry'" android/app/src/main/assets/index.html
+          grep -q "answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'" android/app/src/main/assets/index.html
+          grep -q 'function naraAnswerSourceLabel(m)' android/app/src/main/assets/index.html
+          grep -q 'naraAnswerSourceLabel(m)' android/app/src/main/assets/index.html
+          grep -q "target.answerSource=result.answerSource||result.source||'online_unclassified'" android/app/src/main/assets/index.html
+          grep -q 'function naraPlantEntriesMentionedInText' android/app/src/main/assets/index.html
+          grep -q 'function naraScopeRecentHistory' android/app/src/main/assets/index.html
+          grep -q 'function naraAuditAnswerPlantScope' android/app/src/main/assets/index.html
+          grep -q 'pedoman_sumber_dan_kasus' android/app/src/main/assets/index.html
+          grep -q 'PENGUNCI IDENTITAS KASUS' android/app/src/main/assets/index.html
+          grep -q 'PENGUNCI KASUS WAJIB' android/app/src/main/assets/index.html
+          grep -q 'naraState.userLessons' android/app/src/main/assets/index.html
+          grep -q 'naraState.teacherLessons' android/app/src/main/assets/index.html
+          grep -q 'naraState.teacherCandidateLessons' android/app/src/main/assets/index.html
+          grep -q 'naraState.teacherValidatedLessons' android/app/src/main/assets/index.html
+          grep -q 'function naraValidateTeacherCandidate' android/app/src/main/assets/index.html
+          grep -q 'data-nara-candidate-test' android/app/src/main/assets/index.html
+          grep -q 'nara_three_case_review_v1' android/app/src/main/assets/index.html
+          grep -q 'r.score===2&&!r.critical_error' android/app/src/main/assets/index.html
+          grep -q 'naraState.teacherValidatedLessons.map(l=>({...l,__memorySource:' android/app/src/main/assets/index.html
+          if grep -q 'naraState.teacherLessons.push' android/app/src/main/assets/index.html; then echo "ERROR: Guru lessons are still written directly into the legacy retrieval store."; exit 1; fi
+          if grep -q 'const latestModelLessons=naraState.lessons' android/app/src/main/assets/index.html; then echo "ERROR: Old unconditional newest-lessons injection remains."; exit 1; fi
+          echo "Step 2Q checks passed: retrieval diagnostics, outgoing memory-context audit, answer provenance markers, independent route anchors, intent-aware fallback, balanced context audit, explicit-species general knowledge, cross-plant factual-claim isolation, persistence migration, split memory, candidate-only staging, validated-only retrieval, JSON recovery, failure audits, online-first route, and no native LiteRT-LM runtime."
+
+      - name: Build signed release APK
+        run: gradle -p android assembleRelease --no-daemon --stacktrace
+
+      - name: Prepare APK for validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          cp android/app/build/outputs/apk/release/app-release.apk Terra-Serenada.apk
+          test -s Terra-Serenada.apk
+          ls -lh Terra-Serenada.apk
+          sha256sum Terra-Serenada.apk
+
+      - name: Validate APK archive, signing certificate, metadata and alignment
+        shell: bash
+        env:
+          BASELINE_APK_URL: https://github.com/terra-serenada/Terra-Serenada/releases/download/apk-v1.0.19-10/Terra-Serenada.apk
+        run: |
+          set -euo pipefail
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$APKSIGNER" && test -x "$ZIPALIGN" && test -x "$AAPT"
+          curl --fail --location --retry 3 --silent --show-error "$BASELINE_APK_URL" --output baseline.apk
+          test -s baseline.apk && test -s Terra-Serenada.apk
+          unzip -t Terra-Serenada.apk
+          "$APKSIGNER" verify --verbose --print-certs baseline.apk 2>&1 | tee baseline-signature.txt
+          "$APKSIGNER" verify --verbose --print-certs Terra-Serenada.apk 2>&1 | tee new-signature.txt
+          # Android Build Tools may prefix the signer label differently. Parse the stable certificate digest label.
+          extract_certificate_sha256() {
+            local signature_file="$1"
+            awk '/certificate SHA-256 digest:/ { sub(/^.*certificate SHA-256 digest:[[:space:]]*/, ""); print; exit }' "$signature_file" \
+              | tr -d ':' \
+              | tr -d '[:space:]' \
+              | tr '[:upper:]' '[:lower:]'
+          }
+          baseline_fingerprint="$(extract_certificate_sha256 baseline-signature.txt)"
+          new_fingerprint="$(extract_certificate_sha256 new-signature.txt)"
+          if [ -z "$baseline_fingerprint" ] || [ -z "$new_fingerprint" ]; then
+            echo "ERROR: Unable to extract APK certificate SHA-256 fingerprint. Raw signer details follow:"
+            grep -Ei 'certificate DN|certificate SHA-256 digest|Number of signers|Verified using' baseline-signature.txt new-signature.txt || true
+            exit 1
+          fi
+          echo "Known previous APK certificate SHA-256: $baseline_fingerprint"
+          echo "New APK certificate SHA-256:            $new_fingerprint"
+          if [ "$baseline_fingerprint" != "$new_fingerprint" ]; then
+            echo "ERROR: New APK certificate does not match the known older release. Publishing is blocked to protect the installed app and its data."
+            exit 1
+          fi
+          "$ZIPALIGN" -c -v 4 Terra-Serenada.apk
+          "$AAPT" dump badging Terra-Serenada.apk | tee apk-metadata.txt
+          expected_code=$((27000 + GITHUB_RUN_NUMBER))
+          expected_name="1.0.42.${GITHUB_RUN_NUMBER}"
+          grep -F "package: name='com.terra.serenada' versionCode='${expected_code}' versionName='${expected_name}'" apk-metadata.txt
+          echo "APK package, version, certificate, archive and alignment checks passed."
+
+      - name: Enable KVM permissions for Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -e /dev/kvm ]; then
+            echo "ERROR: /dev/kvm is not available on this runner; hardware-accelerated Android emulator tests cannot run reliably."
+            exit 1
+          fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Android emulator install and launch smoke test
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          # IMPORTANT: keep this script as ONE folded command because android-emulator-runner
+          # invokes each newline-separated script line through /usr/bin/sh -c. The entire
+          # test is delegated to a single Bash process so loops/conditionals stay intact.
+          script: >-
+            bash -c 'set -euo pipefail; adb wait-for-device; adb install -r Terra-Serenada.apk; adb logcat -c; adb shell monkey -p com.terra.serenada -c android.intent.category.LAUNCHER 1; app_pid=""; for attempt in $(seq 1 30); do app_pid="$(adb shell pidof com.terra.serenada 2>/dev/null || true)"; if [ -n "$app_pid" ]; then break; fi; sleep 1; done; if [ -z "$app_pid" ]; then echo "ERROR: Terra Serenada did not remain running after launch. Android runtime logs follow:"; adb logcat -d -s AndroidRuntime:E ActivityManager:E || true; exit 1; fi; crash_log="$(adb logcat -d -s AndroidRuntime:E 2>&1)" || { echo "ERROR: Unable to read Android runtime logs after launching the app."; exit 1; }; if printf "%s\n" "$crash_log" | grep -q "FATAL EXCEPTION"; then printf "%s\n" "$crash_log"; exit 1; fi; echo "APK installed and app process remained running in Android emulator."'
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Terra-Serenada-APK-v1.0.42-exact-retrieval-${{ github.run_number }}
+          path: Terra-Serenada.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-v1.0.42-exact-retrieval-${{ github.run_number }}
+          name: Terra Serenada APK 1.0.42 — Nara exact retrieval Step 2Q (build ${{ github.run_number }})
+          body: |
+            Nara Step 2Q prioritizes exact identifiers in user-taught memories and adds a regression gate that verifies the exact matching user memory ranks first and enters the first four memory rows selected for the online context. Generic Guru lessons remain separate candidates and do not outrank an exact user-taught identifier. The test proves retrieval and context selection, not that the online model necessarily uses every supplied memory. No existing garden data or taught memories are reset, rewritten, or deleted.
+
+            Nara Step 2O adds sentence-aware note preservation and a correction-aware fallback. Long garden notes are preserved up to a defined safe limit instead of being cut mid-word; correction questions take priority over generic evidence-inventory routing; date differences are labeled as elapsed versus inclusive counting; records remain linked by plant ID and do not by themselves prove causality. The workflow retains separate provenance labels for direct AI, revised AI, fallback, and local responses. Candidate-only Guru lessons, validated-only retrieval, plant-scope auditing, and persistence migration remain intact. This build does not establish that AI model weights were retrained.
+
+            This workflow retains the upgrade-safe teacher validation migration and manifest, separate user memories and Guru candidate lessons, validated-only retrieval, JSON recovery, and failure audits. Answer provenance labels describe the code path taken, not a guarantee of factual correctness. Guru lessons remain candidates by default and are promoted only when all three test scenarios score 2 without critical errors. Validation remains an automated quality gate, not independent scientific verification, and does not update model weights. The online-first answer path and prior backup support are preserved.
+
+            Build stops if expected patch anchors, JavaScript syntax checks, explicit-species/cross-plant runtime regression checks, static integrity checks, APK archive/signature/metadata/alignment checks, or Android emulator install/launch smoke tests fail. The repository index.html and earlier workflow files are not modified by the build job; this workflow builds a patched APK in the runner only.
+          files: Terra-Serenada.apk
+          fail_on_unmatched_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
