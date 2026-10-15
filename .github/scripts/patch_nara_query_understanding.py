@@ -298,9 +298,20 @@ request_end = source.find("\nfunction naraBuildTeacherPrompt(", request_start)
 if request_start < 0 or request_end <= request_start:
     raise SystemExit("ERROR: Could not isolate online answer function.")
 request_fn = source[request_start:request_end]
-old_prompt_anchor = r"\n\nPRIORITAS MAKSUD TERBARU:"
-new_prompt_anchor = r"\n\nINTERPRETASI MAKSUD DAN SUMBER: Objek interpretasi_pertanyaan adalah rencana pemahaman dan routing buatan Nara, bukan fakta tambahan dan bukan pengganti pertanyaan_pengguna. Prioritaskan pertanyaan asli yang paling baru. Gunakan maksud, fokus, dan sumber yang disarankan hanya jika cocok dengan kata-kata dan konteks pengguna. Jangan anggap sebuah sumber relevan hanya karena kata kuncinya cocok. Untuk klaim tentang kebun, cocokkan identitas tanaman, waktu, lokasi, serta jenis catatan. Bedakan bukti tercatat, pengetahuan umum, inferensi, dan informasi yang belum tersedia. Jika rujukan_perlu_diperjelas bernilai true, jangan menebak tanaman atau mengirim klaim dari rekaman yang tidak pasti; ajukan satu pertanyaan klarifikasi yang singkat. Petunjuk routing tidak boleh diperlakukan sebagai ucapan pengguna.\n\nPRIORITAS MAKSUD TERBARU:"
-request_fn = replace_once(request_fn, old_prompt_anchor, new_prompt_anchor, "online interpretation policy")
+# The restored Step 2P prompt exists in source revisions with either literal\n escapes
+# or actual newline characters inside the template literal. Match the exact style present
+# in this source rather than failing a valid build on representation-only differences.
+policy = "INTERPRETASI MAKSUD DAN SUMBER: Objek interpretasi_pertanyaan adalah rencana pemahaman dan routing buatan Nara, bukan fakta tambahan dan bukan pengganti pertanyaan_pengguna. Prioritaskan pertanyaan asli yang paling baru. Gunakan maksud, fokus, dan sumber yang disarankan hanya jika cocok dengan kata-kata dan konteks pengguna. Jangan anggap sebuah sumber relevan hanya karena kata kuncinya cocok. Untuk klaim tentang kebun, cocokkan identitas tanaman, waktu, lokasi, serta jenis catatan. Bedakan bukti tercatat, pengetahuan umum, inferensi, dan informasi yang belum tersedia. Jika rujukan_perlu_diperjelas bernilai true, jangan menebak tanaman atau mengirim klaim dari rekaman yang tidak pasti; ajukan satu pertanyaan klarifikasi yang singkat. Petunjuk routing tidak boleh diperlakukan sebagai ucapan pengguna."
+anchor_variants = [
+    ("\n\nPRIORITAS MAKSUD TERBARU:", "\n\n" + policy + "\n\nPRIORITAS MAKSUD TERBARU:"),
+    (r"\n\nPRIORITAS MAKSUD TERBARU:", r"\n\n" + policy + r"\n\nPRIORITAS MAKSUD TERBARU:"),
+]
+matched_anchors = [(old, new) for old, new in anchor_variants if request_fn.count(old) == 1]
+if len(matched_anchors) != 1:
+    counts = [request_fn.count(old) for old, _ in anchor_variants]
+    raise SystemExit(f"ERROR: query-understanding patch at online interpretation policy: expected one supported anchor representation; counts={counts}. Refusing ambiguous edit.")
+old_prompt_anchor, new_prompt_anchor = matched_anchors[0]
+request_fn = request_fn.replace(old_prompt_anchor, new_prompt_anchor, 1)
 request_fn = replace_once(
     request_fn,
     "naraScopeRecentHistory(question,recentHistory)",
