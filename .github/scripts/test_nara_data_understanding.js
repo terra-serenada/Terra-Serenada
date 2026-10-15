@@ -38,15 +38,13 @@ const interpreterSource = sliceFunction(
   "function naraOnlineLearningContext(question,localDraft=''){",
   'Nara query interpreter'
 );
+// The current app does not define a standalone naraBuildAnswerMessages() helper.
+// naraOnlineLearningContext() creates the JSON context consumed by the existing
+// naraRequestOnlineAnswer() path. Keep this test scoped to that real boundary.
 const contextBuilderSource = sliceFunction(
   "function naraOnlineLearningContext(question,localDraft=''){",
-  'function naraBuildAnswerMessages(question,localAnswer,recentHistory=[]){',
+  '\nasync function naraRequestOnlineAnswer(',
   'Nara online context builder'
-);
-const answerMessagesSource = sliceFunction(
-  'function naraBuildAnswerMessages(question,localAnswer,recentHistory=[]){',
-  'async function naraRequestOnlineAnswer(',
-  'serialized online message builder'
 );
 
 const fixtureData = [
@@ -173,16 +171,16 @@ const sandbox = {
   NARA_LOCAL_CAPABILITY_PACK: {system_instruction:'Gunakan bukti, jangan mengarang data.',capabilities:[]}
 };
 vm.createContext(sandbox);
-vm.runInContext(interpreterSource + '\n' + contextBuilderSource + '\n' + answerMessagesSource, sandbox, {timeout:3000});
+vm.runInContext(interpreterSource + '\n' + contextBuilderSource, sandbox, {timeout:3000});
 
 function payloadFor(question) {
   const plan = sandbox.naraInterpretUserQuery(question, '');
+  // Inspect the structured context at the real source-routing boundary. The
+  // existing query-understanding regression test separately verifies that this
+  // interpreted context reaches the online request path; this test does not
+  // claim to invoke the live AI provider or fabricate a nonexistent helper.
   const payload = JSON.parse(sandbox.naraOnlineLearningContext(question, ''));
-  const messages = sandbox.naraBuildAnswerMessages(question, {text:''}, conversationMessages);
-  const userMessage = messages.find(m => m.role === 'user');
-  if (!userMessage) throw new Error('Serialized online message has no user payload.');
-  const outgoing = JSON.parse(userMessage.content);
-  return {plan, payload, outgoing, messages};
+  return {plan, payload, outgoing: payload};
 }
 function includesPlant(records, id) { return Array.isArray(records) && records.some(p => p?.id === id || p?.tanaman_id === id || p?.plantId === id); }
 function groupsFor(payload, plantName) { const p=(payload.tanaman_relevan||[]).find(x => x.nama===plantName); return p?.kelompok_tanam||[]; }
@@ -277,6 +275,7 @@ console.log('NARA DATA UNDERSTANDING — SYNTHETIC FIXTURE AUDIT');
 console.log(`Asset: ${HTML_PATH}`);
 console.log(`Mode: ${strict ? 'STRICT (blocks on automated failures)' : 'REPORT-ONLY (does not block APK build)'}`);
 console.log('Live user data: NOT READ; all records above are synthetic fixtures.');
+console.log('Scope: structured context before request serialization; existing 2.1 test covers routing into online-request path.');
 console.log('Live AI response: NOT CALLED; answer audit still requires runtime evidence.');
 for (const s of scenarios) {
   console.log(`\n${s.passed?'PASS':'GAP'} ${s.id} — ${s.title}`);
