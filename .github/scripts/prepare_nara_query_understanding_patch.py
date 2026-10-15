@@ -126,3 +126,27 @@ else:
     test_source = test_source.replace(anchor, fixtures, 1)
     test_path.write_text(test_source, encoding='utf-8')
     print('PASS: isolated-VM fixtures added for naraHasPlantTopic and naraScopeRecentHistory.')
+
+# 3. The isolated memory-retrieval test replaces naraState after makeContext().
+# Keep the store arrays that the production retrieval helper expects, including the
+# validated online-teacher store. Empty arrays preserve the test's intended behavior.
+rx_anchor = """rx.naraState = {
+  messages: [],
+  userLessons: [{id:'user-rule'"""
+rx_replacement = """rx.naraState = {
+  messages: [],
+  teacherValidatedLessons: [],
+  teacherCandidateLessons: [],
+  onlineTeacherLessons: [],
+  lessons: [],
+  userLessons: [{id:'user-rule'"""
+if 'teacherValidatedLessons: []' in test_source:
+    print('PASS: validated-teacher memory store fixture already exists.')
+else:
+    count = test_source.count(rx_anchor)
+    if count != 1:
+        raise SystemExit(f'ERROR: Could not safely add memory-store fixtures: expected one anchor, found {count}.')
+    test_source = test_source.replace(rx_anchor, rx_replacement, 1)
+    test_path.write_text(test_source, encoding='utf-8')
+    print('PASS: memory retrieval test now defines empty validated/candidate teacher stores.')
+
