@@ -10,6 +10,7 @@ on:
       - ".github/scripts/patch_nara_query_understanding.py"
       - ".github/scripts/test_nara_query_understanding.js"
       - ".github/scripts/prepare_nara_query_understanding_patch.py"
+      - ".github/scripts/test_nara_data_understanding.js"
 
 permissions:
   contents: write
