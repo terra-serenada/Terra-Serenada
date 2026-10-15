@@ -127,26 +127,47 @@ else:
     test_path.write_text(test_source, encoding='utf-8')
     print('PASS: isolated-VM fixtures added for naraHasPlantTopic and naraScopeRecentHistory.')
 
-# 3. The isolated memory-retrieval test replaces naraState after makeContext().
-# Keep the store arrays that the production retrieval helper expects, including the
-# validated online-teacher store. Empty arrays preserve the test's intended behavior.
+# 3. The isolated memory-retrieval test must mirror the store used by the current
+# app. naraGetTaughtKnowledge retrieves Guru material from teacherValidatedLessons,
+# not the legacy teacherLessons fixture used in the original test. Put the Guru lesson
+# in the validated store (not the candidate store) and keep the user's lesson separate.
 rx_anchor = """rx.naraState = {
   messages: [],
   userLessons: [{id:'user-rule'"""
-rx_replacement = """rx.naraState = {
+validated_fixture = """rx.naraState = {
   messages: [],
-  teacherValidatedLessons: [],
+  teacherValidatedLessons: [{id:'guru-rule', title:'Aturan yang pernah saya ajarkan tentang penyiraman', topic:'Penyiraman', text:'Aturan umum penyiraman yang pernah saya ajarkan kepada Nara untuk semua tanaman.', createdAt:'2026-10-13', origin:'Guru AI Online', learningType:'model_language'}],
   teacherCandidateLessons: [],
   onlineTeacherLessons: [],
   lessons: [],
   userLessons: [{id:'user-rule'"""
-if 'teacherValidatedLessons: []' in test_source:
-    print('PASS: validated-teacher memory store fixture already exists.')
+validated_fixture_marker = "teacherValidatedLessons: [{id:'guru-rule'"
+legacy_guru_fixture = "  teacherLessons: [{id:'guru-rule', title:'Aturan yang pernah saya ajarkan tentang penyiraman', topic:'Penyiraman', text:'Aturan umum penyiraman yang pernah saya ajarkan kepada Nara untuk semua tanaman.', createdAt:'2026-10-13', origin:'Guru AI Online', learningType:'model_language'}]"
+if validated_fixture_marker in test_source:
+    if legacy_guru_fixture in test_source:
+        test_source = test_source.replace(legacy_guru_fixture, '  teacherLessons: []', 1)
+        test_path.write_text(test_source, encoding='utf-8')
+        print('PASS: duplicate legacy Guru fixture moved to the validated store only.')
+    else:
+        print('PASS: validated Guru memory fixture already exists.')
 else:
     count = test_source.count(rx_anchor)
     if count != 1:
-        raise SystemExit(f'ERROR: Could not safely add memory-store fixtures: expected one anchor, found {count}.')
-    test_source = test_source.replace(rx_anchor, rx_replacement, 1)
+        raise SystemExit(f'ERROR: Could not safely add validated memory fixture: expected one anchor, found {count}.')
+    test_source = test_source.replace(rx_anchor, validated_fixture, 1)
+    if legacy_guru_fixture not in test_source:
+        raise SystemExit('ERROR: Expected legacy Guru fixture not found after adding validated fixture.')
+    test_source = test_source.replace(legacy_guru_fixture, '  teacherLessons: []', 1)
+    test_source = test_source.replace(
+        "// 8. Explicit user-taught-memory questions prefer the user's store over equally matching Guru material.",
+        "// 8. Explicit user-taught-memory questions prefer the user's store over equally matching validated Guru material.",
+        1
+    )
+    test_source = test_source.replace(
+        "assert(memoryHits.length >= 2, 'Test should return both the user and Guru lesson candidates.');",
+        "assert(memoryHits.length >= 2, 'Test should return both the user and validated Guru lesson records.');",
+        1
+    )
     test_path.write_text(test_source, encoding='utf-8')
-    print('PASS: memory retrieval test now defines empty validated/candidate teacher stores.')
+    print('PASS: memory regression fixture now supplies a real validated Guru lesson and a separate user lesson.')
 
