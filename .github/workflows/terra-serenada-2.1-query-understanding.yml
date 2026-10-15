@@ -51,6 +51,16 @@ jobs:
         with:
           gradle-version: "8.13"
 
+      - name: Validate query-understanding script syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .github/scripts/patch_nara_query_understanding.py
+          test -s .github/scripts/test_nara_query_understanding.js
+          python3 -m py_compile .github/scripts/patch_nara_query_understanding.py
+          node --check .github/scripts/test_nara_query_understanding.js
+          echo "PASS: query-understanding patch and regression-test scripts are present and syntactically valid."
+
       - name: Build from the 2.0 recipe plus query-understanding patch
         shell: bash
         run: |
@@ -79,6 +89,11 @@ jobs:
           abort 'ERROR: Build-recipe dispatcher anchor changed; refusing an unsafe workflow edit.' unless command.include?(needle)
           command.sub!(needle, injected.strip)
 
+          # The locked recipe wraps every nested step in a collapsed GitHub log group.
+          # Remove those wrappers so the real Python/Node error is visible when CI fails.
+          command.gsub!('puts "::group::#{name}"', 'puts "::notice::START nested recipe step: #{name}"')
+          command.gsub!("puts '::endgroup::'", 'puts "::notice::END nested recipe step: #{name}"')
+
           # Keep the update installable over 2.0 by using a strictly higher versionCode.
           command.gsub!('versionCode = 1000000 + ciRunNumber', 'versionCode = 1100000 + ciRunNumber')
           command.gsub!('versionName = "2.0.$ciRunNumber"', 'versionName = "2.1.$ciRunNumber"')
@@ -95,7 +110,15 @@ jobs:
             'LEGACY_STEP2P_COMMIT' => '9eb8456e93e8327abd8afcce4898313658c4c41c'
           }
           ok = system(env, 'bash', '-euo', 'pipefail', '-c', command)
-          abort 'ERROR: The reused 2.0 build recipe or query-understanding regression tests failed.' unless ok
+          unless ok
+            status = $?
+            detail = if status&.signaled?
+              "signal #{status.termsig}"
+            else
+              "exit code #{status&.exitstatus || 'unknown'}"
+            end
+            abort "ERROR: Reused 2.0 recipe, Nara patch, or regression test failed (#{detail}). The last START nested recipe step identifies the failing component above."
+          end
           RUBY
 
       - name: Android emulator install and launch smoke test
