@@ -72,9 +72,10 @@ jobs:
           injected = <<~'INJECT'
             query_patch_index = steps.index { |s| s['name'] == 'Validate patched HTML and embedded JavaScript syntax' }
             abort 'ERROR: Could not locate the HTML/JavaScript validation step for query-understanding patch.' unless query_patch_index
-            steps.insert(query_patch_index, {
+                        steps.insert(query_patch_index, {
               'name' => 'Nara Query Understanding and Source Routing 2.1',
               'run' => "set -euo pipefail\npython3 .github/scripts/prepare_nara_query_understanding_patch.py\npython3 .github/scripts/patch_nara_query_understanding.py\nnode .github/scripts/test_nara_query_understanding.js\nnode .github/scripts/test_nara_data_understanding.js --report-only"
+            })
             first = steps.index { |s| s['name'] == 'Create Android project from the known-good v26 generator (no repository push)' }
           INJECT
           abort 'ERROR: Build-recipe dispatcher anchor changed; refusing an unsafe workflow edit.' unless command.include?(needle)
