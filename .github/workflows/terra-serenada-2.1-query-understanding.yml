@@ -1,0 +1,132 @@
+name: Terra Serenada 2.1 — Nara Query Understanding
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/terra-serenada-2.1-query-understanding.yml"
+      - ".github/scripts/patch_nara_query_understanding.py"
+      - ".github/scripts/test_nara_query_understanding.js"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: terra-serenada-2-1-query-understanding
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: Build and verify Nara Query Understanding APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      BASELINE_APK_URL: https://github.com/terra-serenada/Terra-Serenada/releases/download/apk-v1.0.19-10/Terra-Serenada.apk
+
+    steps:
+      - name: Checkout repository history and patch scripts
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Build from the 2.0 recipe plus query-understanding patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml - <<'RUBY'
+          base_path = '.github/workflows/terra-serenada-2.0.yml'
+          abort "ERROR: Required baseline workflow is missing: #{base_path}" unless File.file?(base_path)
+          baseline = YAML.safe_load_file(base_path, aliases: true)
+          step = baseline.fetch('jobs').fetch('build-and-publish').fetch('steps').find do |item|
+            item['name'] == 'Build from the locked Step 2P checkpoint and run its safety checks'
+          end
+          abort 'ERROR: Could not find the verified 2.0 build recipe. Refusing to build from a guessed workflow.' unless step && step['run']
+          command = step.fetch('run').dup
+
+          # Make the existing 2.0 recipe add our patch after all Step 2P patches but before HTML/JS validation.
+          needle = "first = steps.index { |s| s['name'] == 'Create Android project from the known-good v26 generator (no repository push)' }"
+          injected = <<~'INJECT'
+            query_patch_index = steps.index { |s| s['name'] == 'Validate patched HTML and embedded JavaScript syntax' }
+            abort 'ERROR: Could not locate the HTML/JavaScript validation step for query-understanding patch.' unless query_patch_index
+            steps.insert(query_patch_index, {
+              'name' => 'Nara Query Understanding and Source Routing 2.1',
+              'run' => "set -euo pipefail\npython3 .github/scripts/patch_nara_query_understanding.py\nnode .github/scripts/test_nara_query_understanding.js"
+            })
+            first = steps.index { |s| s['name'] == 'Create Android project from the known-good v26 generator (no repository push)' }
+          INJECT
+          abort 'ERROR: Build-recipe dispatcher anchor changed; refusing an unsafe workflow edit.' unless command.include?(needle)
+          command.sub!(needle, injected.strip)
+
+          # Keep the update installable over 2.0 by using a strictly higher versionCode.
+          command.gsub!('versionCode = 1000000 + ciRunNumber', 'versionCode = 1100000 + ciRunNumber')
+          command.gsub!('versionName = "2.0.$ciRunNumber"', 'versionName = "2.1.$ciRunNumber"')
+          command.gsub!('expected_code=$((1000000 + GITHUB_RUN_NUMBER))', 'expected_code=$((1100000 + GITHUB_RUN_NUMBER))')
+          command.gsub!('expected_name="2.0.${GITHUB_RUN_NUMBER}"', 'expected_name="2.1.${GITHUB_RUN_NUMBER}"')
+          unless command.include?('1100000 + ciRunNumber') && command.include?('2.1.$ciRunNumber') && command.include?('1100000 + GITHUB_RUN_NUMBER') && command.include?('2.1.${GITHUB_RUN_NUMBER}')
+            abort 'ERROR: Could not safely upgrade the version metadata to 2.1. Refusing an APK with ambiguous versioning.'
+          end
+
+          env = {
+            'KEYSTORE_B64' => ENV.fetch('KEYSTORE_B64', ''),
+            'KEYSTORE_PASSWORD' => ENV.fetch('KEYSTORE_PASSWORD', ''),
+            'BASELINE_APK_URL' => ENV.fetch('BASELINE_APK_URL'),
+            'LEGACY_STEP2P_COMMIT' => '9eb8456e93e8327abd8afcce4898313658c4c41c'
+          }
+          ok = system(env, 'bash', '-euo', 'pipefail', '-c', command)
+          abort 'ERROR: The reused 2.0 build recipe or query-understanding regression tests failed.' unless ok
+          RUBY
+
+      - name: Android emulator install and launch smoke test
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: >-
+            bash -c 'set -euo pipefail; adb wait-for-device; adb install -r Terra-Serenada.apk; adb logcat -c; adb shell monkey -p com.terra.serenada -c android.intent.category.LAUNCHER 1; app_pid=""; for attempt in $(seq 1 30); do app_pid="$(adb shell pidof com.terra.serenada 2>/dev/null || true)"; if [ -n "$app_pid" ]; then break; fi; sleep 1; done; if [ -z "$app_pid" ]; then echo "ERROR: Terra Serenada did not remain running after launch. Android runtime logs follow:"; adb logcat -d -s AndroidRuntime:E ActivityManager:E || true; exit 1; fi; crash_log="$(adb logcat -d -s AndroidRuntime:E 2>&1)" || { echo "ERROR: Unable to read Android runtime logs after launching the app."; exit 1; }; if printf "%s\n" "$crash_log" | grep -q "FATAL EXCEPTION"; then printf "%s\n" "$crash_log"; exit 1; fi; echo "APK installed and app process remained running in Android emulator."'
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Terra-Serenada-APK-2.1-${{ github.run_number }}
+          path: Terra-Serenada.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-terra-serenada-2.1-${{ github.run_number }}
+          name: Terra Serenada APK 2.1 (build ${{ github.run_number }})
+          body: |
+            Terra Serenada 2.1 builds on the installed 2.0 baseline and the locked Nara Step 2P source/retrieval checks.
+            Adds intent-aware Indonesian query interpretation, conservative follow-up-reference resolution,
+            source routing hints, ambiguity fail-closed behavior, and retrieval diagnostics for the interpretation sent online.
+            Existing root index.html, package identity, signing identity, garden records, and taught memory are preserved.
+            Publishing remains gated by source checks, APK metadata/signature/alignment validation,
+            query-understanding regression tests, and Android emulator installation/launch smoke testing.
