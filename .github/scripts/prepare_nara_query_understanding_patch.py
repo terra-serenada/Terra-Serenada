@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Prepare Nara 2.1's patch helper for harmless whitespace differences.
+"""Prepare Nara 2.1 patch anchors and isolate test fixtures for its legacy helpers.
 
 Runs inside the ephemeral GitHub Actions checkout before the main patch script.
-Does not modify repository root index.html or persistent app data.
+It does not modify repository root index.html, persistent app data, or APK data.
 """
 from pathlib import Path
 import re
 
-path = Path('.github/scripts/patch_nara_query_understanding.py')
-if not path.is_file():
-    raise SystemExit(f'ERROR: Required query-understanding patch is missing: {path}')
-source = path.read_text(encoding='utf-8')
+# 1. Make the main HTML patch resilient to harmless whitespace variation.
+patch_path = Path('.github/scripts/patch_nara_query_understanding.py')
+if not patch_path.is_file():
+    raise SystemExit(f'ERROR: Required query-understanding patch is missing: {patch_path}')
+source = patch_path.read_text(encoding='utf-8')
 original = source
 
 start_marker = 'def replace_once(text: str, old: str, new: str, label: str) -> str:'
@@ -63,8 +64,7 @@ replacement = '''def replace_once(text: str, old: str, new: str, label: str) -> 
 '''
 source = source[:start] + replacement + source[end:]
 
-# The previous patch tried to find the retrieval diagnostic listener using one exact
-# indentation string. The restored Step 2P source can indent that listener differently.
+# Fix the diagnostic boundary without relying on one exact indentation sequence.
 old_diag = '''diag_start = source.find("function naraRunRetrievalDiagnostic(){")
 diag_end = source.find("\\n          document.addEventListener('click'", diag_start)
 if diag_start < 0 or diag_end <= diag_start:
@@ -82,13 +82,47 @@ if listener_match is None or listener_match.start() <= diag_start:
 diag_end = listener_match.start()
 diag = source[diag_start:diag_end]'''
 count = source.count(old_diag)
-if count != 1:
+if count == 1:
+    source = source.replace(old_diag, new_diag, 1)
+elif count == 0 and 'retrieval diagnostic function: click-listener boundary not found' in source:
+    # Already prepared in an earlier run; keep it idempotent.
+    pass
+else:
     raise SystemExit(f'ERROR: Could not safely update retrieval diagnostic boundary logic: expected one old block, found {count}.')
-source = source.replace(old_diag, new_diag, 1)
 
-if source == original:
-    raise SystemExit('ERROR: Preparatory patch made no changes.')
-compile(source, str(path), 'exec')
-path.write_text(source, encoding='utf-8')
-print('PASS: unique whitespace-insensitive anchors enabled.')
-print('PASS: retrieval diagnostic boundary now ignores indentation.')
+if source != original:
+    compile(source, str(patch_path), 'exec')
+    patch_path.write_text(source, encoding='utf-8')
+    print('PASS: unique whitespace-insensitive anchors enabled.')
+    print('PASS: retrieval diagnostic boundary now ignores indentation.')
+else:
+    print('PASS: query-understanding patch anchors were already prepared.')
+
+# 2. The regression test evaluates the online-context builder in an isolated VM.
+# Supply the two pre-existing app helpers it references, since that VM intentionally
+# evaluates only the builder function instead of loading the entire app script.
+test_path = Path('.github/scripts/test_nara_query_understanding.js')
+if not test_path.is_file():
+    raise SystemExit(f'ERROR: Required query-understanding regression test is missing: {test_path}')
+test_source = test_path.read_text(encoding='utf-8')
+anchor = '''    naraPlantEntriesMentionedInText: entries,
+    naraExplicitCropTerms: cropTerms,
+'''
+fixtures = '''    naraPlantEntriesMentionedInText: entries,
+    naraExplicitCropTerms: cropTerms,
+    // Isolated VM fixtures for pre-existing globals used by the context builder.
+    naraHasPlantTopic: q => cropTerms(q).length > 0 || /\\b(?:tanaman|tumbuhan|kebun|buah|daun|batang|akar|bunga|hama|penyakit|panen|siram|penyiraman|pupuk|bed)\\b/i.test(normalize(q).join(' ')),
+    naraScopeRecentHistory: (q, limit=8) => {
+      const count = Number.isInteger(limit) && limit > 0 ? limit : 8;
+      return context.naraState.messages.slice(-count);
+    },
+'''
+if 'naraHasPlantTopic: q =>' in test_source and 'naraScopeRecentHistory: (q, limit=8)' in test_source:
+    print('PASS: online context test fixtures for legacy helpers already exist.')
+else:
+    count = test_source.count(anchor)
+    if count != 1:
+        raise SystemExit(f'ERROR: Could not safely add isolated-VM helper fixtures: expected one anchor, found {count}.')
+    test_source = test_source.replace(anchor, fixtures, 1)
+    test_path.write_text(test_source, encoding='utf-8')
+    print('PASS: isolated-VM fixtures added for naraHasPlantTopic and naraScopeRecentHistory.')
