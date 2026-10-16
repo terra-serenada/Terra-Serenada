@@ -1290,7 +1290,7 @@ function renderGroupChecklist(selected=[]){
 function selectedGroupBeds(){return [...$('gBedChecklist').querySelectorAll('input:checked')].map(i=>i.value);}
 function cycleLabel(type){return type==='once'?'🌱 Sekali Siklus':type==='permanent'?'🌳 Permanen':'🌿 Produktif Berulang';}
 function groupStatusLabel(type){return type==='completed'?'✅ Selesai':type==='failed'?'❌ Gagal':type==='mixed'?'🔄 Campuran':'🟢 Aktif';}
-function groupHarvestDate(item,g){if(item?.harvestDays===''||item?.harvestDays==null||!g?.date)return '';const d=new Date(g.date+'T00:00:00');d.setDate(d.getDate()+Number(item.harvestDays));return d.toISOString().slice(0,10);}
+function groupHarvestDate(item,g){if(item?.harvestDays===''||item?.harvestDays==null||!g?.date)return '';const match=String(g.date).match(/^(\d{4})-(\d{2})-(\d{2})$/);const days=Number(item.harvestDays);if(!match||!Number.isFinite(days))return '';const year=Number(match[1]),month=Number(match[2]),day=Number(match[3]);const d=new Date(Date.UTC(year,month-1,day));if(d.getUTCFullYear()!==year||d.getUTCMonth()!==month-1||d.getUTCDate()!==day)return '';d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10);}
 function openGroupModal(plantId,groupId=null){const x=data.find(a=>a.id===plantId);if(!x)return;groupPlantId=plantId;editingGroupId=groupId;const g=groupId?(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).find(a=>a.id===groupId):null;if(g&&!groupHasActive(g)){showToast('Kelompok ini sudah masuk Riwayat Kelompok Tanam');return}$('groupFormTitle').textContent=g?'✏️ Edit Kelompok Tanam':'🌱 Tanam Susulan';$('gDate').value=g?.date||today();$('gQty').value=g?groupTotal(g):1;$('gQty').readOnly=!!g;renderGroupChecklist(groupLocations(g));$('groupEditStatusNote').textContent=g?'Jumlah awal kelompok tetap dan tidak dapat diubah. Status individu dapat dikoreksi melalui tombol Selesai/Gagal.':'Jumlah awal kelompok akan tetap setelah kelompok dibuat.';$('groupModal').classList.add('show');}
 function closeGroupModal(){$('groupModal').classList.remove('show');groupPlantId=null;editingGroupId=null;$('gQty').readOnly=false;}
 function saveGroup(){const isEdit=!!editingGroupId;const x=data.find(a=>a.id===groupPlantId);const date=$('gDate').value;const qty=isEdit?Number($('gQty').value):Math.max(1,Number($('gQty').value||0));if(!x||!date||!(qty>0)){showToast('Tanggal dan jumlah tanaman wajib diisi');return}const locations=selectedGroupBeds();let groups=Array.isArray(x.plantingGroups)?[...x.plantingGroups]:[];if(editingGroupId){groups=groups.map(g=>g.id===editingGroupId?{...g,date,locations}:g)}else{groups.push({id:makeId('group'),date,totalQty:qty,qty,activeQty:qty,completedQty:0,failedQty:0,locations,createdAt:new Date().toISOString()});}groups.sort((a,b)=>String(a.date).localeCompare(String(b.date)));const total=groups.reduce((n,g)=>n+groupTotal(g),0);data=data.map(a=>a.id===x.id?{...a,plantingGroups:groups,date:groups[0]?.date||date,qty:total||1,locations:[],bed:''}:a);if(save()){closeGroupModal();showToast(isEdit?'Kelompok tanam diperbarui':'🌱 Tanam susulan ditambahkan');}}
@@ -2733,7 +2733,9 @@ function naraOnlineLearningContext(question,localDraft=''){
       const statusEvent=statusEvents.length?statusEvents[statusEvents.length-1]:null;
       const completionEvent=completionEvents.length?completionEvents[completionEvents.length-1]:null;
       const exactStatusDate=g.statusUpdatedOn||statusEvent?.date||null;
-      return {id_kelompok:groupId||null,tanggal:g.date||null,jumlah_awal:groupTotal(g),jumlah_aktif:groupActiveQty(g),jumlah_selesai:groupCompletedQty(g),jumlah_gagal:groupFailedQty(g),jumlah_kategori_sama_dengan_awal:groupActiveQty(g)+groupCompletedQty(g)+groupFailedQty(g)===groupTotal(g),status:groupDerivedStatus(g),lokasi:groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||'')).filter(Boolean).slice(0,4),tanggal_status_dicatat:exactStatusDate,tanggal_status_dicatat_dari:exactStatusDate?(g.statusUpdatedOn?'field statusUpdatedOn': 'event group-status-updated'):null,makna_tanggal_status_dicatat:exactStatusDate?'Tanggal perubahan terakhir jumlah selesai/gagal dicatat; bukan otomatis tanggal pertama tanaman gagal.':null,tanggal_penutupan_kelompok:completionEvent?.date||null,catatan_penutupan:compact(completionEvent?.note||'',160),tanggal_perubahan_status_tidak_tersedia:!exactStatusDate};
+      const zone=typeof ti4GroupZone==='function'?ti4GroupZone(g):null;
+      const estimatedHarvestDate=groupHarvestDate(p,g)||null;
+      return {id_kelompok:groupId||null,tanggal:g.date||null,jumlah_awal:groupTotal(g),jumlah_aktif:groupActiveQty(g),jumlah_selesai:groupCompletedQty(g),jumlah_gagal:groupFailedQty(g),jumlah_kategori_sama_dengan_awal:groupActiveQty(g)+groupCompletedQty(g)+groupFailedQty(g)===groupTotal(g),status:groupDerivedStatus(g),lokasi:groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||'')).filter(Boolean).slice(0,4),tanggal_estimasi_panen:estimatedHarvestDate,umur_panen_hari_yang_digunakan:p.harvestDays??null,sumber_estimasi_panen:estimatedHarvestDate?'hasil fungsi estimasi yang dipakai tampilan aplikasi, dari tanggal kelompok + umur panen (hari)':'tidak tersedia',zona_cahaya:zone?.name||null,zona_cahaya_jam:zone?`${zone.start||''}–${zone.end||''}`:null,zona_cahaya_intensitas:zone?.intensity||null,tanggal_status_dicatat:exactStatusDate,tanggal_status_dicatat_dari:exactStatusDate?(g.statusUpdatedOn?'field statusUpdatedOn': 'event group-status-updated'):null,makna_tanggal_status_dicatat:exactStatusDate?'Tanggal perubahan terakhir jumlah selesai/gagal dicatat; bukan otomatis tanggal pertama tanaman gagal.':null,tanggal_penutupan_kelompok:completionEvent?.date||null,catatan_penutupan:compact(completionEvent?.note||'',160),tanggal_perubahan_status_tidak_tersedia:!exactStatusDate};
     }),
     kejadian_terbaru:naraPlantEvents(p).slice(0,3).map(e=>({tanggal:e.date||null,jenis:e.type||'',label:compact(e.label||e.type,100),catatan:compact(e.note,180)}))
   }));
@@ -2884,6 +2886,7 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
                 pelajaran_relevan:diagnosticMemories.length
               },
               memoryCount:diagnosticMemories.length,
+              requestStatus:'context_ready',requestStartedAt:null,requestFinishedAt:null,requestError:'',requestFailureStage:'',requestModel:'',requestOutcome:'',
               memories:diagnosticMemories.map(m=>({
                 topik:naraGuruSafe(m.topik||m.topic||'',140),
                 asal:naraGuruSafe(m.asal||m.origin||'Sumber tidak berlabel',100),
@@ -2912,7 +2915,22 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
       })):[]
     })):[]
   };
-  const response=await naraGuruChat([{role:'system',content:systemPrompt+modeInstruction},{role:'user',content:content}],1400);
+  naraLastRetrievalAudit.requestStatus='sending_primary';
+  naraLastRetrievalAudit.requestStartedAt=new Date().toISOString();
+  naraLastRetrievalAudit.requestFailureStage='primary_chat';
+  let response;
+  try{
+    response=await naraGuruChat([{role:'system',content:systemPrompt+modeInstruction},{role:'user',content:content}],1400);
+    naraLastRetrievalAudit.requestStatus='primary_response_received';
+    naraLastRetrievalAudit.requestModel=response?.model||'';
+    naraLastRetrievalAudit.requestFailureStage='';
+  }catch(err){
+    naraLastRetrievalAudit.requestStatus='failed';
+    naraLastRetrievalAudit.requestFinishedAt=new Date().toISOString();
+    naraLastRetrievalAudit.requestError=naraGuruSafe(err?.name==='AbortError'?'Permintaan AI melewati batas waktu (timeout).':err?.message||err||'Kesalahan online tidak diketahui',220);
+    naraLastRetrievalAudit.requestFailureStage='primary_chat';
+    throw err;
+  }
   // A correction inherits its target from recent user history. Audit scope must use that routed
   // reference, otherwise a valid answer about the inherited plant is misclassified as unrelated.
   const auditScopeQuestion=String(base.interpretasi_pertanyaan?.routingQuestion||question);
@@ -2924,14 +2942,39 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
     const targetHasRecord=naraPlantEntriesMentionedInText(auditScopeQuestion).length>0;
     const generalSpeciesDirective=(!targetHasRecord&&explicitCrops.length)?('\n\nSPESIES EKSPLISIT TANPA REKAMAN: Pengguna sudah menyebut '+explicitCrops[0]+' dengan jelas. Jangan meminta nama tanaman lagi. Rekaman kebun yang cocok belum tersedia, jadi jawab berdasarkan pengetahuan hortikultura umum, pisahkan kemungkinan dari fakta, berikan pemeriksaan awal yang aman, dan jangan menyebut atau menggunakan rekaman tanaman lain.') : '';
     const scopedRetryPrompt=strictPrompt+generalSpeciesDirective;
-    const retry=await naraGuruChat([{role:'system',content:scopedRetryPrompt},{role:'user',content:JSON.stringify(strictBase)}],1200);
+    let retry;
+    try{
+      naraLastRetrievalAudit.requestStatus='sending_scope_retry';
+      naraLastRetrievalAudit.requestFailureStage='scope_retry_chat';
+      retry=await naraGuruChat([{role:'system',content:scopedRetryPrompt},{role:'user',content:JSON.stringify(strictBase)}],1200);
+      naraLastRetrievalAudit.requestStatus='scope_retry_response_received';
+      naraLastRetrievalAudit.requestModel=retry?.model||naraLastRetrievalAudit.requestModel||'';
+      naraLastRetrievalAudit.requestFailureStage='';
+    }catch(err){
+      naraLastRetrievalAudit.requestStatus='failed';
+      naraLastRetrievalAudit.requestFinishedAt=new Date().toISOString();
+      naraLastRetrievalAudit.requestError=naraGuruSafe(err?.name==='AbortError'?'Permintaan audit ulang melewati batas waktu (timeout).':err?.message||err||'Kesalahan online tidak diketahui',220);
+      naraLastRetrievalAudit.requestFailureStage='scope_retry_chat';
+      throw err;
+    }
     const secondAudit=naraAuditAnswerPlantScope(auditScopeQuestion,retry.text);
     if(!secondAudit.ok){
+      naraLastRetrievalAudit.requestStatus='response_received_audit_rejected';
+      naraLastRetrievalAudit.requestOutcome='response_rejected_after_retry';
+      naraLastRetrievalAudit.requestFinishedAt=new Date().toISOString();
       if(!targetHasRecord&&explicitCrops.length){console.warn('Nara scope audit used safe general-knowledge fallback for explicit species without matching garden record.',secondAudit.offending||[]);return {text:naraPlantScopeSafeFallback(auditScopeQuestion),model:retry.model||response.model,answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'};}
       console.warn('Nara scope audit retained safe answer path after retry failed a factual source-attribution check.',secondAudit.offending||[]);return {text:naraPlantScopeSafeFallback(auditScopeQuestion),model:retry.model||response.model,answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'};
     }
+    naraLastRetrievalAudit.requestStatus='success';
+    naraLastRetrievalAudit.requestOutcome='online_revised';
+    naraLastRetrievalAudit.requestFinishedAt=new Date().toISOString();
+    naraLastRetrievalAudit.requestError='';naraLastRetrievalAudit.requestFailureStage='';
     return {...retry,answerSource:'online_revised',answerAudit:'passed_after_retry'};
   }
+  naraLastRetrievalAudit.requestStatus='success';
+  naraLastRetrievalAudit.requestOutcome='online_direct';
+  naraLastRetrievalAudit.requestFinishedAt=new Date().toISOString();
+  naraLastRetrievalAudit.requestError='';naraLastRetrievalAudit.requestFailureStage='';
   return {...response,answerSource:'online_direct',answerAudit:'passed_first_audit'};
 }
 function naraBuildTeacherPrompt(stage){
@@ -3194,6 +3237,11 @@ function naraRunRetrievalDiagnostic(){
     out.push('<div><strong>2a. Cakupan bukti kebun untuk kata kunci uji:</strong> '+(testRequiresPlantRecord?(testPlantRows>0?'LULUS — '+testPlantRows+' rekaman tanaman terstruktur disertakan dalam payload uji.':'BELUM LULUS — maksud dan fokus memerlukan rekaman tanaman, tetapi payload uji memuat 0 rekaman.'):'Tidak diwajibkan oleh fokus hasil interpretasi uji; periksa apakah maksud/rujukan sudah dikenali dengan benar.')+'</div>');
     out.push('<div><strong>3. Konteks yang disusun untuk permintaan AI online terakhir sejak APK dibuka:</strong> '+(last?('Pertanyaan: '+escText(last.question||'')+'; waktu: '+escText(last.at||'')+'; materi Guru/memori: '+Number(last.memoryCount||0)+'; ukuran konteks pesan pengguna: '+Number(last.contextChars||0)+' karakter.'):'Belum ada permintaan online yang tercatat sejak APK dibuka.')+'</div>');
     if(last&&last.sourceCounts){const c=last.sourceCounts;out.push('<div><strong>Hitungan sumber pada konteks tersebut:</strong> rekaman tanaman '+Number(c.tanaman_relevan||0)+', Perlu Perhatian '+Number(c.perhatian_tercatat||0)+', aktivitas kebun '+Number(c.aktivitas_kebun||0)+', riwayat panen '+Number(c.riwayat_panen||0)+', profil Bed '+Number(c.profil_bed||0)+', catatan kebun '+Number(c.catatan_kebun||0)+', materi Guru/memori '+Number(c.pelajaran_relevan||0)+'.</div>');}
+    if(last){
+      const status=last.requestStatus||'hasil permintaan belum dicatat';
+      out.push('<div><strong>Status permintaan AI online:</strong> '+escText(status)+(last.requestOutcome?' · hasil: '+escText(last.requestOutcome):'')+(last.requestModel?' · model: '+escText(last.requestModel):'')+(last.requestStartedAt?' · mulai: '+escText(last.requestStartedAt):'')+(last.requestFinishedAt?' · selesai: '+escText(last.requestFinishedAt):'')+'.</div>');
+      if(last.requestFailureStage||last.requestError)out.push('<div><strong>Rincian kegagalan:</strong> tahap '+escText(last.requestFailureStage||'tidak tercatat')+'; '+escText(last.requestError||'pesan error tidak tersedia')+'.</div>');
+    }
     if(last)out.push('<div>'+(auditContextMissingGardenEvidence?'BELUM LULUS — istilah audit ditemukan dalam riwayat percakapan, tetapi konteks online terakhir memuat 0 rekaman tanaman meskipun percakapan mengandung rujukan tanaman. Teks riwayat saja bukan bukti kebun.':exactLast?'Istilah kunci ditemukan dalam salah satu item konteks terakhir; ini hanya kecocokan teks, bukan kelulusan kelengkapan sumber.':'Item sumber yang diuji tidak memuat semua istilah kunci dalam satu item. Ini bukan bukti bahwa seluruh payload online kosong.')+'</div>');
     if(lastSnapshot){
       out.push('<div><strong>Riwayat percakapan yang disusun untuk AI:</strong></div>');
