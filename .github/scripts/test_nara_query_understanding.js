@@ -386,5 +386,45 @@ console.log('PASS: diagnostic fails closed when audit history exists but structu
   assert.strictEqual(runtimeResult.answerSource, 'online_direct',
     'The production request path should accept a target-specific correction answer instead of replacing it with a generic fallback.');
   assert.strictEqual(runtimeResult.text, correctionAnswer);
+  assert.strictEqual(vm.runInContext('naraLastRetrievalAudit.requestStatus', runtime), 'success', 'Runtime diagnostics must record a completed online response.');
+  assert.strictEqual(vm.runInContext('naraLastRetrievalAudit.requestOutcome', runtime), 'online_direct');
   console.log('PASS: production online-request path does not falsely reject inherited Bawang Putih correction answers');
+})().catch(err=>{ console.error(err && err.stack || err); process.exitCode=1; });
+
+// 16. Harvest-date arithmetic must remain date-only and not shift backward in UTC+ time zones.
+const harvestStart = html.indexOf('function groupHarvestDate(item,g){');
+const harvestEnd = html.indexOf('\nfunction openGroupModal', harvestStart);
+if (harvestStart < 0 || harvestEnd <= harvestStart) throw new Error('Could not isolate production groupHarvestDate helper.');
+const harvestContext = vm.createContext({});
+vm.runInContext(html.slice(harvestStart, harvestEnd), harvestContext, {timeout:1000});
+assert.strictEqual(harvestContext.groupHarvestDate({harvestDays:90},{date:'2026-09-20'}), '2026-12-19');
+assert.strictEqual(harvestContext.groupHarvestDate({harvestDays:90},{date:'2026-10-12'}), '2027-01-10');
+assert.strictEqual(harvestContext.groupHarvestDate({harvestDays:90},{date:'not-a-date'}), '');
+console.log('PASS: app harvest dates use timezone-safe calendar-day arithmetic');
+
+// 17. Group source payload must include the app's estimated harvest date and the assigned light zone.
+assert(html.includes('tanggal_estimasi_panen:estimatedHarvestDate'), 'Structured group payload must carry the same harvest estimate used by the app.');
+assert(html.includes('umur_panen_hari_yang_digunakan:p.harvestDays??null'), 'Payload must disclose the plant-level harvest interval that drives the estimate.');
+assert(html.includes('zona_cahaya:zone?.name||null'), 'Structured group payload must carry the selected light-zone name when available.');
+assert(html.includes("zona_cahaya_jam:zone?`${zone.start||''}–${zone.end||''}`:null"), 'Structured group payload should preserve zone time range.');
+console.log('PASS: structured plant-group payload includes harvest estimate and light-zone evidence');
+
+// 18. An online failure must be observable in the diagnostic rather than appearing as a generic fallback only.
+(async()=>{
+  const failedRuntime = makeContext([
+    {role:'user', text:'Kapan perkiraan panen Bawang Putih?'},
+    {role:'assistant', text:'Estimasi panen kelompok pertama.'}
+  ]);
+  failedRuntime.naraGuruChat = async () => { throw new Error('Worker merespons HTTP 502'); };
+  vm.runInContext('let naraLastRetrievalAudit=null;\n' + builderSource + '\n' + requestSource, failedRuntime, {timeout:1000});
+  let caught=false;
+  try { await failedRuntime.naraRequestOnlineAnswer('Audit ulang jawabanmu tentang Bawang Putih', {text:'draft lokal'}, [{role:'user',text:'Kapan perkiraan panen Bawang Putih?'}]); }
+  catch (_) { caught=true; }
+  assert.strictEqual(caught, true, 'Production request path should still propagate an online failure for fallback handling.');
+  assert.strictEqual(vm.runInContext('naraLastRetrievalAudit.requestStatus', failedRuntime), 'failed');
+  assert.strictEqual(vm.runInContext('naraLastRetrievalAudit.requestFailureStage', failedRuntime), 'primary_chat');
+  assert.match(vm.runInContext('naraLastRetrievalAudit.requestError', failedRuntime), /HTTP 502/);
+  assert(html.includes('Status permintaan AI online'), 'Diagnostic UI must display request outcome.');
+  assert(html.includes('Rincian kegagalan'), 'Diagnostic UI must show the online failure reason.');
+  console.log('PASS: diagnostic captures and displays the production online-request failure stage and message');
 })().catch(err=>{ console.error(err && err.stack || err); process.exitCode=1; });
