@@ -39,6 +39,9 @@ function makeContext(messages=[]) {
     naraMemoryTokens: normalize,
     naraPlantEntriesMentionedInText: entries,
     naraExplicitCropTerms: cropTerms,
+    naraHasPlantTopic: q => cropTerms(q).length > 0 || /\b(tanaman|tumbuhan|kebun|buah|daun|batang|akar|bunga|hama|penyakit|panen|siram|penyiraman|pupuk|bed)\b/i.test(normalize(q).join(' ')),
+    naraScopeRecentHistory: (q, messages=[]) => Array.isArray(messages) ? messages.slice(-8) : [],
+    naraLessonContextText: (lesson,max=900) => String(lesson && lesson.text || '').slice(0,max),
     naraIsSimpleGreeting: q => /^(hai|halo|selamat pagi|selamat malam)[!. ]*$/i.test(String(q||'').trim()),
     naraIsCorrectionTurn: q => /bukan itu|salah|bukan maksud saya|saya tidak bilang/i.test(String(q||''))
   };
@@ -198,7 +201,9 @@ rx.naraNormalizeState = () => {};
 rx.naraState = {
   messages: [],
   userLessons: [{id:'user-rule', title:'Aturan kebun', topic:'Penyiraman', text:'Aturan penyiraman yang pernah saya ajarkan: periksa kelembapan sebelum menyiram.', createdAt:'2026-10-01', origin:'Pengguna', learningType:'user_taught'}],
-  teacherLessons: [{id:'guru-rule', title:'Aturan yang pernah saya ajarkan tentang penyiraman', topic:'Penyiraman', text:'Aturan umum penyiraman yang pernah saya ajarkan kepada Nara untuk semua tanaman.', createdAt:'2026-10-13', origin:'Guru AI Online', learningType:'model_language'}]
+  teacherLessons: [],
+  teacherValidatedLessons: [{id:'guru-rule', title:'Aturan tentang penyiraman', topic:'Penyiraman', summary:'Prinsip umum penyiraman', text:'Aturan umum penyiraman: sesuaikan air dengan kebutuhan tanaman.', createdAt:'2026-10-13', origin:'Guru AI Online (lolos uji otomatis)', learningType:'validated_model_language'}],
+  teacherCandidateLessons: []
 };
 vm.runInContext(retrievalSource, rx, {timeout:1000});
 const memoryHits = rx.naraGetTaughtKnowledge('apa aturan yang pernah saya ajarkan tentang penyiraman');
