@@ -2893,20 +2893,42 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
             };
   if(base.interpretasi_pertanyaan?.disambiguationRequired){modeInstruction+='\n\nMODE KLARIFIKASI WAJIB: Rujukan pengguna ambigu. Jangan menganalisis tanaman atau mengambil kesimpulan dari rekaman mana pun. Tanyakan satu pertanyaan singkat untuk memastikan objek yang dimaksud.';}
   const content=JSON.stringify(base);
+  // Trace the exact context string passed as the online user's message (not just Guru memories).
+  // This remains in in-memory diagnostics for this APK session and is not sent separately.
+  naraLastRetrievalAudit.contextJson=content;
+  naraLastRetrievalAudit.contextChars=content.length;
+  naraLastRetrievalAudit.contextSnapshot={
+    pertanyaan_pengguna:base.pertanyaan_pengguna||'',
+    interpretasi_pertanyaan:base.interpretasi_pertanyaan||null,
+    sourceCounts:{...(naraLastRetrievalAudit.sourceCounts||{})},
+    percakapan_terakhir:Array.isArray(base.percakapan_terakhir)?base.percakapan_terakhir.map(m=>({peran:m.peran||'',isi:naraGuruSafe(m.isi||'',700)})):[],
+    tanaman_relevan:Array.isArray(base.tanaman_relevan)?base.tanaman_relevan.map(p=>({
+      id_rekaman:p.id_rekaman||null,nama:p.nama||'',varietas:p.varietas||'',
+      kelompok_tanam:Array.isArray(p.kelompok_tanam)?p.kelompok_tanam.map(g=>({
+        id_kelompok:g.id_kelompok||null,tanggal:g.tanggal||null,jumlah_awal:g.jumlah_awal??null,
+        jumlah_aktif:g.jumlah_aktif??null,lokasi:Array.isArray(g.lokasi)?g.lokasi:[],
+        tanggal_estimasi_panen:g.tanggal_estimasi_panen||g.estimasi_panen||null,
+        zona_cahaya:g.zona_cahaya||g.zona||null
+      })):[]
+    })):[]
+  };
   const response=await naraGuruChat([{role:'system',content:systemPrompt+modeInstruction},{role:'user',content:content}],1400);
-  const firstAudit=naraAuditAnswerPlantScope(question,response.text);
+  // A correction inherits its target from recent user history. Audit scope must use that routed
+  // reference, otherwise a valid answer about the inherited plant is misclassified as unrelated.
+  const auditScopeQuestion=String(base.interpretasi_pertanyaan?.routingQuestion||question);
+  const firstAudit=naraAuditAnswerPlantScope(auditScopeQuestion,response.text);
   if(!firstAudit.ok){
     const strictBase={...base,percakapan_terakhir:[],peringatan_konsistensi:'Jawaban percobaan sebelumnya berisiko menyebut tanaman di luar fokus kasus. Abaikan kasus lain sepenuhnya.'};
     const strictPrompt=systemPrompt+modeInstruction+'\n\nPENGUNCI KASUS WAJIB: Jawab hanya untuk tanaman yang secara eksplisit disebut dalam pertanyaan terbaru dan rekaman yang sesuai. Jangan menyebut atau memakai fakta dari tanaman lain. Jika tidak cukup data, nyatakan keterbatasan. Jangan berikan contoh lintas tanaman dalam jawaban ini.';
-    const explicitCrops=naraExplicitCropTerms(question);
-    const targetHasRecord=naraPlantEntriesMentionedInText(question).length>0;
+    const explicitCrops=naraExplicitCropTerms(auditScopeQuestion);
+    const targetHasRecord=naraPlantEntriesMentionedInText(auditScopeQuestion).length>0;
     const generalSpeciesDirective=(!targetHasRecord&&explicitCrops.length)?('\n\nSPESIES EKSPLISIT TANPA REKAMAN: Pengguna sudah menyebut '+explicitCrops[0]+' dengan jelas. Jangan meminta nama tanaman lagi. Rekaman kebun yang cocok belum tersedia, jadi jawab berdasarkan pengetahuan hortikultura umum, pisahkan kemungkinan dari fakta, berikan pemeriksaan awal yang aman, dan jangan menyebut atau menggunakan rekaman tanaman lain.') : '';
     const scopedRetryPrompt=strictPrompt+generalSpeciesDirective;
     const retry=await naraGuruChat([{role:'system',content:scopedRetryPrompt},{role:'user',content:JSON.stringify(strictBase)}],1200);
-    const secondAudit=naraAuditAnswerPlantScope(question,retry.text);
+    const secondAudit=naraAuditAnswerPlantScope(auditScopeQuestion,retry.text);
     if(!secondAudit.ok){
-      if(!targetHasRecord&&explicitCrops.length){console.warn('Nara scope audit used safe general-knowledge fallback for explicit species without matching garden record.',secondAudit.offending||[]);return {text:naraPlantScopeSafeFallback(question),model:retry.model||response.model,answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'};}
-      console.warn('Nara scope audit retained safe answer path after retry failed a factual source-attribution check.',secondAudit.offending||[]);return {text:naraPlantScopeSafeFallback(question),model:retry.model||response.model,answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'};
+      if(!targetHasRecord&&explicitCrops.length){console.warn('Nara scope audit used safe general-knowledge fallback for explicit species without matching garden record.',secondAudit.offending||[]);return {text:naraPlantScopeSafeFallback(auditScopeQuestion),model:retry.model||response.model,answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'};}
+      console.warn('Nara scope audit retained safe answer path after retry failed a factual source-attribution check.',secondAudit.offending||[]);return {text:naraPlantScopeSafeFallback(auditScopeQuestion),model:retry.model||response.model,answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'};
     }
     return {...retry,answerSource:'online_revised',answerAudit:'passed_after_retry'};
   }
@@ -3140,7 +3162,13 @@ function naraRunRetrievalDiagnostic(){
     const exactContext=contextRows.find(m=>containsAll([m.topik,m.asal,m.materi,m.jenis].filter(Boolean).join(' ')));
     const last=naraLastRetrievalAudit;
     const lastRows=last&&Array.isArray(last.memories)?last.memories:[];
-    const exactLast=lastRows.find(m=>containsAll([m.topik,m.asal,m.materi,m.jenis].filter(Boolean).join(' ')));
+    const lastSnapshot=last&&last.contextSnapshot?last.contextSnapshot:null;
+    const searchableLastSources=lastSnapshot?[
+      ...(Array.isArray(lastSnapshot.percakapan_terakhir)?lastSnapshot.percakapan_terakhir.map(m=>({label:'Riwayat percakapan',text:[m.peran,m.isi].filter(Boolean).join(' ')})):[]),
+      ...(Array.isArray(lastSnapshot.tanaman_relevan)?lastSnapshot.tanaman_relevan.map(p=>({label:'Rekaman tanaman',text:JSON.stringify(p)})):[]),
+      ...(Array.isArray(lastRows)?lastRows.map(m=>({label:'Materi Guru/memori',text:[m.topik,m.asal,m.materi,m.jenis].filter(Boolean).join(' ')})):[])
+    ]:lastRows.map(m=>({label:'Materi Guru/memori',text:[m.topik,m.asal,m.materi,m.jenis].filter(Boolean).join(' ')}));
+    const exactLast=searchableLastSources.find(m=>containsAll(m.text||''));
     const escText=value=>typeof esc==='function'?esc(String(value??'')):String(value??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
     const out=[];
               if(plan){const focus=Array.isArray(plan.fokus)?plan.fokus.map(x=>x.name).filter(Boolean).join(', '):'';const sources=Array.isArray(plan.sumber_yang_diperlukan)?plan.sumber_yang_diperlukan.join('; '):'';out.push('<div><strong>Interpretasi maksud:</strong> '+escText(plan.label_maksud||plan.maksud||'belum ditentukan')+'; keyakinan: '+escText(plan.keyakinan_pemahaman||'tidak tersedia')+'.</div>');if(focus)out.push('<div><strong>Fokus:</strong> '+escText(focus)+'</div>');out.push('<div><strong>Sumber yang diharapkan:</strong> '+escText(sources||'tidak ada')+'</div>');if(plan.rujukan_perlu_diperjelas)out.push('<div><strong>Klarifikasi diperlukan:</strong> '+escText(plan.alasan_klarifikasi||'rujukan ambigu')+'. Sumber spesifik harus ditahan.</div>');}
@@ -3151,9 +3179,17 @@ function naraRunRetrievalDiagnostic(){
     }else if(localMatches.length){out.push('<div>Kandidat teratas: '+escText(String(localMatches[0].text||'').slice(0,220))+'</div>');}
     out.push('<div><strong>2. Payload konteks yang disusun:</strong> '+(payloadError?('GAGAL — '+escText(payloadError)):(exactContext?'LULUS — item ditemukan di ingatan_belajar_relevan.':'BELUM LULUS — item tidak ditemukan dengan semua istilah kunci di ingatan_belajar_relevan.'))+'</div>');
     out.push('<div>Jumlah materi memori di payload uji: '+contextRows.length+'. Ini memeriksa pembentukan payload lokal; tombol tidak mengirim permintaan online.</div>');
-    out.push('<div><strong>3. Permintaan AI online terakhir sejak APK dibuka:</strong> '+(last?('Pertanyaan: '+escText(last.question||'')+'; waktu: '+escText(last.at||'')+'; jumlah materi memori: '+Number(last.memoryCount||0)+'.'):'Belum ada permintaan online yang tercatat sejak APK dibuka.')+'</div>');
-    if(last)out.push('<div>'+(exactLast?'LULUS — item uji juga terdapat dalam konteks permintaan online terakhir.':'Item uji tidak ditemukan dengan semua istilah kunci pada konteks permintaan online terakhir.')+'</div>');
-    if(lastRows.length){out.push('<div>Ringkasan materi pada permintaan terakhir:</div><ul>'+lastRows.slice(0,4).map(m=>'<li>'+escText(m.asal||'Sumber tidak berlabel')+' — '+escText(m.topik||'Tanpa topik')+': '+escText(String(m.materi||'').slice(0,180))+'</li>').join('')+'</ul>');}
+    out.push('<div><strong>3. Konteks yang disusun untuk permintaan AI online terakhir sejak APK dibuka:</strong> '+(last?('Pertanyaan: '+escText(last.question||'')+'; waktu: '+escText(last.at||'')+'; materi Guru/memori: '+Number(last.memoryCount||0)+'; ukuran konteks pesan pengguna: '+Number(last.contextChars||0)+' karakter.'):'Belum ada permintaan online yang tercatat sejak APK dibuka.')+'</div>');
+    if(last&&last.sourceCounts){const c=last.sourceCounts;out.push('<div><strong>Hitungan sumber pada konteks tersebut:</strong> rekaman tanaman '+Number(c.tanaman_relevan||0)+', Perlu Perhatian '+Number(c.perhatian_tercatat||0)+', aktivitas kebun '+Number(c.aktivitas_kebun||0)+', riwayat panen '+Number(c.riwayat_panen||0)+', profil Bed '+Number(c.profil_bed||0)+', catatan kebun '+Number(c.catatan_kebun||0)+', materi Guru/memori '+Number(c.pelajaran_relevan||0)+'.</div>');}
+    if(last)out.push('<div>'+(exactLast?'LULUS — semua istilah kunci ditemukan bersama dalam salah satu item sumber pada konteks terakhir.':'Item sumber yang diuji tidak memuat semua istilah kunci dalam satu item. Ini bukan bukti bahwa seluruh payload online kosong.')+'</div>');
+    if(lastSnapshot){
+      out.push('<div><strong>Riwayat percakapan yang disusun untuk AI:</strong></div>');
+      if(lastSnapshot.percakapan_terakhir.length){out.push('<ul>'+lastSnapshot.percakapan_terakhir.map(m=>'<li><strong>'+escText(m.peran||'')+':</strong> '+escText(String(m.isi||'').slice(0,650))+'</li>').join('')+'</ul>');}else{out.push('<div>Tidak ada giliran riwayat percakapan di konteks pesan pengguna terakhir.</div>');}
+      out.push('<div><strong>Rekaman tanaman yang disusun untuk AI:</strong></div>');
+      if(lastSnapshot.tanaman_relevan.length){out.push('<ul>'+lastSnapshot.tanaman_relevan.slice(0,8).map(p=>'<li><strong>'+escText(p.nama||'Tanaman tanpa nama')+'</strong>'+ (p.varietas?' ('+escText(p.varietas)+')':'') + (p.kelompok_tanam&&p.kelompok_tanam.length?': '+p.kelompok_tanam.slice(0,6).map(g=>'kelompok '+escText(g.tanggal||'tanggal tidak tersedia')+', aktif '+escText(g.jumlah_aktif??'n/a')+', lokasi '+escText((g.lokasi||[]).join(', ')||'tidak tersedia')+(g.tanggal_estimasi_panen? ', estimasi '+escText(g.tanggal_estimasi_panen):'')+(g.zona_cahaya?', zona cahaya '+escText(g.zona_cahaya):'')).join('; '):': tidak ada kelompok tanam dalam konteks')+'</li>').join('')+'</ul>');}else{out.push('<div>Tidak ada rekaman tanaman yang dimasukkan ke konteks pesan pengguna terakhir.</div>');}
+      out.push('<details><summary>Lihat konteks pesan yang diteruskan ke AI online</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto">'+escText(String(last.contextJson||'').slice(0,20000))+(String(last.contextJson||'').length>20000?'\n[Pratinjau dipotong; ukuran konteks penuh tercatat di atas.]':'')+'</pre></details>');
+    }
+    if(lastRows.length){out.push('<div>Ringkasan materi Guru/memori pada permintaan terakhir:</div><ul>'+lastRows.slice(0,4).map(m=>'<li>'+escText(m.asal||'Sumber tidak berlabel')+' — '+escText(m.topik||'Tanpa topik')+': '+escText(String(m.materi||'').slice(0,180))+'</li>').join('')+'</ul>');}
     out.push('<div><em>Batas uji:</em> keberadaan item dalam payload membuktikan item disertakan dalam konteks yang dikirim, bukan bahwa model pasti menggunakannya atau jawaban otomatis benar.</div>');
     resultBox.innerHTML=out.join('');
   }catch(err){resultBox.textContent='Diagnostik gagal: '+String(err&&err.message||err||'kesalahan tidak diketahui');}
