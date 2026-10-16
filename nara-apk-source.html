@@ -3066,7 +3066,10 @@ function naraIsCorrectionTurn(question){
     /(?:^|[.!?\n])\s*(?:nara[, :]*\s*)?koreksi(?:kan)?(?:lah)?\s+(?:jawaban(?:mu|\s+nara)?|respons(?:mu)?|pernyataan(?:mu)?)\b/.test(q)||
     /^\s*(?:nara[, :]+\s*)?(?:salah|keliru)\s*[,!:.-]\s*jawaban(?:mu|\s+nara)?\b/.test(q)||
     /\bjawaban(?:mu|\s+nara)?\b.{0,80}\b(?:salah|keliru|tidak relevan|tidak sesuai|tidak cocok|belum tepat|melenceng|tidak akurat)\b/.test(q);
-  return naraIsGreetingCorrection(q)||explicitCorrection||/(?:jawaban(?:mu| nara)?\s+(?:salah|keliru|tidak relevan)|(?:bukan itu|bukan yang saya|itu bukan).{0,50}(?:tanya|maksud|minta|ucap)|(?:kenapa|mengapa).{0,60}(?:kamu|nara).{0,50}(?:malah|justru)|(?:saya|aku)\s+(?:sudah|tadi)\s+(?:bilang|menjelaskan)|kamu salah|tidak menjawab pertanyaan|aku hanya bertanya|saya hanya bertanya)/.test(q);
+  // Short audit commands are conversational corrections too. They must inherit the
+  // previous user target; otherwise a valid follow-up is routed as general knowledge.
+  const auditCorrection=/(?:\b(?:audit|periksa|tinjau)\s+(?:ulang|kembali)\b.{0,100}\b(?:jawaban(?:mu|\s+nara)?|respons(?:mu)?|jawaban sebelumnya|sumber(?: data)?|rekaman)\b|\b(?:jawaban(?:mu|\s+nara)?|respons(?:mu)?)\b.{0,60}\b(?:audit|periksa|tinjau)\s+(?:ulang|kembali)\b)/.test(q);
+  return naraIsGreetingCorrection(q)||explicitCorrection||auditCorrection||/(?:jawaban(?:mu| nara)?\s+(?:salah|keliru|tidak relevan)|(?:bukan itu|bukan yang saya|itu bukan).{0,50}(?:tanya|maksud|minta|ucap)|(?:kenapa|mengapa).{0,60}(?:kamu|nara).{0,50}(?:malah|justru)|(?:saya|aku)\s+(?:sudah|tadi)\s+(?:bilang|menjelaskan)|kamu salah|tidak menjawab pertanyaan|aku hanya bertanya|saya hanya bertanya)/.test(q);
 }
 function naraAnswer(question){
   const raw=String(question||'').trim();const q=raw.toLocaleLowerCase('id-ID');
@@ -3169,6 +3172,12 @@ function naraRunRetrievalDiagnostic(){
       ...(Array.isArray(lastRows)?lastRows.map(m=>({label:'Materi Guru/memori',text:[m.topik,m.asal,m.materi,m.jenis].filter(Boolean).join(' ')})):[])
     ]:lastRows.map(m=>({label:'Materi Guru/memori',text:[m.topik,m.asal,m.materi,m.jenis].filter(Boolean).join(' ')}));
     const exactLast=searchableLastSources.find(m=>containsAll(m.text||''));
+    const lastHistoryText=lastSnapshot&&Array.isArray(lastSnapshot.percakapan_terakhir)
+      ? lastSnapshot.percakapan_terakhir.map(m=>String(m.isi||'')).join(' ') : '';
+    const historyHasPlantReference=typeof naraPlantEntriesMentionedInText==='function'&&naraPlantEntriesMentionedInText(lastHistoryText).length>0;
+    const lastIsAuditTurn=typeof naraIsCorrectionTurn==='function'&&naraIsCorrectionTurn(last&&last.question||query);
+    const lastPlantRows=lastSnapshot&&Array.isArray(lastSnapshot.tanaman_relevan)?lastSnapshot.tanaman_relevan.length:0;
+    const auditContextMissingGardenEvidence=!!(last&&lastIsAuditTurn&&historyHasPlantReference&&lastPlantRows===0);
     const escText=value=>typeof esc==='function'?esc(String(value??'')):String(value??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
     const out=[];
               if(plan){const focus=Array.isArray(plan.fokus)?plan.fokus.map(x=>x.name).filter(Boolean).join(', '):'';const sources=Array.isArray(plan.sumber_yang_diperlukan)?plan.sumber_yang_diperlukan.join('; '):'';out.push('<div><strong>Interpretasi maksud:</strong> '+escText(plan.label_maksud||plan.maksud||'belum ditentukan')+'; keyakinan: '+escText(plan.keyakinan_pemahaman||'tidak tersedia')+'.</div>');if(focus)out.push('<div><strong>Fokus:</strong> '+escText(focus)+'</div>');out.push('<div><strong>Sumber yang diharapkan:</strong> '+escText(sources||'tidak ada')+'</div>');if(plan.rujukan_perlu_diperjelas)out.push('<div><strong>Klarifikasi diperlukan:</strong> '+escText(plan.alasan_klarifikasi||'rujukan ambigu')+'. Sumber spesifik harus ditahan.</div>');}
@@ -3179,9 +3188,13 @@ function naraRunRetrievalDiagnostic(){
     }else if(localMatches.length){out.push('<div>Kandidat teratas: '+escText(String(localMatches[0].text||'').slice(0,220))+'</div>');}
     out.push('<div><strong>2. Payload konteks yang disusun:</strong> '+(payloadError?('GAGAL — '+escText(payloadError)):(exactContext?'LULUS — item ditemukan di ingatan_belajar_relevan.':'BELUM LULUS — item tidak ditemukan dengan semua istilah kunci di ingatan_belajar_relevan.'))+'</div>');
     out.push('<div>Jumlah materi memori di payload uji: '+contextRows.length+'. Ini memeriksa pembentukan payload lokal; tombol tidak mengirim permintaan online.</div>');
+    const testPlan=payload&&payload.interpretasi_pertanyaan||null;
+    const testPlantRows=payload&&Array.isArray(payload.tanaman_relevan)?payload.tanaman_relevan.length:0;
+    const testRequiresPlantRecord=!!(testPlan&&Array.isArray(testPlan.fokus)&&testPlan.fokus.some(x=>x&&x.kind==='rekaman_kebun'));
+    out.push('<div><strong>2a. Cakupan bukti kebun untuk kata kunci uji:</strong> '+(testRequiresPlantRecord?(testPlantRows>0?'LULUS — '+testPlantRows+' rekaman tanaman terstruktur disertakan dalam payload uji.':'BELUM LULUS — maksud dan fokus memerlukan rekaman tanaman, tetapi payload uji memuat 0 rekaman.'):'Tidak diwajibkan oleh fokus hasil interpretasi uji; periksa apakah maksud/rujukan sudah dikenali dengan benar.')+'</div>');
     out.push('<div><strong>3. Konteks yang disusun untuk permintaan AI online terakhir sejak APK dibuka:</strong> '+(last?('Pertanyaan: '+escText(last.question||'')+'; waktu: '+escText(last.at||'')+'; materi Guru/memori: '+Number(last.memoryCount||0)+'; ukuran konteks pesan pengguna: '+Number(last.contextChars||0)+' karakter.'):'Belum ada permintaan online yang tercatat sejak APK dibuka.')+'</div>');
     if(last&&last.sourceCounts){const c=last.sourceCounts;out.push('<div><strong>Hitungan sumber pada konteks tersebut:</strong> rekaman tanaman '+Number(c.tanaman_relevan||0)+', Perlu Perhatian '+Number(c.perhatian_tercatat||0)+', aktivitas kebun '+Number(c.aktivitas_kebun||0)+', riwayat panen '+Number(c.riwayat_panen||0)+', profil Bed '+Number(c.profil_bed||0)+', catatan kebun '+Number(c.catatan_kebun||0)+', materi Guru/memori '+Number(c.pelajaran_relevan||0)+'.</div>');}
-    if(last)out.push('<div>'+(exactLast?'LULUS — semua istilah kunci ditemukan bersama dalam salah satu item sumber pada konteks terakhir.':'Item sumber yang diuji tidak memuat semua istilah kunci dalam satu item. Ini bukan bukti bahwa seluruh payload online kosong.')+'</div>');
+    if(last)out.push('<div>'+(auditContextMissingGardenEvidence?'BELUM LULUS — istilah audit ditemukan dalam riwayat percakapan, tetapi konteks online terakhir memuat 0 rekaman tanaman meskipun percakapan mengandung rujukan tanaman. Teks riwayat saja bukan bukti kebun.':exactLast?'Istilah kunci ditemukan dalam salah satu item konteks terakhir; ini hanya kecocokan teks, bukan kelulusan kelengkapan sumber.':'Item sumber yang diuji tidak memuat semua istilah kunci dalam satu item. Ini bukan bukti bahwa seluruh payload online kosong.')+'</div>');
     if(lastSnapshot){
       out.push('<div><strong>Riwayat percakapan yang disusun untuk AI:</strong></div>');
       if(lastSnapshot.percakapan_terakhir.length){out.push('<ul>'+lastSnapshot.percakapan_terakhir.map(m=>'<li><strong>'+escText(m.peran||'')+':</strong> '+escText(String(m.isi||'').slice(0,650))+'</li>').join('')+'</ul>');}else{out.push('<div>Tidak ada giliran riwayat percakapan di konteks pesan pengguna terakhir.</div>');}
