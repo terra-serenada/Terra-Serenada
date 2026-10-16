@@ -17,6 +17,10 @@ const correctionHelpersStart = html.indexOf('function naraIsSimpleGreeting(quest
 const correctionHelpersEnd = html.indexOf('\nfunction naraAnswer(question)', correctionHelpersStart);
 if (correctionHelpersStart < 0 || correctionHelpersEnd <= correctionHelpersStart) throw new Error('Could not isolate production correction helpers.');
 const correctionHelpers = html.slice(correctionHelpersStart, correctionHelpersEnd);
+const auditHelpersStart = html.indexOf('function naraAuditAnswerPlantScope(question,answer){');
+const auditHelpersEnd = html.indexOf('\nfunction naraClipEvidenceText', auditHelpersStart);
+if (auditHelpersStart < 0 || auditHelpersEnd <= auditHelpersStart) throw new Error('Could not isolate the production answer-scope audit function.');
+const auditHelpers = html.slice(auditHelpersStart, auditHelpersEnd);
 const data = [
   {id:'eggplant-1', name:'Terung Bulat Hijau Bergaris Putih'},
   {id:'tomato-1', name:'Tomat Roma'},
@@ -54,7 +58,7 @@ function makeContext(messages=[]) {
 
   };
   vm.createContext(context);
-  vm.runInContext(interpreter + '\n' + plantHelpers + '\n' + correctionHelpers, context, {timeout:1000});
+  vm.runInContext(interpreter + '\n' + plantHelpers + '\n' + correctionHelpers + '\n' + auditHelpers, context, {timeout:1000});
   return context;
 }
 
@@ -285,3 +289,69 @@ assert.strictEqual(plan.tahan_sumber_kebun_tidak_relevan, true, 'Ambiguous parti
 assert.strictEqual(plan.maksud, 'klarifikasi_rekaman');
 console.log('PASS: partial shared plant-name matches trigger clarification');
 
+
+
+// 13. Correction-answer audits must inherit the prior question's target plant.
+cx = makeContext([
+  {role:'user', text:'Kapan perkiraan panen Bawang Putih?'},
+  {role:'assistant', text:'Kelompok pertama diperkirakan panen pada 18 Desember 2026.'},
+  {role:'user', text:'Koreksi jawabanmu. Periksa kembali sumber data dan jawaban sebelumnya.'},
+  {role:'assistant', text:'Aku belum dapat memberi kesimpulan spesifik berdasarkan konteks yang tersedia.'}
+]);
+const correctionText = 'Koreksi jawabanmu. Periksa kembali sumber data dan jawaban sebelumnya.';
+const correctionAnswer = 'Menurut catatan Bawang Putih, kelompok pertama ditanam 20 September 2026.';
+assert.strictEqual(cx.naraAuditAnswerPlantScope(correctionText, correctionAnswer).ok, false,
+  'Regression fixture should reproduce the previous false rejection when the correction text has no plant name.');
+plan = cx.naraInterpretUserQuery(correctionText, 'Aku belum dapat memberi kesimpulan spesifik berdasarkan konteks yang tersedia.');
+assert(/Bawang Putih/i.test(plan.routingQuestion), "Correction routing must carry forward the prior user plant reference.");
+assert.strictEqual(cx.naraAuditAnswerPlantScope(plan.routingQuestion, correctionAnswer).ok, true,
+  'The same answer must pass the production audit when its inherited target is included.');
+console.log('PASS: correction audit reproduces and resolves inherited-target false rejection');
+
+// The production online-request path must use the inherited routing scope in both audit attempts.
+const requestStart = html.indexOf('async function naraRequestOnlineAnswer(question,localAnswer,recentHistory=[]){');
+const requestEnd = html.indexOf('\nfunction naraBuildTeacherPrompt', requestStart);
+if (requestStart < 0 || requestEnd <= requestStart) throw new Error('Could not isolate production online-request function.');
+const requestSource = html.slice(requestStart, requestEnd);
+assert(requestSource.includes('const auditScopeQuestion=String(base.interpretasi_pertanyaan?.routingQuestion||question);'),
+  'Online request must compute the audited scope from the resolved routing question.');
+assert(requestSource.includes('naraAuditAnswerPlantScope(auditScopeQuestion,response.text)'),
+  'First response audit must use inherited correction focus.');
+assert(requestSource.includes('naraAuditAnswerPlantScope(auditScopeQuestion,retry.text)'),
+  'Retry response audit must use inherited correction focus.');
+assert(requestSource.includes('naraPlantScopeSafeFallback(auditScopeQuestion)'),
+  'Safe fallback should preserve the inherited target rather than losing it.');
+console.log('PASS: production online request and retry audit use inherited correction focus');
+
+// The runtime diagnostic must capture and display the context handed to the online chat wrapper.
+assert(html.includes('naraLastRetrievalAudit.contextJson=content;'),
+  'Diagnostic must capture the serialized context string actually handed to naraGuruChat.');
+assert(html.includes('Riwayat percakapan yang disusun untuk AI'),
+  'Diagnostic must show which prior conversation turns were included.');
+assert(html.includes('Rekaman tanaman yang disusun untuk AI'),
+  'Diagnostic must show which structured plant records were included.');
+console.log('PASS: diagnostics trace the assembled online context, garden records, and prior turns');
+
+
+// 14. Execute the production online-request function with a stubbed model response to verify the real audit path.
+(async()=>{
+  const runtimeMessages = [
+    {role:'user', text:'Kapan perkiraan panen Bawang Putih?'},
+    {role:'assistant', text:'Estimasi panen Bawang Putih untuk dua kelompok.'},
+    {role:'user', text:correctionText},
+    {role:'assistant', text:'Aku belum dapat memberi kesimpulan spesifik berdasarkan konteks yang tersedia.'}
+  ];
+  const runtime = makeContext(runtimeMessages);
+  runtime.naraGuruChat = async messages => ({
+    text: correctionAnswer,
+    model: 'test-model',
+    messagesSeen: messages
+  });
+  vm.runInContext('let naraLastRetrievalAudit=null;\n' + builderSource + '\n' + requestSource, runtime, {timeout:1000});
+  const liveHistory = runtimeMessages.slice(0,2).map(m=>({role:m.role,text:m.text}));
+  const runtimeResult = await runtime.naraRequestOnlineAnswer(correctionText, {text:'local draft'}, liveHistory);
+  assert.strictEqual(runtimeResult.answerSource, 'online_direct',
+    'The production request path should accept a target-specific correction answer instead of replacing it with a generic fallback.');
+  assert.strictEqual(runtimeResult.text, correctionAnswer);
+  console.log('PASS: production online-request path does not falsely reject inherited Bawang Putih correction answers');
+})().catch(err=>{ console.error(err && err.stack || err); process.exitCode=1; });
