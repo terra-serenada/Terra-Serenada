@@ -9,10 +9,22 @@ const start = html.indexOf("function naraInterpretUserQuery(question,localDraft=
 const end = html.indexOf("function naraOnlineLearningContext(question,localDraft=''){", start);
 if (start < 0 || end <= start) throw new Error('Could not isolate Nara query interpreter from the generated HTML.');
 const interpreter = html.slice(start, end);
+const plantHelpersStart = html.indexOf('function naraExplicitCropTerms(value){');
+const plantHelpersEnd = html.indexOf('\nfunction naraScopeRecentHistory(question,history){', plantHelpersStart);
+if (plantHelpersStart < 0 || plantHelpersEnd <= plantHelpersStart) throw new Error('Could not isolate production plant-matching helpers.');
+const plantHelpers = html.slice(plantHelpersStart, plantHelpersEnd);
+const correctionHelpersStart = html.indexOf('function naraIsSimpleGreeting(question){');
+const correctionHelpersEnd = html.indexOf('\nfunction naraAnswer(question)', correctionHelpersStart);
+if (correctionHelpersStart < 0 || correctionHelpersEnd <= correctionHelpersStart) throw new Error('Could not isolate production correction helpers.');
+const correctionHelpers = html.slice(correctionHelpersStart, correctionHelpersEnd);
 const data = [
   {id:'eggplant-1', name:'Terung Bulat Hijau Bergaris Putih'},
   {id:'tomato-1', name:'Tomat Roma'},
-  {id:'pumpkin-1', name:'Labu Madu'}
+  {id:'pumpkin-1', name:'Labu Madu'},
+  {id:'onion-red', name:'Bawang Merah'},
+  {id:'onion-leaf', name:'Bawang Daun'},
+  {id:'garlic-1', name:'Bawang Putih'},
+  {id:'radish-1', name:'Lobak Putih'}
 ];
 const normalize = value => String(value || '').toLocaleLowerCase('id-ID').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
 function entries(text) {
@@ -37,16 +49,12 @@ function makeContext(messages=[]) {
     inhabitantNames: () => [], inhabitantDerivedEvents: () => [], naraWeatherSnapshot: () => null,
     naraGetTaughtKnowledge: () => [], naraAnswer: () => '', naraGuruSafe: (v,n=500) => String(v||'').slice(0,n),
     naraMemoryTokens: normalize,
-    naraPlantEntriesMentionedInText: entries,
-    naraExplicitCropTerms: cropTerms,
-    naraHasPlantTopic: q => cropTerms(q).length > 0 || /\b(tanaman|tumbuhan|kebun|buah|daun|batang|akar|bunga|hama|penyakit|panen|siram|penyiraman|pupuk|bed)\b/i.test(normalize(q).join(' ')),
     naraScopeRecentHistory: (q, messages=[]) => Array.isArray(messages) ? messages.slice(-8) : [],
     naraLessonContextText: (lesson,max=900) => String(lesson && lesson.text || '').slice(0,max),
-    naraIsSimpleGreeting: q => /^(hai|halo|selamat pagi|selamat malam)[!. ]*$/i.test(String(q||'').trim()),
-    naraIsCorrectionTurn: q => /bukan itu|salah|bukan maksud saya|saya tidak bilang/i.test(String(q||''))
+
   };
   vm.createContext(context);
-  vm.runInContext(interpreter, context, {timeout:1000});
+  vm.runInContext(interpreter + '\n' + plantHelpers + '\n' + correctionHelpers, context, {timeout:1000});
   return context;
 }
 
@@ -210,3 +218,70 @@ const memoryHits = rx.naraGetTaughtKnowledge('apa aturan yang pernah saya ajarka
 assert(memoryHits.length >= 2, 'Test should return both the user and Guru lesson candidates.');
 assert.strictEqual(memoryHits[0].__memoryKind, 'user_taught', 'Explicit user-taught questions must prioritize user memory.');
 console.log('PASS: explicit user-taught memory outranks Guru lesson candidates');
+
+// 9. Production correction phrasings must route to correction before harvesting rules.
+const correctionCases = [
+  'Koreksi jawabanmu. Estimasi panen kelompok pertama pada aplikasi adalah 18 Desember 2026.',
+  'Salah, jawabanmu sebelumnya tidak sesuai dengan rekaman Bawang Putih.',
+  'Jawabanmu salah. Periksa kembali sumbernya.'
+];
+cx = makeContext([]);
+for (const q of correctionCases) {
+  assert.strictEqual(cx.naraIsCorrectionTurn(q), true, 'Production correction detector must recognize: ' + q);
+  plan = cx.naraInterpretUserQuery(q);
+  assert.strictEqual(plan.maksud, 'koreksi_jawaban', 'Correction must outrank embedded harvest keywords: ' + q);
+}
+console.log('PASS: production correction detector recognizes the agreed correction phrasings');
+for (const [q, expected] of [
+  ['Kapan perkiraan panen Bawang Putih?', 'panen'],
+  ['Kenapa buah terung menguning?', 'diagnosis_tanaman'],
+  ['Apa saja tanaman yang saya tanam?', 'inventaris_tanaman']
+]) {
+  assert.strictEqual(cx.naraIsCorrectionTurn(q), false, 'Ordinary requests must not be mistaken for corrections: ' + q);
+  plan = cx.naraInterpretUserQuery(q);
+  assert.strictEqual(plan.maksud, expected, 'Ordinary query should retain its own intent: ' + q);
+}
+console.log('PASS: normal harvest, diagnosis, and inventory requests do not become corrections');
+
+
+// 10. Exact plant matching must keep shared-word records out of a Bawang Putih question.
+cx = makeContext([]);
+plan = cx.naraInterpretUserQuery('Periksa estimasi panen Bawang Putih.');
+assert.strictEqual(plan.maksud, 'panen');
+assert.strictEqual(plan.fokus.map(x=>x.name).join(','), 'Bawang Putih');
+assert.strictEqual(cx.naraPlantEntriesMentionedInText('Periksa rekaman Bawang Putih.').map(x=>x.name).join(','), 'Bawang Putih');
+vm.runInContext(builderSource, cx, {timeout:1000});
+builtPayload = JSON.parse(cx.naraOnlineLearningContext('Periksa estimasi panen Bawang Putih.', ''));
+assert.strictEqual(builtPayload.tanaman_relevan.map(x=>x.nama).join(','), 'Bawang Putih');
+console.log('PASS: exact plant matching excludes unrelated bawang/lobak records');
+const inventoryPayload = JSON.parse(cx.naraOnlineLearningContext('Apa saja tanaman yang saya tanam?', ''));
+assert(inventoryPayload.tanaman_relevan.length > 0, 'An inventory query must select structured plant records, not an empty context.');
+assert(inventoryPayload.interpretasi_pertanyaan.maksud === 'inventaris_tanaman');
+console.log('PASS: inventory intent actually selects structured plant records');
+
+
+// 11. A correction without a repeated plant name inherits its target from the previous user question.
+cx = makeContext([
+  {role:'user', text:'Bawang Putih saya memiliki dua kelompok tanam. Sebutkan estimasi panen masing-masing.'},
+  {role:'assistant', text:'Kelompok pertama dan kedua memiliki estimasi panen.'},
+  {role:'user', text:'Koreksi jawabanmu. Periksa ulang tanggal panen kelompok pertama.'},
+  {role:'assistant', text:'Maaf, aku akan memeriksa kembali.'}
+]);
+const inheritedCorrection = 'Jawabanmu salah. Periksa kembali sumbernya.';
+plan = cx.naraInterpretUserQuery(inheritedCorrection, 'Maaf, aku akan memeriksa kembali.');
+assert.strictEqual(plan.maksud, 'koreksi_jawaban');
+assert.strictEqual(plan.fokus.map(x=>x.name).join(','), 'Bawang Putih');
+assert.strictEqual(plan.tahan_sumber_kebun_tidak_relevan, false);
+vm.runInContext(builderSource, cx, {timeout:1000});
+builtPayload = JSON.parse(cx.naraOnlineLearningContext(inheritedCorrection, 'Maaf, aku akan memeriksa kembali.'));
+assert.strictEqual(builtPayload.tanaman_relevan.map(x=>x.nama).join(','), 'Bawang Putih');
+console.log('PASS: correction preserves prior user focus and garden evidence');
+
+// 12. Shared partial names should ask for clarification rather than mix records.
+cx = makeContext([]);
+plan = cx.naraInterpretUserQuery('Periksa tanaman bawang saya.');
+assert.strictEqual(plan.rujukan_perlu_diperjelas, true, 'Ambiguous "bawang" must require clarification.');
+assert.strictEqual(plan.tahan_sumber_kebun_tidak_relevan, true, 'Ambiguous partial matches must withhold specific rows.');
+assert.strictEqual(plan.maksud, 'klarifikasi_rekaman');
+console.log('PASS: partial shared plant-name matches trigger clarification');
+
