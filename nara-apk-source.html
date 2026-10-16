@@ -2202,11 +2202,31 @@ function naraExplicitCropTerms(value){
   return cropAliases.filter(([,aliases])=>aliases.some(alias=>tokens.has(alias))).map(([canonical])=>canonical);
 }
 function naraPlantEntriesMentionedInText(value){
-  const tokens=new Set(naraMemoryTokens(value));
+  const tokens=naraMemoryTokens(value);
+  const tokenSet=new Set(tokens);
+  const containsPhrase=phrase=>{
+    const phraseTokens=naraMemoryTokens(phrase);
+    if(!phraseTokens.length||phraseTokens.length>tokens.length)return false;
+    for(let i=0;i<=tokens.length-phraseTokens.length;i++){
+      let matches=true;
+      for(let j=0;j<phraseTokens.length;j++)if(tokens[i+j]!==phraseTokens[j]){matches=false;break;}
+      if(matches)return true;
+    }
+    return false;
+  };
+  // Prefer the complete recorded name (or name + variety) over shared words.
+  const exact=data.filter(p=>{
+    const name=String(p?.name||'').trim();
+    const variety=String(p?.variety||'').trim();
+    const variants=[name,name&&variety?name+' '+variety:''].filter(Boolean);
+    return variants.some(containsPhrase);
+  });
+  if(exact.length)return exact;
+  // Partial matching is retained for broad references; multiple matches require clarification.
   const generic=new Set(['tanaman','tanam','daun','batang','akar','buah','bunga','pohon','bibit','semai','sayur','herbal','kebun','kondisi','bagian','media','tanah','masalah','gejala','varietas','kelompok','yang','dengan','untuk','dari','pada','atau','dan']);
   return data.filter(p=>{
     const terms=naraMemoryTokens(p?.name||'').filter(w=>w.length>=4&&!generic.has(w));
-    return terms.length>0&&terms.some(w=>tokens.has(w));
+    return terms.length>0&&terms.some(w=>tokenSet.has(w));
   });
 }
 function naraHasPlantTopic(value){
@@ -2432,6 +2452,7 @@ function naraInterpretUserQuery(question,localDraft=''){
     : normalized.replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
   const namedPlants=typeof naraPlantEntriesMentionedInText==='function'
     ? naraPlantEntriesMentionedInText(raw) : [];
+  const isCorrection=typeof naraIsCorrectionTurn==='function'&&naraIsCorrectionTurn(raw);
   const namedIds=new Set(namedPlants.map(p=>String(p.id||p.name||'')));
   const namedNames=[...new Set(namedPlants.map(p=>String(p.name||'').trim()).filter(Boolean))];
   const explicitCrops=typeof naraExplicitCropTerms==='function'
@@ -2442,7 +2463,17 @@ function naraInterpretUserQuery(question,localDraft=''){
   }));
   const explicitGardenCue=/\b(kebun saya|kebunku|di kebun|kebun ini|tanaman saya|buah saya|buah \w+ saya|daun \w+ saya|tanaman \w+ saya|pohon saya|saya menanam|yang saya tanam|tanaman yang saya tanam|catatan kebun saya|data kebun saya|bed saya|kelompok tanam saya|di tanaman saya)\b/i.test(normalized);
   const followUpCue=/\b(itu|tadi|tersebut|yang satunya|yang lain|yang tadi|yang itu|kalau yang|bagaimana dengan|bagaimana kalau|terus bagaimana|lalu bagaimana|dan kalau|kalau begitu|dia|nya|tanaman saya|buah saya|daun tanaman saya|pohon saya|tanaman yang saya tanam|apa yang harus saya lakukan sekarang|apa langkah selanjutnya|langkah selanjutnya|langkah berikutnya|apa berikutnya|apa lagi|setelah itu|sudah saya lakukan|belum saya lakukan|saya lakukan|bagaimana langkahnya)\b/i.test(normalized);
-  const priorMessages=(Array.isArray(naraState?.messages)?naraState.messages:[]).slice(-6);
+  const currentDraft=String(localDraft||'').trim();
+  const priorMessages=(Array.isArray(naraState?.messages)?naraState.messages:[]).filter(message=>{
+    const text=String(message?.text||'').trim();
+    if(message?.role==='user'&&text===raw)return false;
+    if(message?.role==='assistant'&&currentDraft&&text===currentDraft)return false;
+    return true;
+  }).slice(-8);
+  const previousUserForCorrection=isCorrection?priorMessages.slice().reverse().find(message=>message?.role==='user'&&String(message?.text||'').trim()&&!(typeof naraIsCorrectionTurn==='function'&&naraIsCorrectionTurn(message.text))):null;
+  const correctionPreviousPlants=isCorrection&&!namedPlants.length&&previousUserForCorrection&&typeof naraPlantEntriesMentionedInText==='function'
+    ? naraPlantEntriesMentionedInText(previousUserForCorrection.text) : [];
+  const routedPlants=namedPlants.length?namedPlants:correctionPreviousPlants;
   const recentRecords=[];
   const recentCrops=[];
   if(followUpCue&&!namedPlants.length&&!explicitCrops.length){
@@ -2478,13 +2509,15 @@ function naraInterpretUserQuery(question,localDraft=''){
     }
   }
   const focusEntities=[
-    ...namedPlants.map(p=>({id:String(p.id||p.name||''),name:String(p.name||''),kind:'rekaman_kebun'})),
+    ...routedPlants.map(p=>({id:String(p.id||p.name||''),name:String(p.name||''),kind:'rekaman_kebun'})),
     ...explicitOnly.map(c=>({id:'crop:'+c,name:c,kind:'spesies_disebut_pengguna'}))
   ];
   if(resolvedReference)focusEntities.push(resolvedReference);
-  const routingQuestion=resolvedReference?`${raw} [rujukan percakapan: ${resolvedReference.name}]`:raw;
+  const correctionInheritedFocus=isCorrection&&!namedPlants.length&&correctionPreviousPlants.length>0;
+  const routingQuestion=resolvedReference?`${raw} [rujukan percakapan: ${resolvedReference.name}]`
+    :correctionInheritedFocus?`${raw} [rujukan koreksi dari pertanyaan pengguna sebelumnya: ${String(previousUserForCorrection.text||'').slice(0,700)}]`
+    :raw;
   const isGreeting=typeof naraIsSimpleGreeting==='function'&&naraIsSimpleGreeting(raw);
-  const isCorrection=typeof naraIsCorrectionTurn==='function'&&naraIsCorrectionTurn(raw);
   let intent='pertanyaan_umum';
   let label='Pertanyaan umum';
   let requiredSources=['pengetahuan umum yang relevan'];
@@ -2578,15 +2611,24 @@ function naraInterpretUserQuery(question,localDraft=''){
     disambiguationRequired=true;
     disambiguationReason='Pertanyaan meminta analisis tanaman di kebun pengguna, tetapi identitas tanaman tidak disebutkan dan tidak ada rujukan tunggal yang jelas dari percakapan terbaru.';
   }
+  if(!disambiguationRequired&&routedPlants.length>1&&!['inventaris_tanaman','ringkasan_kebun','statistik_kebun','perbandingan','status_kelompok_tanam'].includes(intent)&&/\b(periksa|rekaman|informasi|detail|estimasi|panen|kelompok|riwayat|catatan|sumber|kondisi|masalah|menguning|gagal|disiram|siram|tanaman)\b/i.test(normalized)){
+    disambiguationRequired=true;
+    disambiguationReason='Lebih dari satu rekaman tanaman cocok dengan sebagian nama. Tentukan tanaman atau kelompok tanam yang dimaksud sebelum membaca datanya.';
+    intent='klarifikasi_rekaman';
+    label='Klarifikasi identitas tanaman';
+    requiredSources=['klarifikasi nama tanaman atau rekaman yang dimaksud'];
+    routingKeywords=[];
+    focusEntities.splice(0,focusEntities.length);
+  }
   const recordLookupIntents=new Set(['riwayat_penyiraman','kebutuhan_air','panen','cuaca_dan_lingkungan','riwayat_aktivitas','inventaris_tanaman','status_kelompok_tanam','riwayat_tanam','ringkasan_kebun','perhatian_kebun','statistik_kebun','profil_lingkungan','pencarian_catatan']);
-  const hasGardenRecordFocus=namedPlants.length>0||!!(resolvedReference&&resolvedReference.kind==='rekaman_kebun');
+  const hasGardenRecordFocus=routedPlants.length>0||!!(resolvedReference&&resolvedReference.kind==='rekaman_kebun');
   const personalWeatherQuestion=/\b(pengaruh|dampak|memengaruhi|mempengaruhi|berpengaruh|hubungannya|pengaruhi)\b/i.test(normalized)&&!!(namedPlants.length||explicitCrops.length)||/\b(hujan|cuaca)\b/i.test(normalized)&&/\b(kebun|tanaman|bed|tanah|media|siram|penyiraman)\b/i.test(normalized);
   const usePersonalGardenData=intent==='pengetahuan_umum'?explicitGardenCue:intent==='perbandingan'?(explicitGardenCue||!!resolvedReference):intent==='cuaca_dan_lingkungan'?(explicitGardenCue||personalWeatherQuestion):(hasGardenRecordFocus||explicitGardenCue||recordLookupIntents.has(intent));
-  const suppressPersonalGardenSources=disambiguationRequired||['sapaan','koreksi_jawaban','memori_pengguna_atau_pelajaran'].includes(intent)||!usePersonalGardenData;
+  const suppressPersonalGardenSources=disambiguationRequired||['sapaan','memori_pengguna_atau_pelajaran'].includes(intent)||!usePersonalGardenData;
   let confidence='indikasi awal';
   if(disambiguationRequired)confidence='belum cukup';
   else if(isGreeting||isCorrection)confidence='kuat';
-  else if(namedPlants.length===1&&intent!=='pertanyaan_umum')confidence='kuat';
+  else if(routedPlants.length===1&&intent!=='pertanyaan_umum')confidence='kuat';
   else if(resolvedReference)confidence='sedang';
   else if(explicitOnly.length===1&&intent!=='pertanyaan_umum'&&intent!=='pengetahuan_umum')confidence='sedang';
   const questionForAI=disambiguationRequired
@@ -2668,7 +2710,9 @@ function naraOnlineLearningContext(question,localDraft=''){
   }:null;
   const plantTopicQuestion=naraHasPlantTopic(naraQueryPlan.routingQuestion);
   const focusBedNames=new Set(explicitPlants.flatMap(p=>naraActiveGroups(p).flatMap(g=>groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||'')).filter(Boolean))));
-  let selected=explicitPlants.length?explicitPlants:(plantTopicQuestion?[]:named);
+  let selected=naraQueryPlan.maksud==='inventaris_tanaman'
+    ? [...explicitPlants,...data.filter(p=>!explicitPlants.some(x=>String(x.id||x.name)===String(p?.id||p?.name)))]
+    : explicitPlants.length?explicitPlants:(plantTopicQuestion?[]:named);
   if(statusGroupIntent){
     // If the user names a plant, inspect that plant's history; otherwise search every plant record.
     selected=explicitPlants.length?explicitPlants:data.filter(p=>(Array.isArray(p?.plantingGroups)?p.plantingGroups:[]).some(groupMatchesQuery));
@@ -2798,8 +2842,8 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
   const correctionMode=naraIsCorrectionTurn(question);
   const greetingCorrectionMode=naraIsGreetingCorrection(question);
   const base=JSON.parse(naraOnlineLearningContext(question,localAnswer?.text||''));
-  if(greetingMode||correctionMode){
-    // Percakapan sosial/koreksi tidak memerlukan ringkasan kebun atau ingatan pelajaran yang dapat mengalihkan maksud.
+  if(greetingMode){
+    // Social greetings should not carry private garden evidence.
     base.draft_reasoning_lokal='';
     base.ringkasan_kebun=null;
     base.tanaman_relevan=[];
@@ -2810,6 +2854,10 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
     base.inhabitant=[];
     base.catatan_kebun=[];
     base.cuaca=null;
+    base.ingatan_belajar_relevan=[];
+  }else if(correctionMode){
+    // Preserve target-specific evidence for the audit; the earlier answer is not independent evidence.
+    base.draft_reasoning_lokal='';
     base.ingatan_belajar_relevan=[];
   }
   base.percakapan_terakhir=greetingMode?[]:naraScopeRecentHistory(base.interpretasi_pertanyaan?.routingQuestion||question,recentHistory).map(m=>({peran:m.role,jenis_sumber:m.role==='user'?'pesan pengguna; laporan/konteks sesuai isi eksplisit':'jawaban asisten sebelumnya; bukan bukti fakta mandiri',isi:naraGuruSafe(m.text,280)}));
@@ -2992,7 +3040,11 @@ function naraIsGreetingCorrection(question){
 }
 function naraIsCorrectionTurn(question){
   const q=String(question||'').trim().toLocaleLowerCase('id-ID');
-  return naraIsGreetingCorrection(q)||/(?:jawaban(?:mu| nara)?\s+(?:salah|keliru|tidak relevan)|(?:bukan itu|bukan yang saya|itu bukan).{0,50}(?:tanya|maksud|minta|ucap)|(?:kenapa|mengapa).{0,60}(?:kamu|nara).{0,50}(?:malah|justru)|(?:saya|aku)\s+(?:sudah|tadi)\s+(?:bilang|menjelaskan)|kamu salah|tidak menjawab pertanyaan|aku hanya bertanya|saya hanya bertanya)/.test(q);
+  const explicitCorrection=
+    /(?:^|[.!?\n])\s*(?:nara[, :]*\s*)?koreksi(?:kan)?(?:lah)?\s+(?:jawaban(?:mu|\s+nara)?|respons(?:mu)?|pernyataan(?:mu)?)\b/.test(q)||
+    /^\s*(?:nara[, :]+\s*)?(?:salah|keliru)\s*[,!:.-]\s*jawaban(?:mu|\s+nara)?\b/.test(q)||
+    /\bjawaban(?:mu|\s+nara)?\b.{0,80}\b(?:salah|keliru|tidak relevan|tidak sesuai|tidak cocok|belum tepat|melenceng|tidak akurat)\b/.test(q);
+  return naraIsGreetingCorrection(q)||explicitCorrection||/(?:jawaban(?:mu| nara)?\s+(?:salah|keliru|tidak relevan)|(?:bukan itu|bukan yang saya|itu bukan).{0,50}(?:tanya|maksud|minta|ucap)|(?:kenapa|mengapa).{0,60}(?:kamu|nara).{0,50}(?:malah|justru)|(?:saya|aku)\s+(?:sudah|tadi)\s+(?:bilang|menjelaskan)|kamu salah|tidak menjawab pertanyaan|aku hanya bertanya|saya hanya bertanya)/.test(q);
 }
 function naraAnswer(question){
   const raw=String(question||'').trim();const q=raw.toLocaleLowerCase('id-ID');
