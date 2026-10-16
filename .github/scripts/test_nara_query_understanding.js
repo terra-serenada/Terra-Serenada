@@ -227,7 +227,10 @@ console.log('PASS: explicit user-taught memory outranks Guru lesson candidates')
 const correctionCases = [
   'Koreksi jawabanmu. Estimasi panen kelompok pertama pada aplikasi adalah 18 Desember 2026.',
   'Salah, jawabanmu sebelumnya tidak sesuai dengan rekaman Bawang Putih.',
-  'Jawabanmu salah. Periksa kembali sumbernya.'
+  'Jawabanmu salah. Periksa kembali sumbernya.',
+  'Audit ulang jawabanmu',
+  'Audit ulang jawabanmu dengan membandingkannya terhadap jawaban sebelumnya dan rekaman Terra Serenada.',
+  'Periksa kembali sumber data dan jawaban sebelumnya.'
 ];
 cx = makeContext([]);
 for (const q of correctionCases) {
@@ -332,8 +335,38 @@ assert(html.includes('Rekaman tanaman yang disusun untuk AI'),
   'Diagnostic must show which structured plant records were included.');
 console.log('PASS: diagnostics trace the assembled online context, garden records, and prior turns');
 
+// 14. Short audit commands must inherit focus through intervening correction/audit turns,
+// and the actual production payload builder must include the structured target plant record.
+const longAuditUser = 'Audit ulang jawabanmu dengan membandingkannya terhadap jawaban sebelumnya dan rekaman Terra Serenada. Tampilkan semua kelompok tanam Bawang Putih beserta tanggal tanam dan estimasi panen yang tercatat.';
+const auditTrail = [
+  {role:'user', text:'Berapa jenis semua tanaman di kebun saya?'},
+  {role:'assistant', text:'Terdapat total 20 jenis tanaman.'},
+  {role:'user', text:'Kapan perkiraan panen Bawang Putih?'},
+  {role:'assistant', text:'Kelompok pertama diperkirakan panen 18 Desember 2026 dan kelompok kedua 9 Januari 2027.'},
+  {role:'user', text:'Koreksi jawabanmu. Periksa kembali sumber data dan jawaban sebelumnya.'},
+  {role:'assistant', text:'Berikut estimasi panen dari perhitungan 90 hari.'},
+  {role:'user', text:longAuditUser},
+  {role:'assistant', text:'Saya belum memiliki akses langsung ke rekaman spesifik.'}
+];
+const auditContext = makeContext(auditTrail);
+vm.runInContext(builderSource, auditContext, {timeout:1000});
+const shortAudit = 'Audit ulang jawabanmu';
+plan = auditContext.naraInterpretUserQuery(shortAudit, 'jawaban sebelumnya');
+assert.strictEqual(plan.maksud, 'koreksi_jawaban', 'Short audit prompts must route as corrections, not general questions.');
+assert(plan.fokus.some(x=>x.name==='Bawang Putih'), 'Short audit must inherit the most recent specific non-correction target.');
+assert.strictEqual(plan.tahan_sumber_kebun_tidak_relevan, false, 'Inherited audit focus must not suppress relevant garden data.');
+const actualAuditPayload = JSON.parse(auditContext.naraOnlineLearningContext(shortAudit, 'jawaban sebelumnya'));
+assert(actualAuditPayload.tanaman_relevan.some(p=>p.nama==='Bawang Putih'), 'The actual context builder must include the target plant row for a short audit command.');
+assert.strictEqual(actualAuditPayload.interpretasi_pertanyaan.maksud, 'koreksi_jawaban');
+console.log('PASS: short audit inherits Bawang Putih focus through intervening corrections and sends the structured record');
 
-// 14. Execute the production online-request function with a stubbed model response to verify the real audit path.
+// The diagnostic must never report a text-only match as a coverage pass when garden evidence is missing.
+assert(html.includes('auditContextMissingGardenEvidence'), 'Diagnostic must detect audit context with prior plant references but zero structured plant rows.');
+assert(/teks riwayat saja bukan bukti kebun/i.test(html), 'Diagnostic must explicitly avoid treating conversation text as structured garden evidence.');
+console.log('PASS: diagnostic fails closed when audit history exists but structured plant evidence is absent');
+
+
+// 15. Execute the production online-request function with a stubbed model response to verify the real audit path.
 (async()=>{
   const runtimeMessages = [
     {role:'user', text:'Kapan perkiraan panen Bawang Putih?'},
