@@ -95,6 +95,9 @@ const sandbox = {
   naraAnswer: () => '', naraGuruSafe: (value,max=500) => String(value ?? '').slice(0,max),
 };
 vm.createContext(sandbox);
+// Execute the real status/quantity helpers from the HTML, instead of trusting test doubles.
+const groupHelpersSource = sliceBetween('function groupTotal(g){', 'function bedNames(){', 'group total/status helpers');
+vm.runInContext(groupHelpersSource, sandbox, {timeout:1000});
 vm.runInContext(interpreterSource + '\n' + contextSource, sandbox, {timeout:3000});
 
 const failures = [];
@@ -110,8 +113,9 @@ check('QD-01','Pertanyaan kegagalan ditafsirkan sebagai pencarian status kelompo
   const {plan}=getContext(failureQuestion);
   if(plan.maksud!=='status_kelompok_tanam') throw new Error(`maksud=${plan.maksud}`);
   if(plan.filter_status_kelompok!=='gagal') throw new Error(`filter=${plan.filter_status_kelompok}`);
+  if(plan.mode_filter_status_kelompok!=='jumlah_tanaman') throw new Error(`mode=${plan.mode_filter_status_kelompok}`);
   if(plan.tahan_sumber_kebun_tidak_relevan) throw new Error('sumber kebun pribadi ditahan secara keliru');
-  return 'intent dan filter gagal dikenali';
+  return 'intent kegagalan tanaman diarahkan ke filter jumlah_gagal > 0';
 });
 check('QD-02','Semua tanaman dengan jumlah gagal positif ditemukan',()=>{
   const {payload}=getContext(failureQuestion);
@@ -136,40 +140,41 @@ check('QD-04','Tanggal status eksplisit dan tanggal penutupan dibedakan',()=>{
   if(radish.tanggal_status_dicatat!==null) throw new Error('tanggal status Lobak lama diasumsikan padahal tidak tersimpan');
   if(radish.tanggal_penutupan_kelompok!=='2026-10-08') throw new Error('tanggal event penutupan Lobak hilang');
   if(tomato.tanggal_status_dicatat!=='2026-10-11') throw new Error('tanggal status eksplisit Tomat hilang');
-  return 'status date null untuk Lobak lama; penutupan 2026-10-08; status date Tomat 2026-10-11';
+  if(!String(tomato.makna_tanggal_status_dicatat||'').includes('bukan otomatis tanggal pertama')) throw new Error('makna tanggal status terakhir tidak diterangkan');
+  return 'tanggal status dan penutupan terpisah; tanggal status terakhir tidak disamakan dengan tanggal kegagalan pertama';
 });
-check('QD-05','Cakupan pencarian dinyatakan secara eksplisit',()=>{
+check('QD-05','Cakupan pencarian dan definisi jumlah gagal dinyatakan',()=>{
   const {payload}=getContext(failureQuestion);
   const c=payload.ringkasan_pencarian_kelompok_tanam;
   if(!c||c.kelompok_diperiksa!==4||c.kelompok_cocok!==3||c.filter_status!=='gagal') throw new Error(JSON.stringify(c));
-  if(!payload.aturan_status_kelompok_tanam||!payload.aturan_status_kelompok_tanam.includes('tanggal_status_dicatat')) throw new Error('instruksi grounding riwayat/status kelompok tidak dikirim');
+  if(c.mode_filter_status!=='jumlah_tanaman') throw new Error(`mode=${c.mode_filter_status}`);
+  if(!payload.aturan_status_kelompok_tanam||!payload.aturan_status_kelompok_tanam.includes('mixed tidak berarti aktif+gagal')) throw new Error('definisi status kanonis tidak dikirim');
   if(payload.draft_reasoning_lokal!=='') throw new Error('draft lokal lama yang tidak terverifikasi belum disisihkan');
-  return `${c.kelompok_cocok}/${c.kelompok_diperiksa} kelompok cocok; aturan grounding ada`;
+  return `${c.kelompok_cocok}/${c.kelompok_diperiksa} kelompok cocok; mode filter dan aturan kanonis ada`;
 });
-check('QD-06','Status kelompok campuran dapat dicari tanpa menyamakan dengan status gagal murni',()=>{
+check('QD-06','Status kelompok campuran dapat dicari tepat',()=>{
   const {plan,payload}=getContext('Sebutkan kelompok tanam yang berstatus campuran.');
-  if(plan.maksud!=='status_kelompok_tanam'||plan.filter_status_kelompok!=='campuran') throw new Error(`plan=${plan.maksud}/${plan.filter_status_kelompok}`);
+  if(plan.maksud!=='status_kelompok_tanam'||plan.filter_status_kelompok!=='campuran'||plan.mode_filter_status_kelompok!=='status_kelompok') throw new Error(`plan=${plan.maksud}/${plan.filter_status_kelompok}/${plan.mode_filter_status_kelompok}`);
   const all=payload.tanaman_relevan.flatMap(p=>p.kelompok_tanam.map(g=>({plant:p.nama,...g})));
-  if(!all.some(g=>g.id_kelompok==='group-spinach-mixed-closed'&&g.status==='mixed')) throw new Error('kelompok campuran tidak diambil');
-  return 'group-spinach-mixed-closed ditampilkan sebagai mixed';
+  if(all.length!==1||all[0].id_kelompok!=='group-spinach-mixed-closed'||all[0].status!=='mixed') throw new Error(`hasil=${all.map(g=>g.id_kelompok+':'+g.status).join(',')}`);
+  return 'hanya group-spinach-mixed-closed yang cocok dengan status mixed';
 });
-check('QD-07','Tanaman bernama tetap dapat diperiksa menurut status kelompok',()=>{
+check('QD-07','Tanaman bernama tetap diperiksa menurut jumlah gagal',()=>{
   const {plan,payload}=getContext('Apakah kelompok Tomat Roma punya tanaman gagal?');
-  if(plan.maksud!=='status_kelompok_tanam'||plan.filter_status_kelompok!=='gagal') throw new Error(`intent tidak tepat: ${plan.maksud}/${plan.filter_status_kelompok}`);
+  if(plan.maksud!=='status_kelompok_tanam'||plan.filter_status_kelompok!=='gagal'||plan.mode_filter_status_kelompok!=='jumlah_tanaman') throw new Error(`intent/filter/mode=${plan.maksud}/${plan.filter_status_kelompok}/${plan.mode_filter_status_kelompok}`);
   const tomato=payload.tanaman_relevan.find(p=>p.nama==='Tomat Roma');
-  if(!tomato) throw new Error('Tomat Roma tidak dipilih');
-  if(!tomato.kelompok_tanam.some(g=>g.jumlah_gagal===1)) throw new Error('jumlah gagal kelompok Tomat tidak dikirim');
-  return `kelompok Tomat: gagal ${tomato.kelompok_tanam[0].jumlah_gagal}`;
+  if(!tomato||!tomato.kelompok_tanam.some(g=>g.jumlah_gagal===1&&g.status==='active')) throw new Error('kelompok Tomat aktif dengan 1 gagal tidak dikirim dengan status yang benar');
+  return 'kelompok Tomat tetap active walau memiliki 1 tanaman gagal';
 });
-check('QD-08','Pertanyaan status tanaman yang disebut langsung tetap mengambil riwayat historis',()=>{
+check('QD-08','Pertanyaan status tanaman yang disebut langsung mengambil riwayat',()=>{
   const {plan,payload}=getContext('Apakah Lobak Putih sudah gagal?');
-  if(plan.maksud!=='status_kelompok_tanam'||plan.filter_status_kelompok!=='gagal') throw new Error(`intent tidak tepat: ${plan.maksud}/${plan.filter_status_kelompok}`);
+  if(plan.maksud!=='status_kelompok_tanam'||plan.filter_status_kelompok!=='gagal'||plan.mode_filter_status_kelompok!=='jumlah_tanaman') throw new Error(`intent/filter/mode=${plan.maksud}/${plan.filter_status_kelompok}/${plan.mode_filter_status_kelompok}`);
   const radish=payload.tanaman_relevan.find(p=>p.nama==='Lobak Putih');
   if(!radish||!radish.kelompok_tanam.some(g=>g.id_kelompok==='group-radish-2026-09-21')) throw new Error('riwayat gagal Lobak tidak dikirim');
-  return 'riwayat kelompok gagal diambil meski pertanyaan hanya menyebut tanaman';
+  return 'riwayat kelompok gagal diambil walau pertanyaan hanya menyebut tanaman';
 });
 check('QD-09','Pencarian status tanpa hasil tidak mengarang rekaman',()=>{
-  const original=fixturePlants.slice();
+  const original=sandbox.data;
   try {
     sandbox.data=original.filter(p=>p.name==='Terung Bulat Hijau Bergaris Putih');
     const plan=sandbox.naraInterpretUserQuery('Tanaman apa saja yang sudah gagal di kebun saya?','');
@@ -178,7 +183,7 @@ check('QD-09','Pencarian status tanpa hasil tidak mengarang rekaman',()=>{
     if(payload.tanaman_relevan.length!==0) throw new Error('rekaman tanpa kelompok gagal disajikan sebagai hasil');
     if(payload.ringkasan_pencarian_kelompok_tanam.kelompok_cocok!==0) throw new Error('cakupan tidak menyebut nol hasil');
     return '0 kecocokan dari rekaman fixture yang diperiksa';
-  } finally { sandbox.data=fixturePlants; }
+  } finally { sandbox.data=original; }
 });
 check('QD-10','Payload besar membatasi bukti tanpa menyembunyikan jumlah yang terlewat',()=>{
   const previous=sandbox.data;
@@ -194,15 +199,32 @@ check('QD-10','Payload besar membatasi bukti tanpa menyembunyikan jumlah yang te
     return `${c.kelompok_dikirim} dari ${c.kelompok_cocok} kelompok dikirim; ${c.kelompok_tidak_dikirim} dinyatakan terlewat`;
   } finally { sandbox.data=previous; }
 });
-check('QD-11','Tanggal perubahan status baru dapat dicatat pada fungsi penyimpanan',()=>{
+check('QD-11','Tanggal status disimpan saat jumlah selesai/gagal berubah',()=>{
   if(!html.includes("next.statusUpdatedOn=today();next.statusUpdatedAt=new Date().toISOString();")) throw new Error('penyimpanan tanggal perubahan status tidak ditemukan');
-  return 'tanggal status baru disimpan eksplisit saat jumlah selesai/gagal berubah';
+  return 'bidang tanggal pembaruan ada; diperlakukan sebagai pembaruan terakhir, bukan tanggal kegagalan pertama';
 });
-check('QD-12','Payload mempertahankan guard sumber, provenance, dan audit yang sudah ada',()=>{
+check('QD-12','Payload mempertahankan guard sumber, provenance, dan audit',()=>{
   const markers=['pedoman_sumber_dan_kasus','naraLastRetrievalAudit','function naraAuditAnswerPlantScope','answerAudit','function naraLessonContextText','function naraRequestOnlineAnswer','aturan_status_kelompok_tanam','ringkasan_pencarian_kelompok_tanam'];
   const missing=markers.filter(m=>!html.includes(m));
   if(missing.length) throw new Error('marker hilang: '+missing.join(', '));
   return 'marker inti provenance/retrieval masih ada';
+});
+check('QD-13','Pencarian status akhir failed tidak mengambil kelompok active yang punya tanaman gagal',()=>{
+  const {plan,payload}=getContext('Tampilkan kelompok tanam yang berstatus failed.');
+  if(plan.maksud!=='status_kelompok_tanam'||plan.filter_status_kelompok!=='gagal'||plan.mode_filter_status_kelompok!=='status_kelompok') throw new Error(`plan=${plan.maksud}/${plan.filter_status_kelompok}/${plan.mode_filter_status_kelompok}`);
+  const all=payload.tanaman_relevan.flatMap(p=>p.kelompok_tanam.map(g=>({plant:p.nama,...g})));
+  if(all.length!==1||all[0].id_kelompok!=='group-radish-2026-09-21'||all[0].status!=='failed') throw new Error(`hasil tidak ketat: ${all.map(g=>g.id_kelompok+':'+g.status).join(',')}`);
+  return 'filter status akhir hanya memilih kelompok dengan status derived failed';
+});
+check('QD-14','Status derived mengikuti rumus aplikasi',()=>{
+  const {payload}=getContext(failureQuestion);
+  const groups=payload.tanaman_relevan.flatMap(p=>p.kelompok_tanam.map(g=>({plant:p.nama,...g})));
+  const tomato=groups.find(g=>g.id_kelompok==='group-tomato-mixed-active');
+  const spinach=groups.find(g=>g.id_kelompok==='group-spinach-mixed-closed');
+  if(!tomato||tomato.status!=='active'||tomato.jumlah_aktif!==2||tomato.jumlah_gagal!==1) throw new Error('status active pada grup aktif+gagal keliru');
+  if(!spinach||spinach.status!=='mixed'||spinach.jumlah_aktif!==0||spinach.jumlah_selesai!==1||spinach.jumlah_gagal!==2) throw new Error('status mixed pada grup selesai+gagal tanpa tanaman aktif keliru');
+  if(groups.some(g=>g.jumlah_kategori_sama_dengan_awal!==true)) throw new Error('jumlah aktif+selesai+gagal tidak sama dengan jumlah awal');
+  return 'active dan mixed mengikuti definisi app; total kategori konsisten';
 });
 
 console.log('NARA DATA UNDERSTANDING — DIRECT HTML SOURCE TEST');
