@@ -7,10 +7,9 @@ on:
       - main
     paths:
       - ".github/workflows/terra-serenada-2.1-query-understanding.yml"
-      - ".github/scripts/patch_nara_query_understanding.py"
+      - "nara-apk-source.html"
+      - ".github/scripts/test_nara_group_history_direct.js"
       - ".github/scripts/test_nara_query_understanding.js"
-      - ".github/scripts/prepare_nara_query_understanding_patch.py"
-      - ".github/scripts/test_nara_data_understanding.js"
 
 permissions:
   contents: write
@@ -28,9 +27,10 @@ jobs:
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       BASELINE_APK_URL: https://github.com/terra-serenada/Terra-Serenada/releases/download/apk-v1.0.19-10/Terra-Serenada.apk
+      LEGACY_GENERATOR_COMMIT: 9eb8456e93e8327abd8afcce4898313658c4c41c
 
     steps:
-      - name: Checkout repository history and patch scripts
+      - name: Checkout complete repository history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -53,52 +53,216 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Build from the 2.0 recipe plus query-understanding patch
+      - name: Create Android project from the pinned known-good generator
         shell: bash
         run: |
           set -euo pipefail
-          ruby -ryaml - <<'RUBY'
-          base_path = '.github/workflows/terra-serenada-2.0.yml'
-          abort "ERROR: Required baseline workflow is missing: #{base_path}" unless File.file?(base_path)
-          baseline = YAML.safe_load_file(base_path, aliases: true)
-          step = baseline.fetch('jobs').fetch('build-and-publish').fetch('steps').find do |item|
-            item['name'] == 'Build from the locked Step 2P checkpoint and run its safety checks'
-          end
-          abort 'ERROR: Could not find the verified 2.0 build recipe. Refusing to build from a guessed workflow.' unless step && step['run']
-          command = step.fetch('run').dup
+          git show "$LEGACY_GENERATOR_COMMIT:.github/workflows/build-apk-v26.yml" > "$RUNNER_TEMP/build-apk-v26.yml"
+          ruby -ryaml -e '
+            workflow = YAML.safe_load_file(ARGV.fetch(0), aliases: true)
+            steps = workflow.fetch("jobs").values.first.fetch("steps")
+            step = steps.find { |item| item["name"] == "Create Android project (preserve the existing Terra Serenada bridges)" }
+            abort "ERROR: The pinned Android project generator was not found." unless step && step["run"]
+            File.write(ARGV.fetch(1), step["run"])
+          ' "$RUNNER_TEMP/build-apk-v26.yml" "$RUNNER_TEMP/create-android-project.sh"
+          test -s "$RUNNER_TEMP/create-android-project.sh"
+          bash "$RUNNER_TEMP/create-android-project.sh"
+          test -s android/app/build.gradle.kts
+          test -s android/app/src/main/java/com/terra/serenada/MainActivity.java
+          echo "Android project generated without changing or pushing repository files."
 
-          # Make the existing 2.0 recipe add our patch after all Step 2P patches but before HTML/JS validation.
-          needle = "first = steps.index { |s| s['name'] == 'Create Android project from the known-good v26 generator (no repository push)' }"
-          injected = <<~'INJECT'
-            query_patch_index = steps.index { |s| s['name'] == 'Validate patched HTML and embedded JavaScript syntax' }
-            abort 'ERROR: Could not locate the HTML/JavaScript validation step for query-understanding patch.' unless query_patch_index
-                        steps.insert(query_patch_index, {
-              'name' => 'Nara Query Understanding and Source Routing 2.1',
-              'run' => "set -euo pipefail\npython3 .github/scripts/prepare_nara_query_understanding_patch.py\npython3 .github/scripts/patch_nara_query_understanding.py\nnode .github/scripts/test_nara_query_understanding.js\nnode .github/scripts/test_nara_data_understanding.js --report-only"
-            })
-            first = steps.index { |s| s['name'] == 'Create Android project from the known-good v26 generator (no repository push)' }
-          INJECT
-          abort 'ERROR: Build-recipe dispatcher anchor changed; refusing an unsafe workflow edit.' unless command.include?(needle)
-          command.sub!(needle, injected.strip)
+      - name: Set the next compatible 2.1 application version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          p = Path("android/app/build.gradle.kts")
+          s = p.read_text(encoding="utf-8")
+          old_code = "versionCode = 1000 + ciRunNumber"
+          new_code = "versionCode = 1100000 + ciRunNumber"
+          old_name = 'versionName = "1.0.21.$ciRunNumber"'
+          new_name = 'versionName = "2.1.$ciRunNumber"'
+          if s.count(old_code) != 1 or s.count(old_name) != 1:
+              raise SystemExit("ERROR: Could not safely update application version metadata.")
+          p.write_text(s.replace(old_code, new_code, 1).replace(old_name, new_name, 1), encoding="utf-8")
+          print("Version configured: versionCode 1100000 + workflow run number; versionName 2.1.<run>.")
+          PYTHON
 
-          # Keep the update installable over 2.0 by using a strictly higher versionCode.
-          command.gsub!('versionCode = 1000000 + ciRunNumber', 'versionCode = 1100000 + ciRunNumber')
-          command.gsub!('versionName = "2.0.$ciRunNumber"', 'versionName = "2.1.$ciRunNumber"')
-          command.gsub!('expected_code=$((1000000 + GITHUB_RUN_NUMBER))', 'expected_code=$((1100000 + GITHUB_RUN_NUMBER))')
-          command.gsub!('expected_name="2.0.${GITHUB_RUN_NUMBER}"', 'expected_name="2.1.${GITHUB_RUN_NUMBER}"')
-          unless command.include?('1100000 + ciRunNumber') && command.include?('2.1.$ciRunNumber') && command.include?('1100000 + GITHUB_RUN_NUMBER') && command.include?('2.1.${GITHUB_RUN_NUMBER}')
-            abort 'ERROR: Could not safely upgrade the version metadata to 2.1. Refusing an APK with ambiguous versioning.'
-          end
+      - name: Install the maintained Nara HTML source directly
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_file="nara-apk-source.html"
+          asset_file="android/app/src/main/assets/index.html"
+          test -s "$source_file"
+          test -s "$asset_file"
+          cp "$source_file" "$asset_file"
+          cmp -s "$source_file" "$asset_file"
+          echo "PASS: APK asset is byte-for-byte identical to nara-apk-source.html"
+          sha256sum "$source_file" "$asset_file"
 
-          env = {
-            'KEYSTORE_B64' => ENV.fetch('KEYSTORE_B64', ''),
-            'KEYSTORE_PASSWORD' => ENV.fetch('KEYSTORE_PASSWORD', ''),
-            'BASELINE_APK_URL' => ENV.fetch('BASELINE_APK_URL'),
-            'LEGACY_STEP2P_COMMIT' => '9eb8456e93e8327abd8afcce4898313658c4c41c'
+      - name: Verify direct-source features and preserved safeguards
+        shell: bash
+        run: |
+          set -euo pipefail
+          html="android/app/src/main/assets/index.html"
+          grep -q 'async function naraRequestOnlineAnswer' "$html"
+          grep -q "NARA_GURU_MODEL='gpt-4o-mini'" "$html"
+          grep -q 'function naraInterpretUserQuery(question,localDraft=' "$html"
+          grep -q "intent='status_kelompok_tanam'" "$html"
+          grep -q 'ringkasan_pencarian_kelompok_tanam:groupSearchCounts' "$html"
+          grep -q 'jumlah_gagal:groupFailedQty(g)' "$html"
+          grep -q 'tanggal_status_dicatat:exactStatusDate' "$html"
+          grep -q 'aturan_status_kelompok_tanam:statusGroupIntent?' "$html"
+          grep -q 'kelompok_tidak_dikirim' "$html"
+          grep -q 'const trimStatusGroupEvidence=(maxPlants,maxGroups)=>' "$html"
+          grep -q 'next.statusUpdatedOn=today();next.statusUpdatedAt=new Date().toISOString();' "$html"
+          grep -q 'function naraRunRetrievalDiagnostic()' "$html"
+          grep -q 'naraLastRetrievalAudit={' "$html"
+          grep -q "answerSource:'online_direct',answerAudit:'passed_first_audit'" "$html"
+          grep -q "answerSource:'online_revised',answerAudit:'passed_after_retry'" "$html"
+          grep -q "answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'" "$html"
+          grep -q 'function naraAnswerSourceLabel(m)' "$html"
+          grep -q 'function naraAuditAnswerPlantScope' "$html"
+          grep -q 'pedoman_sumber_dan_kasus' "$html"
+          grep -q 'PENGUNCI IDENTITAS KASUS' "$html"
+          grep -q 'PENGUNCI KASUS WAJIB' "$html"
+          grep -q 'function naraLessonContextText' "$html"
+          grep -q 'naraState.userLessons' "$html"
+          grep -q 'naraState.teacherValidatedLessons' "$html"
+          grep -q 'function naraValidateTeacherCandidate' "$html"
+          grep -q 'nara_three_case_review_v1' "$html"
+          if grep -q 'naraState.teacherLessons.push' "$html"; then
+            echo 'ERROR: Guru lessons are still written directly into an unvalidated retrieval store.'
+            exit 1
+          fi
+          echo "PASS: direct HTML contains status-history retrieval and preserves provenance, memory-validation, and answer-audit safeguards."
+
+      - name: Validate inline JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import re
+          import subprocess
+          import tempfile
+          html = Path("android/app/src/main/assets/index.html").read_text(encoding="utf-8")
+          blocks = re.findall(r'<script\b([^>]*)>([\s\S]*?)</script\s*>', html, re.I)
+          checked = 0
+          with tempfile.TemporaryDirectory(prefix="nara-js-check-") as td:
+              for i, (attrs, body) in enumerate(blocks):
+                  match = re.search(r"type\s*=\s*[\"']?([^\"'\s>]+)", attrs, re.I)
+                  if match and match.group(1).lower() not in ("text/javascript", "application/javascript", "module", "text/ecmascript", "application/ecmascript"):
+                      continue
+                  if not body.strip():
+                      continue
+                  script = Path(td) / f"script-{i}.js"
+                  script.write_text(body, encoding="utf-8")
+                  result = subprocess.run(["node", "--check", str(script)], capture_output=True, text=True)
+                  if result.returncode:
+                      print(result.stderr)
+                      raise SystemExit(f"ERROR: JavaScript syntax check failed for inline block {i}.")
+                  checked += 1
+          if not checked:
+              raise SystemExit("ERROR: No inline JavaScript block was checked.")
+          print(f"PASS: JavaScript syntax valid in {checked} inline script block(s).")
+          PYTHON
+
+      - name: Run Nara query-understanding regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node .github/scripts/test_nara_query_understanding.js
+
+      - name: Run synthetic historical-group retrieval tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node .github/scripts/test_nara_group_history_direct.js android/app/src/main/assets/index.html
+
+      - name: Prepare permanent signing key
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ] || [ -z "${KEYSTORE_PASSWORD:-}" ]; then
+            echo "ERROR: GitHub Secrets ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD are required."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/terra-serenada-release.p12"
+          test -s "$RUNNER_TEMP/terra-serenada-release.p12"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/terra-serenada-release.p12" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_ALIAS=terra-serenada" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p android assembleRelease --no-daemon --stacktrace
+
+      - name: Prepare APK for validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          cp android/app/build/outputs/apk/release/app-release.apk Terra-Serenada.apk
+          test -s Terra-Serenada.apk
+          ls -lh Terra-Serenada.apk
+          sha256sum Terra-Serenada.apk
+
+      - name: Validate APK signing, package identity, version, archive, and alignment
+        shell: bash
+        env:
+          BASELINE_APK_URL: https://github.com/terra-serenada/Terra-Serenada/releases/download/apk-v1.0.19-10/Terra-Serenada.apk
+        run: |
+          set -euo pipefail
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$APKSIGNER" && test -x "$ZIPALIGN" && test -x "$AAPT"
+          curl --fail --location --retry 3 --silent --show-error "$BASELINE_APK_URL" --output baseline.apk
+          test -s baseline.apk && test -s Terra-Serenada.apk
+          unzip -t Terra-Serenada.apk
+          "$APKSIGNER" verify --verbose --print-certs baseline.apk 2>&1 | tee baseline-signature.txt
+          "$APKSIGNER" verify --verbose --print-certs Terra-Serenada.apk 2>&1 | tee new-signature.txt
+          extract_certificate_sha256() {
+            local signature_file="$1"
+            awk '/certificate SHA-256 digest:/ { sub(/^.*certificate SHA-256 digest:[[:space:]]*/, ""); print; exit }' "$signature_file" \
+              | tr -d ':' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'
           }
-          ok = system(env, 'bash', '-euo', 'pipefail', '-c', command)
-          abort 'ERROR: The reused 2.0 build recipe or query-understanding regression tests failed.' unless ok
-          RUBY
+          baseline_fingerprint="$(extract_certificate_sha256 baseline-signature.txt)"
+          new_fingerprint="$(extract_certificate_sha256 new-signature.txt)"
+          if [ -z "$baseline_fingerprint" ] || [ -z "$new_fingerprint" ]; then
+            echo "ERROR: Unable to extract APK certificate SHA-256 fingerprint."
+            grep -Ei 'certificate DN|certificate SHA-256 digest|Number of signers|Verified using' baseline-signature.txt new-signature.txt || true
+            exit 1
+          fi
+          if [ "$baseline_fingerprint" != "$new_fingerprint" ]; then
+            echo "ERROR: APK certificate differs from installed release; publishing is blocked."
+            exit 1
+          fi
+          "$ZIPALIGN" -c -v 4 Terra-Serenada.apk
+          "$AAPT" dump badging Terra-Serenada.apk | tee apk-metadata.txt
+          expected_code=$((1100000 + GITHUB_RUN_NUMBER))
+          expected_name="2.1.${GITHUB_RUN_NUMBER}"
+          grep -F "package: name='com.terra.serenada' versionCode='${expected_code}' versionName='${expected_name}'" apk-metadata.txt
+          echo "PASS: APK package, version, signature, archive, and alignment checks."
+
+      - name: Enable KVM permissions for Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /etc/udev/rules.d
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
 
       - name: Android emulator install and launch smoke test
         uses: ReactiveCircus/android-emulator-runner@v2
@@ -110,7 +274,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: >-
-            bash -c 'set -euo pipefail; adb wait-for-device; adb install -r Terra-Serenada.apk; adb logcat -c; adb shell monkey -p com.terra.serenada -c android.intent.category.LAUNCHER 1; app_pid=""; for attempt in $(seq 1 30); do app_pid="$(adb shell pidof com.terra.serenada 2>/dev/null || true)"; if [ -n "$app_pid" ]; then break; fi; sleep 1; done; if [ -z "$app_pid" ]; then echo "ERROR: Terra Serenada did not remain running after launch. Android runtime logs follow:"; adb logcat -d -s AndroidRuntime:E ActivityManager:E || true; exit 1; fi; crash_log="$(adb logcat -d -s AndroidRuntime:E 2>&1)" || { echo "ERROR: Unable to read Android runtime logs after launching the app."; exit 1; }; if printf "%s\n" "$crash_log" | grep -q "FATAL EXCEPTION"; then printf "%s\n" "$crash_log"; exit 1; fi; echo "APK installed and app process remained running in Android emulator."'
+            bash -c 'set -euo pipefail; adb wait-for-device; adb install -r Terra-Serenada.apk; adb logcat -c; adb shell monkey -p com.terra.serenada -c android.intent.category.LAUNCHER 1; app_pid=""; for attempt in $(seq 1 30); do app_pid="$(adb shell pidof com.terra.serenada 2>/dev/null || true)"; if [ -n "$app_pid" ]; then break; fi; sleep 1; done; if [ -z "$app_pid" ]; then echo "ERROR: Terra Serenada did not remain running after launch. Android runtime logs follow:"; adb logcat -d -s AndroidRuntime:E ActivityManager:E || true; exit 1; fi; crash_log="$(adb logcat -d -s AndroidRuntime:E 2>&1)" || { echo "ERROR: Unable to read Android runtime logs after launching the app."; exit 1; }; if printf "%s\n" "$crash_log" | grep -q "FATAL EXCEPTION"; then printf "%s\n" "$crash_log"; exit 1; fi; echo "PASS: APK installed and app process remained running in Android emulator."'
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -126,9 +290,10 @@ jobs:
           tag_name: apk-terra-serenada-2.1-${{ github.run_number }}
           name: Terra Serenada APK 2.1 (build ${{ github.run_number }})
           body: |
-            Terra Serenada 2.1 builds on the installed 2.0 baseline and the locked Nara Step 2P source/retrieval checks.
-            Adds intent-aware Indonesian query interpretation, conservative follow-up-reference resolution,
-            source routing hints, ambiguity fail-closed behavior, and retrieval diagnostics for the interpretation sent online.
-            Existing root index.html, package identity, signing identity, garden records, and taught memory are preserved.
-            Publishing remains gated by source checks, APK metadata/signature/alignment validation,
-            query-understanding regression tests, and Android emulator installation/launch smoke testing.
+            Terra Serenada 2.1 — direct maintained Nara HTML source.
+            Includes intent-aware group status/history retrieval, traceable per-group evidence,
+            explicit status-update dates for future edits, retrieval diagnostics, answer provenance,
+            and existing Nara query, memory-validation, and answer-audit safeguards.
+            The dedicated APK source is copied byte-for-byte into the build; root index.html remains untouched.
+            Publishing is gated by direct-source checks, regression tests, APK metadata/signature/alignment,
+            and Android emulator installation/launch smoke testing.
