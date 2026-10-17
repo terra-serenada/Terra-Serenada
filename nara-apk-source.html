@@ -4052,38 +4052,30 @@ function ti41AllEventRows(item){
   const groups=(Array.isArray(item.plantingGroups)?item.plantingGroups:[]).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)));
   const events=groups.map((g,i)=>({date:g.date,sort:`${g.date}T00:00:00`,icon:'🌱',label:i===0?'Ditanam':'Tanam susulan',detail:`${Number(g.qty||0)} tanaman${groupLocations(g).length?' · '+groupLocations(g).join(' · '):''}`,photos:[],inhabitantTags:[]}));
   if(!events.length)events.push({date:item.date,sort:`${item.date}T00:00:00`,icon:'🌱',label:'Ditanam',detail:item.qty?`${item.qty} tanaman`:'Tanaman mulai dicatat',photos:[],inhabitantTags:[]});
-  (Array.isArray(item.events)?item.events:[]).forEach(e=>{
-    const storedPhotos=Array.isArray(e.photos)&&e.photos.length?e.photos:(e.photo?[e.photo]:[]);
-    const photos=storedPhotos.length?storedPhotos:ti41AttentionEventPhotos(item,e);
-    const icon=e.type==='group-cycle-complete'?'🌾':e.type==='flowering'?'🌼':e.type==='photo'?'📷':e.type==='pest'?'🐛':e.type==='attention-update'?'✏️':e.type==='attention-ended'?'⏹️':'🌿';
-    const createdAt=String(e.createdAt||'');
-    const timePart=createdAt.includes('T')?createdAt.slice(11):(createdAt||'12:00:00');
-    events.push({date:e.date,sort:`${e.date||item.date||''}T${timePart}`,icon,label:e.label||'Perkembangan',detail:ti41JourneyDetail(item,e),photos,inhabitantTags:e.inhabitantTags||[]});
-  });
+  (Array.isArray(item.events)?item.events:[]).forEach(e=>{const storedPhotos=Array.isArray(e.photos)&&e.photos.length?e.photos:(e.photo?[e.photo]:[]);const photos=storedPhotos.length?storedPhotos:ti41AttentionEventPhotos(item,e);const icon=e.type==='group-cycle-complete'?'🌾':e.type==='flowering'?'🌼':e.type==='photo'?'📷':e.type==='pest'?'🐛':e.type==='attention-update'?'✏️':e.type==='attention-ended'?'⏹️':'🌿';events.push({date:e.date,sort:`${e.date}T${e.createdAt||'12:00:00'}`,icon,label:e.label||'Perkembangan',detail:ti41JourneyDetail(item,e),photos,inhabitantTags:e.inhabitantTags||[]})});
   /* Preserve older versions of attention observations in the plant timeline. The current implementation stores snapshots on attention.history; render those snapshots instead of replacing the old note with only the latest update. */
   attentions.filter(a=>a.plantId===item.id&&['attention','manual'].includes(a.type)).forEach(a=>{
     const revisions=Array.isArray(a.history)?a.history:[];
     revisions.forEach((revision,index)=>{
       const changedAt=String(revision.changedAt||a.updatedAt||a.createdAt||'');
       const parsed=Date.parse(changedAt);
-      const sortTime=Number.isFinite(parsed)?new Date(Math.max(0,parsed-1)).toISOString().slice(11):'00:00:00.000Z';
+      const sortStamp=Number.isFinite(parsed)?new Date(Math.max(0,parsed-1)).toISOString():`${String(revision.date||a.date||item.date||'')}T00:00:00.000Z`;
       const archiveDate=changedAt.slice(0,10)||revision.date||a.date||item.date;
       const originalDate=revision.date?fmt(revision.date):'tanggal tidak tercatat';
       const detail=[`Tanggal pengamatan pada versi ini: ${originalDate}`,tsAttentionHistoryText(revision)].filter(Boolean).join(' · ');
       const photos=Array.isArray(revision.photos)&&revision.photos.length?revision.photos:(revision.photo?[revision.photo]:[]);
-      events.push({date:archiveDate,sort:`${archiveDate}T${sortTime}#history-${String(index).padStart(4,'0')}`,icon:'🕘',label:'Versi pengamatan sebelumnya',detail,photos,inhabitantTags:Array.isArray(revision.inhabitantTags)?revision.inhabitantTags:[]});
+      events.push({date:archiveDate,sort:`${sortStamp}#history-${String(index).padStart(4,'0')}`,icon:'🕘',label:'Versi pengamatan sebelumnya',detail,photos,inhabitantTags:Array.isArray(revision.inhabitantTags)?revision.inhabitantTags:[]});
     });
     const hasLinkedEvent=(Array.isArray(item.events)?item.events:[]).some(e=>e.attentionId===a.id&&['attention-update','attention-ended','attention-done'].includes(e.type));
     if(!hasLinkedEvent){
       const createdAt=String(a.createdAt||'');
-      const timePart=createdAt.includes('T')?createdAt.slice(11):'12:00:00.000Z';
-      const sortDate=a.date||item.date||createdAt.slice(0,10);
+      const sortStamp=createdAt||`${String(a.date||item.date||'')}T12:00:00.000Z`;
       const label=a.status==='closed'?'Pengamatan diakhiri':a.status==='done'?'Perhatian diselesaikan':'Pengamatan dicatat';
-      events.push({date:sortDate,sort:`${sortDate}T${timePart}#attention-current`,icon:a.status==='closed'?'⏹️':'⚠️',label,detail:tsAttentionHistoryText(a),photos:a.photo?[a.photo]:[],inhabitantTags:Array.isArray(a.inhabitantTags)?a.inhabitantTags:[]});
+      events.push({date:a.date||item.date,sort:`${sortStamp}#attention-current`,icon:a.status==='closed'?'⏹️':'⚠️',label,detail:tsAttentionHistoryText(a),photos:a.photo?[a.photo]:[],inhabitantTags:Array.isArray(a.inhabitantTags)?a.inhabitantTags:[]});
     }
   });
   events.push(...ti41BedContextEvents(item));
-  harvests.filter(h=>h.plantId===item.id).forEach(h=>{const createdAt=String(h.createdAt||'');const timePart=createdAt.includes('T')?createdAt.slice(11):(createdAt||'12:00:00');events.push({date:h.date,sort:`${h.date}T${timePart}`,icon:'🧺',label:'Panen',detail:`${String(h.qty)} ${h.unit||'kg'}${h.quality?` · kualitas ${h.quality.toLowerCase()}`:''}${h.note?` · ${h.note}`:''}`,photos:Array.isArray(h.photos)?h.photos:(h.photo?[h.photo]:[]),inhabitantTags:[]})});
+  harvests.filter(h=>h.plantId===item.id).forEach(h=>events.push({date:h.date,sort:`${h.date}T${h.createdAt||'12:00:00'}`,icon:'🧺',label:'Panen',detail:`${String(h.qty)} ${h.unit||'kg'}${h.quality?` · kualitas ${h.quality.toLowerCase()}`:''}${h.note?` · ${h.note}`:''}`,photos:Array.isArray(h.photos)?h.photos:(h.photo?[h.photo]:[]),inhabitantTags:[]}));
   events.sort((a,b)=>String(a.sort).localeCompare(String(b.sort)));return events;
 }
 function plantTimeline(item){
