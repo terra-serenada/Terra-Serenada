@@ -7,7 +7,7 @@ on:
       - main
     paths:
       - ".github/workflows/terra-serenada-2.1-query-understanding.yml"
-      - "nara-apk-source.html"
+      - "index.html"
       - ".github/scripts/test_nara_group_history_direct.js"
       - ".github/scripts/test_nara_query_understanding.js"
 
@@ -89,17 +89,17 @@ jobs:
           print("Version configured: versionCode 1100000 + workflow run number; versionName 2.1.<run>.")
           PYTHON
 
-      - name: Install the maintained Nara HTML source directly
+      - name: Install the merged root HTML source directly
         shell: bash
         run: |
           set -euo pipefail
-          source_file="nara-apk-source.html"
+          source_file="index.html"
           asset_file="android/app/src/main/assets/index.html"
           test -s "$source_file"
           test -s "$asset_file"
           cp "$source_file" "$asset_file"
           cmp -s "$source_file" "$asset_file"
-          echo "PASS: APK asset is byte-for-byte identical to nara-apk-source.html"
+          echo "PASS: APK asset is byte-for-byte identical to root index.html"
           sha256sum "$source_file" "$asset_file"
 
       - name: Verify direct-source features and preserved safeguards
@@ -133,6 +133,15 @@ jobs:
           grep -q 'naraState.teacherValidatedLessons' "$html"
           grep -q 'function naraValidateTeacherCandidate' "$html"
           grep -q 'nara_three_case_review_v1' "$html"
+          grep -q 'const TS_PLANT_ROLES=' "$html"
+          grep -q 'const TS_INHABITANT_ROLES=' "$html"
+          grep -q 'katalog_role_kebun:' "$html"
+          grep -q 'katalog_tanaman_role:' "$html"
+          grep -q 'ringkasan_role_tanaman:' "$html"
+          grep -q 'katalog_inhabitant_role:' "$html"
+          grep -q 'ringkasan_role_inhabitant:' "$html"
+          grep -q 'katalog_bed_hubungan:' "$html"
+          grep -q 'AKSES ROLE DAN HUBUNGAN KEBUN:' "$html"
           if grep -q 'naraState.teacherLessons.push' "$html"; then
             echo 'ERROR: Guru lessons are still written directly into an unvalidated retrieval store.'
             exit 1
@@ -290,10 +299,10 @@ jobs:
           tag_name: apk-terra-serenada-2.1-${{ github.run_number }}
           name: Terra Serenada APK 2.1 (build ${{ github.run_number }})
           body: |
-            Terra Serenada 2.1 — direct maintained Nara HTML source.
+            Terra Serenada 2.1 — merged root index.html as the single HTML source.
             Includes intent-aware group status/history retrieval, traceable per-group evidence,
             explicit status-update dates for future edits, retrieval diagnostics, answer provenance,
             and existing Nara query, memory-validation, and answer-audit safeguards.
-            The dedicated APK source is copied byte-for-byte into the build; root index.html remains untouched.
+            The repository root index.html is copied byte-for-byte into the APK; there is no separate nara-apk-source.html dependency.
             Publishing is gated by direct-source checks, regression tests, APK metadata/signature/alignment,
             and Android emulator installation/launch smoke testing.

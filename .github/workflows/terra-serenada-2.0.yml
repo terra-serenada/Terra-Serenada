@@ -1,18 +1,8 @@
 name: Terra Serenada 2.0
 
+# Manual fallback retained; the 2.1 workflow is the only automatic APK build for index.html.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/terra-serenada-2.0.yml"
-      - "index.html"
-      - "manifest.webmanifest"
-      - "sw.js"
-      - "icon.png"
-      - "icon-192.png"
-      - "icon-512.png"
 
 permissions:
   contents: write
