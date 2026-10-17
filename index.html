@@ -606,7 +606,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   <div class="role-toolbar" aria-label="Filter Role Tanaman">
     <select id="plantRoleFilter" aria-label="Filter tanaman berdasarkan Role">
       <option value="all">Semua Role tanaman</option>
-      <option value="canopy">🌳 Canopy</option><option value="shrub-habitat">🏡 Shrub Habitat</option><option value="ground-cover">🍀 Ground Cover</option><option value="earth-drill">⛏️ Earth Drill</option><option value="pollinator-support">🌺 Pollinator Support</option><option value="guard-plant">🔰 Guard Plant</option><option value="vertical-vine">🪴 Vertical Vine</option><option value="unassigned">Belum ditentukan</option>
+      <option value="canopy">🌳 Canopy</option><option value="shrub-habitat">🏡 Shrub Habitat</option><option value="ground-cover">🍀 Ground Cover</option><option value="earth-drill">⛏️ Earth Drill</option><option value="pollinator-support">🌺 Pollinator Support</option><option value="guard-plant">🔰 Guard Plant</option><option value="nitrogen-fixer">🫘 Nitrogen Fixer</option><option value="unassigned">Belum ditentukan</option>
     </select>
     <button type="button" class="secondary" id="plantRoleGroupBtn" aria-pressed="false">☷ Kelompokkan Role</button>
   </div>
@@ -616,7 +616,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
     <div class="grid">
       <div class="field"><label>Nama tanaman *</label><input id="fName" placeholder="Contoh: Cabai rawit"></div>
       <div class="field"><label>Varietas</label><input id="fVar" placeholder="Contoh: Dewata"></div>
-      <div class="field"><label>Role utama</label><select id="fRole"><option value="">Belum ditentukan</option><option value="canopy">🌳 Canopy</option><option value="shrub-habitat">🏡 Shrub Habitat</option><option value="ground-cover">🍀 Ground Cover</option><option value="earth-drill">⛏️ Earth Drill</option><option value="pollinator-support">🌺 Pollinator Support</option><option value="guard-plant">🔰 Guard Plant</option><option value="vertical-vine">🪴 Vertical Vine</option></select></div>
+      <div class="field"><label>Role utama</label><select id="fRole"><option value="">Belum ditentukan</option><option value="canopy">🌳 Canopy</option><option value="shrub-habitat">🏡 Shrub Habitat</option><option value="ground-cover">🍀 Ground Cover</option><option value="earth-drill">⛏️ Earth Drill</option><option value="pollinator-support">🌺 Pollinator Support</option><option value="guard-plant">🔰 Guard Plant</option><option value="nitrogen-fixer">🫘 Nitrogen Fixer</option></select></div>
       <div class="field"><label>Pola siklus</label><select id="fCycle"><option value="once">🌱 Sekali Siklus</option><option value="repeat" selected>🌿 Produktif Berulang</option><option value="permanent">🌳 Permanen</option></select><div class="group-cycle-note">Menentukan bagaimana kelompok tanam berakhir setelah panen.</div></div>
       <div class="field"><label>Estimasi panen (hari)</label><input id="fDays" type="number" min="0" placeholder="Contoh: 75"></div>
       <div class="field full group-first-field" id="initialGroupDateField"><label>🌱 Kelompok tanam pertama · Tanggal *</label><input id="fDate" type="date"></div>
@@ -933,7 +933,7 @@ const TS_PLANT_ROLES=[
   {key:'earth-drill',name:'Earth Drill',icon:'⛏️',description:'Peran tanaman yang ditetapkan untuk menjelajahi atau menembus tanah; label ini sendiri tidak membuktikan perubahan struktur tanah.'},
   {key:'pollinator-support',name:'Pollinator Support',icon:'🌺',description:'Peran pendukung penyerbuk, misalnya lewat bunga atau sumber pakan saat tersedia.'},
   {key:'guard-plant',name:'Guard Plant',icon:'🔰',description:'Peran tanaman yang ditetapkan untuk membantu perlindungan tanaman atau area kebun; efektivitasnya tidak diasumsikan.'},
-  {key:'vertical-vine',name:'Vertical Vine',icon:'🪴',description:'Peran tanaman merambat yang tumbuh atau diarahkan secara vertikal; penggunaan ajir/penopang tetap mengikuti catatan kebun.'}
+  {key:'nitrogen-fixer',name:'Nitrogen Fixer',icon:'🫘',description:'Peran tanaman yang berpotensi melakukan fiksasi nitrogen melalui simbiosis akar; efektivitasnya tidak diasumsikan tanpa bukti.'}
 ];
 const TS_INHABITANT_ROLES=[
   {key:'pollinators-association',name:"Pollinators' Association",icon:'🌼',description:'Organisme yang berperan dalam penyerbukan.'},
@@ -949,9 +949,11 @@ function migrateLegacyPlantRoleAssignments(){
   data=data.map(plant=>{
     if(!plant||typeof plant!=='object')return plant;
     const role=String(plant.role||'').trim().toLowerCase().replace(/[\s_]+/g,'-');
-    if(role==='nitrogen-fixer'||role==='nitrogenfixer'){
+    // Existing releases may have stored either the legacy Vertical Vine key
+    // or a non-canonical Nitrogen Fixer spelling. Preserve canonical entries.
+    if(role==='vertical-vine'||role==='verticalvine'||role==='nitrogenfixer'){
       migrated++;
-      return {...plant,role:'vertical-vine'};
+      return {...plant,role:'nitrogen-fixer'};
     }
     return plant;
   });
@@ -1251,7 +1253,7 @@ async function initStorage(){
     const migratedRoles=migrateLegacyPlantRoleAssignments();
     if(migratedRoles>0)await persistToIDB();
     storageReady=true;
-    showToast(migratedRoles>0?`✅ ${migratedRoles} penugasan Nitrogen Fixer dialihkan ke Vertical Vine`:'💾 Penyimpanan perangkat aktif');
+    showToast(migratedRoles>0?`✅ ${migratedRoles} penugasan Vertical Vine dialihkan ke Nitrogen Fixer 🫘`:'💾 Penyimpanan perangkat aktif');
   }catch(err){
     storageReady=false;
     console.warn('IndexedDB tidak tersedia, memakai penyimpanan cadangan.',err);
@@ -2823,7 +2825,7 @@ function naraOnlineLearningContext(question,localDraft=''){
     {key:'earth-drill',name:'Earth Drill',icon:'⛏️',description:'Akar yang menembus tanah.'},
     {key:'pollinator-support',name:'Pollinator Support',icon:'🌺',description:'Mendukung penyerbuk melalui bunga atau sumber pakan.'},
     {key:'guard-plant',name:'Guard Plant',icon:'🔰',description:'Ditanam dengan fungsi perlindungan.'},
-    {key:'vertical-vine',name:'Vertical Vine',icon:'🪴',description:'Tanaman merambat yang tumbuh atau diarahkan secara vertikal.'}
+    {key:'nitrogen-fixer',name:'Nitrogen Fixer',icon:'🫘',description:'Tanaman yang berpotensi membantu fiksasi nitrogen melalui simbiosis akar bila kondisi mendukung.'}
   ];
   const inhabitantRoleDefinitions=typeof TS_INHABITANT_ROLES!=='undefined'&&Array.isArray(TS_INHABITANT_ROLES)?TS_INHABITANT_ROLES:[
     {key:'pollinators-association',name:"Pollinators' Association",icon:'🌼',description:'Pengunjung bunga yang membantu penyerbukan.'},
