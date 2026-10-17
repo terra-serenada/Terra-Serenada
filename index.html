@@ -2735,6 +2735,9 @@ function naraInterpretUserQuery(question,localDraft=''){
 }
 
 function naraOnlineLearningContext(question,localDraft=''){
+  // Local guard keeps this builder deterministic when isolated by regression tests.
+  // The full app also defines asArray globally; the local equivalent avoids a hidden dependency.
+  const asArray=value=>Array.isArray(value)?value:[];
   // Keep the context builder independently testable: production uses the app's
   // canonical role arrays; isolated regression tests receive the same stable keys.
   const plantRoleDefinitions=typeof TS_PLANT_ROLES!=='undefined'&&Array.isArray(TS_PLANT_ROLES)?TS_PLANT_ROLES:[
