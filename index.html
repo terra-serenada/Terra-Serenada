@@ -606,7 +606,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
   <div class="role-toolbar" aria-label="Filter Role Tanaman">
     <select id="plantRoleFilter" aria-label="Filter tanaman berdasarkan Role">
       <option value="all">Semua Role tanaman</option>
-      <option value="canopy">🌳 Canopy</option><option value="shrub-habitat">🏡 Shrub Habitat</option><option value="ground-cover">🍀 Ground Cover</option><option value="earth-drill">⛏️ Earth Drill</option><option value="pollinator-support">🌺 Pollinator Support</option><option value="guard-plant">🔰 Guard Plant</option><option value="nitrogen-fixer">🫘 Nitrogen Fixer</option><option value="unassigned">Belum ditentukan</option>
+      <option value="canopy">🌳 Canopy</option><option value="shrub-habitat">🏡 Shrub Habitat</option><option value="ground-cover">🍀 Ground Cover</option><option value="earth-drill">⛏️ Earth Drill</option><option value="pollinator-support">🌺 Pollinator Support</option><option value="guard-plant">🔰 Guard Plant</option><option value="vertical-vine">🪴 Vertical Vine</option><option value="unassigned">Belum ditentukan</option>
     </select>
     <button type="button" class="secondary" id="plantRoleGroupBtn" aria-pressed="false">☷ Kelompokkan Role</button>
   </div>
@@ -616,7 +616,7 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
     <div class="grid">
       <div class="field"><label>Nama tanaman *</label><input id="fName" placeholder="Contoh: Cabai rawit"></div>
       <div class="field"><label>Varietas</label><input id="fVar" placeholder="Contoh: Dewata"></div>
-      <div class="field"><label>Role utama</label><select id="fRole"><option value="">Belum ditentukan</option><option value="canopy">🌳 Canopy</option><option value="shrub-habitat">🏡 Shrub Habitat</option><option value="ground-cover">🍀 Ground Cover</option><option value="earth-drill">⛏️ Earth Drill</option><option value="pollinator-support">🌺 Pollinator Support</option><option value="guard-plant">🔰 Guard Plant</option><option value="nitrogen-fixer">🫘 Nitrogen Fixer</option></select></div>
+      <div class="field"><label>Role utama</label><select id="fRole"><option value="">Belum ditentukan</option><option value="canopy">🌳 Canopy</option><option value="shrub-habitat">🏡 Shrub Habitat</option><option value="ground-cover">🍀 Ground Cover</option><option value="earth-drill">⛏️ Earth Drill</option><option value="pollinator-support">🌺 Pollinator Support</option><option value="guard-plant">🔰 Guard Plant</option><option value="vertical-vine">🪴 Vertical Vine</option></select></div>
       <div class="field"><label>Pola siklus</label><select id="fCycle"><option value="once">🌱 Sekali Siklus</option><option value="repeat" selected>🌿 Produktif Berulang</option><option value="permanent">🌳 Permanen</option></select><div class="group-cycle-note">Menentukan bagaimana kelompok tanam berakhir setelah panen.</div></div>
       <div class="field"><label>Estimasi panen (hari)</label><input id="fDays" type="number" min="0" placeholder="Contoh: 75"></div>
       <div class="field full group-first-field" id="initialGroupDateField"><label>🌱 Kelompok tanam pertama · Tanggal *</label><input id="fDate" type="date"></div>
@@ -933,7 +933,7 @@ const TS_PLANT_ROLES=[
   {key:'earth-drill',name:'Earth Drill',icon:'⛏️',description:'Peran tanaman yang ditetapkan untuk menjelajahi atau menembus tanah; label ini sendiri tidak membuktikan perubahan struktur tanah.'},
   {key:'pollinator-support',name:'Pollinator Support',icon:'🌺',description:'Peran pendukung penyerbuk, misalnya lewat bunga atau sumber pakan saat tersedia.'},
   {key:'guard-plant',name:'Guard Plant',icon:'🔰',description:'Peran tanaman yang ditetapkan untuk membantu perlindungan tanaman atau area kebun; efektivitasnya tidak diasumsikan.'},
-  {key:'nitrogen-fixer',name:'Nitrogen Fixer',icon:'🫘',description:'Peran pengikat nitrogen biologis bila identitas tanaman dan kondisi asosiasinya mendukung.'}
+  {key:'vertical-vine',name:'Vertical Vine',icon:'🪴',description:'Peran tanaman merambat yang tumbuh atau diarahkan secara vertikal; penggunaan ajir/penopang tetap mengikuti catatan kebun.'}
 ];
 const TS_INHABITANT_ROLES=[
   {key:'pollinators-association',name:"Pollinators' Association",icon:'🌼',description:'Organisme yang berperan dalam penyerbukan.'},
@@ -942,6 +942,23 @@ const TS_INHABITANT_ROLES=[
   {key:'pest-syndicate',name:'Pest Syndicate',icon:'⚠️',description:'Organisme yang ditetapkan atau dicatat sebagai hama; dampak pada tanaman tetap perlu dinilai per kasus.'},
   {key:'bioindicator-society',name:'Bioindicator Society',icon:'🌿',description:'Organisme yang dipakai sebagai petunjuk kondisi lingkungan bila konteks observasinya mendukung.'}
 ];
+// Backward-compatible data migration: move only assignments to the retired category.
+// Plant identity, notes, harvests, groups, dates, and all other fields remain untouched.
+function migrateLegacyPlantRoleAssignments(){
+  let migrated=0;
+  data=data.map(plant=>{
+    if(!plant||typeof plant!=='object')return plant;
+    const role=String(plant.role||'').trim().toLowerCase().replace(/[\s_]+/g,'-');
+    if(role==='nitrogen-fixer'||role==='nitrogenfixer'){
+      migrated++;
+      return {...plant,role:'vertical-vine'};
+    }
+    return plant;
+  });
+  return migrated;
+}
+// Migrate the localStorage fallback data before the first render as well.
+migrateLegacyPlantRoleAssignments();
 let plantRoleGrouping=false;
 let inhabitantRoleGrouping=false;
 let editingAttentionId=null;
@@ -1226,7 +1243,22 @@ async function loadFromIDB(){
 }
 async function initStorage(){
   if(storageInitPromise)return storageInitPromise;
-  storageInitPromise=(async()=>{try{normalizeBedsState();db=await openDB();const existing=await idbGet(DB_STATE,'current');if(!existing){await persistToIDB();}else{await loadFromIDB();}storageReady=true;showToast('💾 Penyimpanan perangkat aktif');}catch(err){storageReady=false;console.warn('IndexedDB tidak tersedia, memakai penyimpanan cadangan.',err);showToast('💾 Penyimpanan perangkat tidak tersedia; mode cadangan aktif');}return storageReady;})();
+  storageInitPromise=(async()=>{try{
+    normalizeBedsState();
+    db=await openDB();
+    const existing=await idbGet(DB_STATE,'current');
+    if(!existing){await persistToIDB();}else{await loadFromIDB();}
+    const migratedRoles=migrateLegacyPlantRoleAssignments();
+    if(migratedRoles>0)await persistToIDB();
+    storageReady=true;
+    showToast(migratedRoles>0?`✅ ${migratedRoles} penugasan Nitrogen Fixer dialihkan ke Vertical Vine`:'💾 Penyimpanan perangkat aktif');
+  }catch(err){
+    storageReady=false;
+    console.warn('IndexedDB tidak tersedia, memakai penyimpanan cadangan.',err);
+    // Save just the plant list in fallback mode so the role migration survives restarts.
+    try{migrateLegacyPlantRoleAssignments();localStorage.setItem(KEY,JSON.stringify(data));}catch(storageError){console.warn('Fallback role migration could not be persisted.',storageError);}
+    showToast('💾 Penyimpanan perangkat tidak tersedia; mode cadangan aktif');
+  }return storageReady;})();
   return storageInitPromise;
 }
 function reloadStoredState(){gardenEvents=readStored(GARDEN_EVENTS_KEY,[]);attentions=readStored(ATTENTION_KEY,[]);data=readStored(KEY,[]);harvests=readStored(HARVEST_KEY,[]);inhabitants=readStored(INHABITANT_KEY,[]);beds=readStored(BED_KEY,[]);gardenNotes=readStored(GARDEN_NOTES_KEY,[]);growthIndicators=readStored(GROWTH_INDICATORS_KEY,[]);gardenSettings=readStored(GARDEN_SETTINGS_KEY,{waterDefaultEvery:3,coverPhoto:'',waterScopeBedIds:undefined});if(!gardenSettings||Number(gardenSettings.waterDefaultEvery)<1)gardenSettings={waterDefaultEvery:3,coverPhoto:'',waterScopeBedIds:undefined};normalizeBedsState();render();}
@@ -2747,7 +2779,7 @@ function naraOnlineLearningContext(question,localDraft=''){
     {key:'earth-drill',name:'Earth Drill',icon:'⛏️',description:'Akar yang menembus tanah.'},
     {key:'pollinator-support',name:'Pollinator Support',icon:'🌺',description:'Mendukung penyerbuk melalui bunga atau sumber pakan.'},
     {key:'guard-plant',name:'Guard Plant',icon:'🔰',description:'Ditanam dengan fungsi perlindungan.'},
-    {key:'nitrogen-fixer',name:'Nitrogen Fixer',icon:'🫘',description:'Legum yang dapat berasosiasi dengan bakteri pengikat nitrogen.'}
+    {key:'vertical-vine',name:'Vertical Vine',icon:'🪴',description:'Tanaman merambat yang tumbuh atau diarahkan secara vertikal.'}
   ];
   const inhabitantRoleDefinitions=typeof TS_INHABITANT_ROLES!=='undefined'&&Array.isArray(TS_INHABITANT_ROLES)?TS_INHABITANT_ROLES:[
     {key:'pollinators-association',name:"Pollinators' Association",icon:'🌼',description:'Pengunjung bunga yang membantu penyerbukan.'},
@@ -2769,10 +2801,10 @@ function naraOnlineLearningContext(question,localDraft=''){
   const relatedInhabitants=ids=>[...new Set(asArray(ids).map(id=>String(id)))].map(id=>inhabitants.find(i=>String(i.id)===id)).filter(Boolean).map(i=>({nama:i.name||'Inhabitant tanpa nama',role_key:i.role||null,role:roleName(inhabitantRoleDefinitions,i.role),faksi:i.faction||'',status:i.status||''}));
   const roleCatalog={tanaman:plantRoleDefinitions.map(r=>({key:r.key,nama:r.name,ikon:r.icon,makna:r.description})),inhabitant:inhabitantRoleDefinitions.map(r=>({key:r.key,nama:r.name,ikon:r.icon,makna:r.description})),aturan:'Role adalah klasifikasi yang tersimpan/ditetapkan di Terra Serenada. Jangan mengarang penetapan ketika role kosong; uraian role adalah maksud kategori, bukan bukti bahwa fungsi ekologis atau hasilnya telah teramati.'};
   const plantRoleCatalog=catalogIntent?data.map(p=>{const activeGroups=naraActiveGroups(p);return {id_rekaman:p.id||null,nama:p.name||'Tanaman tanpa nama',varietas:p.variety||'',role_key:p.role||null,role:roleName(plantRoleDefinitions,p.role),makna_role:roleDescription(plantRoleDefinitions,p.role),kelompok_aktif:activeGroups.length,lokasi_aktif:[...new Set(activeGroups.flatMap(g=>groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||'')).filter(Boolean)))].slice(0,5)};}):[];
-  const inhabitantRoleCatalog=ecosystemContextIntent?inhabitants.map(i=>{const traces=inhabitantDerivedEvents(i.id).filter(e=>e.plantId||Array.isArray(e.plantNames)&&e.plantNames.length||Array.isArray(e.plantIds)&&e.plantIds.length).slice(0,5);return {id_rekaman:i.id||null,nama:i.name||'Inhabitant tanpa nama',role_key:i.role||null,role:roleName(inhabitantRoleDefinitions,i.role),makna_role:roleDescription(inhabitantRoleDefinitions,i.role),faksi:i.faction||'',status:i.status||'',catatan:compact(i.note,120),tanaman_terkait:traces.map(e=>({nama:e.plantName||([...asArray(e.plantNames),...plantNames(e.plantIds||[])].filter(Boolean).join(', '))||'Tanaman tidak tersedia',tanggal:e.date||null,jenis:e.type||'',catatan:compact(e.note||e.label,100),dasar:'Tautan/observasi yang tercatat; bukan bukti sebab-akibat.'}))};}):[];
+  const inhabitantRoleCatalog=ecosystemContextIntent?inhabitants.map(i=>{const traces=inhabitantDerivedEvents(i.id).filter(e=>e.plantId||Array.isArray(e.plantNames)&&e.plantNames.length||Array.isArray(e.plantIds)&&e.plantIds.length);return {id_rekaman:i.id||null,nama:i.name||'Inhabitant tanpa nama',role_key:i.role||null,role:roleName(inhabitantRoleDefinitions,i.role),makna_role:roleDescription(inhabitantRoleDefinitions,i.role),faksi:i.faction||'',status:i.status||'',catatan:compact(i.note,120),tanaman_terkait:traces.map(e=>({nama:e.plantName||([...asArray(e.plantNames),...plantNames(e.plantIds||[])].filter(Boolean).join(', '))||'Tanaman tidak tersedia',tanggal:e.date||null,jenis:e.type||'',catatan:compact(e.note||e.label,100),dasar:'Tautan/observasi yang tercatat; bukan bukti sebab-akibat.'}))};}):[];
   const plantRoleAssignments=catalogIntent?plantRoleDefinitions.map(r=>({role_key:r.key,role:r.name,anggota:data.filter(p=>findRole(plantRoleDefinitions,p.role)?.key===r.key).map(p=>p.name||'Tanaman tanpa nama')})).concat([{role_key:null,role:'Belum ditentukan atau kode tak dikenal',anggota:data.filter(p=>!findRole(plantRoleDefinitions,p.role)).map(p=>p.name||'Tanaman tanpa nama')}]).map(r=>({...r,jumlah:r.anggota.length})):[];
   const inhabitantRoleAssignments=ecosystemContextIntent?inhabitantRoleDefinitions.map(r=>({role_key:r.key,role:r.name,anggota:inhabitants.filter(i=>findRole(inhabitantRoleDefinitions,i.role)?.key===r.key).map(i=>i.name||'Inhabitant tanpa nama')})).concat([{role_key:null,role:'Belum ditentukan atau kode tak dikenal',anggota:inhabitants.filter(i=>!findRole(inhabitantRoleDefinitions,i.role)).map(i=>i.name||'Inhabitant tanpa nama')}]).map(r=>({...r,jumlah:r.anggota.length})):[];
-  const bedRelationshipCatalog=ecosystemContextIntent?beds.map(b=>{const matches=[];data.forEach(p=>(Array.isArray(p.plantingGroups)?p.plantingGroups:[]).forEach(g=>{const locations=groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||''));if(locations.includes(b.name))matches.push({tanaman:p.name||'Tanaman tanpa nama',tanggal_tanam:g.date||null,status_kelompok:groupDerivedStatus(g)});}));return {nama:b.name||'',jenis_tanah:b.soilType||null,drainase:b.drainage||null,paparan_cahaya:b.lightExposure||b.light||null,vegetasi:b.vegetation||null,kelompok_tanaman_terkait:matches.slice(0,8),jumlah_kelompok_terkait:matches.length};}):[];
+  const bedRelationshipCatalog=ecosystemContextIntent?beds.map(b=>{const matches=[];data.forEach(p=>(Array.isArray(p.plantingGroups)?p.plantingGroups:[]).forEach(g=>{const locations=groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||''));if(locations.includes(b.name))matches.push({tanaman:p.name||'Tanaman tanpa nama',tanggal_tanam:g.date||null,status_kelompok:groupDerivedStatus(g)});}));return {nama:b.name||'',jenis_tanah:b.soilType||null,drainase:b.drainage||null,paparan_cahaya:b.lightExposure||b.light||null,vegetasi:b.vegetation||null,kelompok_tanaman_terkait:matches.slice(0,8),tanaman_unik_terkait:[...new Set(matches.map(m=>m.tanaman))],jumlah_kelompok_terkait:matches.length};}):[];
   const statusGroupIntent=naraQueryPlan.maksud==='status_kelompok_tanam';
   const requestedGroupStatus=String(naraQueryPlan.filter_status_kelompok||'semua');
   const requestedGroupStatusMode=String(naraQueryPlan.mode_filter_status_kelompok||'jumlah_tanaman');
@@ -2902,6 +2934,42 @@ function naraOnlineLearningContext(question,localDraft=''){
     payload.percakapan_terakhir=[];
     payload.konteks_dibatasi='Rujukan belum jelas. Jangan memilih rekaman kebun; tanyakan objek yang dimaksud terlebih dahulu.';
   }
+  if(ecosystemContextIntent&&!naraQueryPlan.disambiguationRequired&&!naraQueryPlan.suppressPersonalGardenSources){
+    // A whole-garden audit needs the structured catalogs, not unrelated event histories,
+    // verbose assistant drafts, or duplicate lists of the same assignments.
+    payload.draft_reasoning_lokal='';
+    payload.tanaman_relevan=[];
+    payload.perhatian_tercatat=[];
+    payload.aktivitas_kebun=[];
+    payload.riwayat_panen=[];
+    payload.profil_bed=[];
+    payload.inhabitant=[];
+    payload.catatan_kebun=[];
+    payload.cuaca=null;
+    payload.ingatan_belajar_relevan=[];
+    payload.percakapan_terakhir=[];
+    payload.katalog_tanaman_role=(Array.isArray(payload.katalog_tanaman_role)?payload.katalog_tanaman_role:[]).map(p=>({
+      id_rekaman:p.id_rekaman||null,nama:p.nama||'Tanaman tanpa nama',role_key:p.role_key||null,
+      role:!p.role_key?'Belum ditentukan':((plantRoleDefinitions.some(r=>r.key===p.role_key||r.name===p.role_key))?p.role:`Kode role tidak dikenal: ${String(p.role_key)}`)
+    }));
+    payload.ringkasan_role_tanaman=(Array.isArray(payload.ringkasan_role_tanaman)?payload.ringkasan_role_tanaman:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0),anggota:Array.isArray(r.anggota)?r.anggota.map(x=>String(x)):[]}));
+    payload.katalog_inhabitant_role=(Array.isArray(payload.katalog_inhabitant_role)?payload.katalog_inhabitant_role:[]).map(i=>({
+      id_rekaman:i.id_rekaman||null,nama:i.nama||'Inhabitant tanpa nama',role_key:i.role_key||null,
+      role:!i.role_key?'Belum ditentukan':((inhabitantRoleDefinitions.some(r=>r.key===i.role_key||r.name===i.role_key))?i.role:`Kode role tidak dikenal: ${String(i.role_key)}`),
+      faksi:i.faksi||'',status:i.status||'',
+      tanaman_terkait:[...new Set((Array.isArray(i.tanaman_terkait)?i.tanaman_terkait:[]).map(t=>String(t.nama||'').trim()).filter(Boolean))],
+      dasar_relasi:'tautan/observasi tanaman yang benar-benar tercatat; bukan bukti sebab-akibat'
+    }));
+    payload.ringkasan_role_inhabitant=(Array.isArray(payload.ringkasan_role_inhabitant)?payload.ringkasan_role_inhabitant:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0),anggota:Array.isArray(r.anggota)?r.anggota.map(x=>String(x)):[]}));
+    payload.katalog_bed_hubungan=(Array.isArray(payload.katalog_bed_hubungan)?payload.katalog_bed_hubungan:[]).map(b=>({
+      nama:b.nama||'',jenis_tanah:b.jenis_tanah||null,drainase:b.drainase||null,
+      paparan_cahaya:b.paparan_cahaya||null,vegetasi:b.vegetasi||null,
+      tanaman_terkait:Array.isArray(b.tanaman_unik_terkait)?b.tanaman_unik_terkait:[...new Set((Array.isArray(b.kelompok_tanaman_terkait)?b.kelompok_tanaman_terkait:[]).map(g=>g.tanaman).filter(Boolean))],
+      jumlah_kelompok_terkait:Number(b.jumlah_kelompok_terkait||0),sumber_relasi:'lokasi yang cocok dengan nama Bed pada kelompok tanam tercatat'
+    }));
+    payload.pedoman_sumber_dan_kasus=['Role adalah klasifikasi tersimpan; jangan mengisi role kosong berdasarkan dugaan.','Relasi Bed–tanaman berasal dari lokasi pada kelompok tanam tercatat. Relasi Inhabitant–tanaman berasal dari tautan/observasi tercatat.','Ketiadaan relasi tercatat bukan bukti interaksi tidak ada; relasi tercatat bukan bukti sebab-akibat.'];
+    payload.konteks_dibatasi='Audit ekosistem memakai katalog struktural lengkap yang dipadatkan: semua rekaman tanaman dan Inhabitant, definisi role, relasi Bed, serta tautan Inhabitant–tanaman yang tercatat.';
+  }
   const refreshGroupSearchCoverage=()=>{
     if(!groupSearchCounts)return;
     const sentPlants=Array.isArray(payload.tanaman_relevan)?payload.tanaman_relevan:[];
@@ -2933,7 +3001,7 @@ function naraOnlineLearningContext(question,localDraft=''){
     payload.perhatian_tercatat=payload.perhatian_tercatat.slice(0,3);
     refreshGroupSearchCoverage();serial=JSON.stringify(payload);
   }
-  if(serial.length>11000&&catalogIntent){
+  if(serial.length>11000&&catalogIntent&&!ecosystemContextIntent){
     payload.katalog_tanaman_role=(Array.isArray(payload.katalog_tanaman_role)?payload.katalog_tanaman_role:[]).map(p=>({id_rekaman:p.id_rekaman,nama:p.nama,role_key:p.role_key,role:p.role,lokasi_aktif:(p.lokasi_aktif||[]).slice(0,3)}));
     payload.ringkasan_role_tanaman=(Array.isArray(payload.ringkasan_role_tanaman)?payload.ringkasan_role_tanaman:[]).map(r=>({role_key:r.role_key,role:r.role,jumlah:r.jumlah,anggota:r.anggota}));
     payload.katalog_inhabitant_role=(Array.isArray(payload.katalog_inhabitant_role)?payload.katalog_inhabitant_role:[]).map(i=>({id_rekaman:i.id_rekaman,nama:i.nama,role_key:i.role_key,role:i.role,faksi:i.faksi,status:i.status,tanaman_terkait:(i.tanaman_terkait||[]).slice(0,3)}));
@@ -3033,7 +3101,41 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
               }))
             };
   if(base.interpretasi_pertanyaan?.disambiguationRequired){modeInstruction+='\n\nMODE KLARIFIKASI WAJIB: Rujukan pengguna ambigu. Jangan menganalisis tanaman atau mengambil kesimpulan dari rekaman mana pun. Tanyakan satu pertanyaan singkat untuk memastikan objek yang dimaksud.';}
-  const content=JSON.stringify(base);
+  let content=JSON.stringify(base);
+  const workerBodyBytes=()=>{
+    const body=JSON.stringify({model:NARA_GURU_MODEL,messages:[{role:'system',content:systemPrompt+modeInstruction},{role:'user',content}],max_tokens:1400});
+    return typeof TextEncoder==='function'?new TextEncoder().encode(body).length:unescape(encodeURIComponent(body)).length;
+  };
+  let requestBodyBytes=workerBodyBytes();
+  // Limit the complete body (system prompt + user context + JSON envelope), not just the inner context.
+  // Keep a 8 KiB margin below the Worker's 32 KiB cap for edge/runtime overhead.
+  if(requestBodyBytes>24576){
+    base.draft_reasoning_lokal='';
+    base.percakapan_terakhir=(Array.isArray(base.percakapan_terakhir)?base.percakapan_terakhir:[]).slice(-3).map(m=>({...m,isi:naraGuruSafe(m.isi,160)}));
+    base.ingatan_belajar_relevan=(Array.isArray(base.ingatan_belajar_relevan)?base.ingatan_belajar_relevan:[]).slice(0,2).map(m=>({...m,materi:naraGuruSafe(m.materi,300)}));
+    base.perhatian_tercatat=(Array.isArray(base.perhatian_tercatat)?base.perhatian_tercatat:[]).slice(0,3).map(m=>({...m,catatan:naraGuruSafe(m.catatan,120),note:naraGuruSafe(m.note,120)}));
+    base.aktivitas_kebun=(Array.isArray(base.aktivitas_kebun)?base.aktivitas_kebun:[]).slice(0,3).map(m=>({...m,catatan:naraGuruSafe(m.catatan,120),note:naraGuruSafe(m.note,120)}));
+    base.riwayat_panen=(Array.isArray(base.riwayat_panen)?base.riwayat_panen:[]).slice(0,3).map(m=>({...m,catatan:naraGuruSafe(m.catatan,120),note:naraGuruSafe(m.note,120)}));
+    base.catatan_kebun=(Array.isArray(base.catatan_kebun)?base.catatan_kebun:[]).slice(0,2).map(m=>({...m,isi:naraGuruSafe(m.isi||m.text,160),text:naraGuruSafe(m.text||m.isi,160)}));
+    content=JSON.stringify(base);requestBodyBytes=workerBodyBytes();
+  }
+  if(requestBodyBytes>24576&&base.interpretasi_pertanyaan?.maksud==='ekologi_kebun'){
+    // Last-resort compaction drops duplicated group-by-role names and optional Bed attributes,
+    // while preserving every individual role record and every distinct recorded relation.
+    base.ringkasan_role_tanaman=(Array.isArray(base.ringkasan_role_tanaman)?base.ringkasan_role_tanaman:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0)}));
+    base.ringkasan_role_inhabitant=(Array.isArray(base.ringkasan_role_inhabitant)?base.ringkasan_role_inhabitant:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0)}));
+    base.katalog_bed_hubungan=(Array.isArray(base.katalog_bed_hubungan)?base.katalog_bed_hubungan:[]).map(b=>({nama:b.nama||'',tanaman_terkait:Array.isArray(b.tanaman_terkait)?b.tanaman_terkait:[],jumlah_kelompok_terkait:Number(b.jumlah_kelompok_terkait||0)}));
+    base.katalog_role_kebun=base.katalog_role_kebun?{...base.katalog_role_kebun,tanaman:(base.katalog_role_kebun.tanaman||[]).map(r=>({...r,makna:naraGuruSafe(r.makna,100)})),inhabitant:(base.katalog_role_kebun.inhabitant||[]).map(r=>({...r,makna:naraGuruSafe(r.makna,100)}))}:null;
+    content=JSON.stringify(base);requestBodyBytes=workerBodyBytes();
+  }
+  naraLastRetrievalAudit.requestBodyBytes=requestBodyBytes;
+  if(requestBodyBytes>24576){
+    naraLastRetrievalAudit.requestStatus='failed';
+    naraLastRetrievalAudit.requestFinishedAt=new Date().toISOString();
+    naraLastRetrievalAudit.requestFailureStage='preflight_size_guard';
+    naraLastRetrievalAudit.requestError=`Konteks terstruktur masih ${requestBodyBytes} byte, melewati anggaran aman 24576 byte; permintaan dihentikan sebelum mencapai Worker.`;
+    throw new Error(naraLastRetrievalAudit.requestError);
+  }
   // Trace the exact context string passed as the online user's message (not just Guru memories).
   // This remains in in-memory diagnostics for this APK session and is not sent separately.
   naraLastRetrievalAudit.contextJson=content;
@@ -3350,6 +3452,16 @@ function naraRunRetrievalDiagnostic(){
     const contextRows=payload&&Array.isArray(payload.ingatan_belajar_relevan)?payload.ingatan_belajar_relevan:[];
               const plan=payload&&payload.interpretasi_pertanyaan||null;
     const exactContext=contextRows.find(m=>containsAll([m.topik,m.asal,m.materi,m.jenis].filter(Boolean).join(' ')));
+    const structuredPlan=payload&&payload.interpretasi_pertanyaan||null;
+    const structuredEcoAudit=!!(structuredPlan&&structuredPlan.maksud==='ekologi_kebun');
+    const ecoRoleDefs=payload&&payload.katalog_role_kebun;
+    const ecoPlantRows=payload&&Array.isArray(payload.katalog_tanaman_role)?payload.katalog_tanaman_role:[];
+    const ecoInhabitantRows=payload&&Array.isArray(payload.katalog_inhabitant_role)?payload.katalog_inhabitant_role:[];
+    const ecoBedRows=payload&&Array.isArray(payload.katalog_bed_hubungan)?payload.katalog_bed_hubungan:[];
+    const ecoExpectedPlants=Number(payload&&payload.ringkasan_kebun&&payload.ringkasan_kebun.tanaman||0);
+    const ecoExpectedInhabitants=Number(payload&&payload.ringkasan_kebun&&payload.ringkasan_kebun.inhabitant||0);
+    const ecoExpectedBeds=Number(payload&&payload.ringkasan_kebun&&payload.ringkasan_kebun.bed||0);
+    const ecoStructuredCoverage=!!(ecoRoleDefs&&Array.isArray(ecoRoleDefs.tanaman)&&ecoRoleDefs.tanaman.length===7&&Array.isArray(ecoRoleDefs.inhabitant)&&ecoRoleDefs.inhabitant.length===5&&ecoPlantRows.length>=ecoExpectedPlants&&ecoInhabitantRows.length>=ecoExpectedInhabitants&&ecoBedRows.length>=ecoExpectedBeds&&ecoBedRows.every(b=>Array.isArray(b.tanaman_terkait)||Array.isArray(b.tanaman_unik_terkait)||Array.isArray(b.kelompok_tanaman_terkait)));
     const last=naraLastRetrievalAudit;
     const lastRows=last&&Array.isArray(last.memories)?last.memories:[];
     const lastSnapshot=last&&last.contextSnapshot?last.contextSnapshot:null;
@@ -3372,19 +3484,19 @@ function naraRunRetrievalDiagnostic(){
     const escText=value=>typeof esc==='function'?esc(String(value??'')):String(value??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
     const out=[];
               if(plan){const focus=Array.isArray(plan.fokus)?plan.fokus.map(x=>x.name).filter(Boolean).join(', '):'';const sources=Array.isArray(plan.sumber_yang_diperlukan)?plan.sumber_yang_diperlukan.join('; '):'';out.push('<div><strong>Interpretasi maksud:</strong> '+escText(plan.label_maksud||plan.maksud||'belum ditentukan')+'; keyakinan: '+escText(plan.keyakinan_pemahaman||'tidak tersedia')+'.</div>');if(focus)out.push('<div><strong>Fokus:</strong> '+escText(focus)+'</div>');out.push('<div><strong>Sumber yang diharapkan:</strong> '+escText(sources||'tidak ada')+'</div>');if(plan.rujukan_perlu_diperjelas)out.push('<div><strong>Klarifikasi diperlukan:</strong> '+escText(plan.alasan_klarifikasi||'rujukan ambigu')+'. Sumber spesifik harus ditahan.</div>');}
-    out.push('<div><strong>1. Retrieval lokal:</strong> '+(exactLocal?'LULUS — item memori yang memuat semua istilah kunci ditemukan.':('BELUM LULUS — tidak ditemukan item yang memuat semua istilah kunci. Hasil kandidat: '+localMatches.length+'.'))+'</div>');
+    out.push('<div><strong>1. Retrieval lokal:</strong> '+(structuredEcoAudit?(ecoStructuredCoverage?'LULUS — pertanyaan ini memakai retrieval data kebun terstruktur; tidak disyaratkan satu materi Guru/memori memuat semua istilah kunci.':'BELUM LULUS — katalog terstruktur belum mencakup semua rekaman/relasi yang diperlukan.'):(exactLocal?'LULUS — item memori yang memuat semua istilah kunci ditemukan.':('BELUM LULUS — tidak ditemukan item yang memuat semua istilah kunci. Hasil kandidat: '+localMatches.length+'.')))+'</div>');
     if(exactLocal){
       out.push('<div>Asal: '+escText(exactLocal.__memorySource||exactLocal.origin||'tidak berlabel')+'; skor: '+escText(exactLocal.score??'tidak tersedia')+'; istilah cocok: '+escText(exactLocal.matchedTerms??'tidak tersedia')+'.</div>');
       out.push('<div>Memori: '+escText(String(exactLocal.text||'').slice(0,280))+'</div>');
-    }else if(localMatches.length){out.push('<div>Kandidat teratas: '+escText(String(localMatches[0].text||'').slice(0,220))+'</div>');}
-    out.push('<div><strong>2. Payload konteks yang disusun:</strong> '+(payloadError?('GAGAL — '+escText(payloadError)):(exactContext?'LULUS — item ditemukan di ingatan_belajar_relevan.':'BELUM LULUS — item tidak ditemukan dengan semua istilah kunci di ingatan_belajar_relevan.'))+'</div>');
+    }else if(localMatches.length&&!structuredEcoAudit){out.push('<div>Kandidat teratas: '+escText(String(localMatches[0].text||'').slice(0,220))+'</div>');}else if(structuredEcoAudit){out.push('<div>Materi Guru/memori tidak dipakai sebagai bukti faktual ekosistem; daftar dan relasi diambil dari katalog terstruktur aplikasi.</div>');}
+    out.push('<div><strong>2. Payload konteks yang disusun:</strong> '+(payloadError?('GAGAL — '+escText(payloadError)):(structuredEcoAudit?(ecoStructuredCoverage?'LULUS — katalog role, penugasan setiap rekaman, dan relasi Bed tersedia pada payload terstruktur.':'BELUM LULUS — payload katalog/relasi kebun belum lengkap.'):(exactContext?'LULUS — item ditemukan di ingatan_belajar_relevan.':'BELUM LULUS — item tidak ditemukan dengan semua istilah kunci di ingatan_belajar_relevan.')))+'</div>');
     out.push('<div>Jumlah materi memori di payload uji: '+contextRows.length+'. Ini memeriksa pembentukan payload lokal; tombol tidak mengirim permintaan online.</div>');
     const testPlan=payload&&payload.interpretasi_pertanyaan||null;
     const testPlantRows=payload&&Array.isArray(payload.tanaman_relevan)?payload.tanaman_relevan.length:0;
     const testRequiresPlantRecord=!!(testPlan&&Array.isArray(testPlan.fokus)&&testPlan.fokus.some(x=>x&&x.kind==='rekaman_kebun'));
-    out.push('<div><strong>2a. Cakupan bukti kebun untuk kata kunci uji:</strong> '+(testRequiresPlantRecord?(testPlantRows>0?'LULUS — '+testPlantRows+' rekaman tanaman terstruktur disertakan dalam payload uji.':'BELUM LULUS — maksud dan fokus memerlukan rekaman tanaman, tetapi payload uji memuat 0 rekaman.'):'Tidak diwajibkan oleh fokus hasil interpretasi uji; periksa apakah maksud/rujukan sudah dikenali dengan benar.')+'</div>');
-    const testGardenPlants=Number(payload&&payload.ringkasan_kebun&&payload.ringkasan_kebun.tanaman||0);const testGardenInhabitants=Number(payload&&payload.ringkasan_kebun&&payload.ringkasan_kebun.inhabitant||0);const rolePlantRows=payload&&Array.isArray(payload.katalog_tanaman_role)?payload.katalog_tanaman_role.length:0;const roleInhabitantRows=payload&&Array.isArray(payload.katalog_inhabitant_role)?payload.katalog_inhabitant_role.length:0;const roleDefinitions=payload&&payload.katalog_role_kebun;const needsEcologyCatalog=!!(testPlan&&testPlan.maksud==='ekologi_kebun');if(needsEcologyCatalog){const roleOkay=!!roleDefinitions&&Array.isArray(roleDefinitions.tanaman)&&roleDefinitions.tanaman.length===7&&Array.isArray(roleDefinitions.inhabitant)&&roleDefinitions.inhabitant.length===5&&rolePlantRows>=testGardenPlants&&roleInhabitantRows>=testGardenInhabitants;out.push('<div><strong>2b. Akses katalog role dan hubungan kebun:</strong> '+(roleOkay?'LULUS — definisi 7 role tanaman dan 5 role Inhabitant tersedia; katalog memuat '+rolePlantRows+'/'+testGardenPlants+' rekaman tanaman dan '+roleInhabitantRows+'/'+testGardenInhabitants+' Inhabitant.':'BELUM LULUS — katalog role/rekaman belum mencakup jumlah yang diharapkan. Tanaman: '+rolePlantRows+'/'+testGardenPlants+'; Inhabitant: '+roleInhabitantRows+'/'+testGardenInhabitants+'.')+'</div>');}
-    out.push('<div><strong>3. Konteks yang disusun untuk permintaan AI online terakhir sejak APK dibuka:</strong> '+(last?('Pertanyaan: '+escText(last.question||'')+'; waktu: '+escText(last.at||'')+'; materi Guru/memori: '+Number(last.memoryCount||0)+'; ukuran konteks pesan pengguna: '+Number(last.contextChars||0)+' karakter.'):'Belum ada permintaan online yang tercatat sejak APK dibuka.')+'</div>');
+    out.push('<div><strong>2a. Cakupan bukti kebun untuk kata kunci uji:</strong> '+(structuredEcoAudit?'Audit ekosistem menggunakan katalog seluruh rekaman tanaman serta daftar relasi Bed/Inhabitant; field tanaman_relevan boleh 0 karena pertanyaan ini tidak membahas satu tanaman tertentu.':testRequiresPlantRecord?(testPlantRows>0?'LULUS — '+testPlantRows+' rekaman tanaman terstruktur disertakan dalam payload uji.':'BELUM LULUS — maksud dan fokus memerlukan rekaman tanaman, tetapi payload uji memuat 0 rekaman.'):'Tidak diwajibkan oleh fokus hasil interpretasi uji; periksa apakah maksud/rujukan sudah dikenali dengan benar.')+'</div>');
+    const testGardenPlants=Number(payload&&payload.ringkasan_kebun&&payload.ringkasan_kebun.tanaman||0);const testGardenInhabitants=Number(payload&&payload.ringkasan_kebun&&payload.ringkasan_kebun.inhabitant||0);const testGardenBeds=Number(payload&&payload.ringkasan_kebun&&payload.ringkasan_kebun.bed||0);const rolePlantRows=payload&&Array.isArray(payload.katalog_tanaman_role)?payload.katalog_tanaman_role.length:0;const roleInhabitantRows=payload&&Array.isArray(payload.katalog_inhabitant_role)?payload.katalog_inhabitant_role.length:0;const roleDefinitions=payload&&payload.katalog_role_kebun;const needsEcologyCatalog=!!(testPlan&&testPlan.maksud==='ekologi_kebun');if(needsEcologyCatalog){const bedRelations=payload&&Array.isArray(payload.katalog_bed_hubungan)?payload.katalog_bed_hubungan:[];const roleOkay=!!roleDefinitions&&Array.isArray(roleDefinitions.tanaman)&&roleDefinitions.tanaman.length===7&&Array.isArray(roleDefinitions.inhabitant)&&roleDefinitions.inhabitant.length===5&&rolePlantRows>=testGardenPlants&&roleInhabitantRows>=testGardenInhabitants&&bedRelations.length>=testGardenBeds&&bedRelations.every(b=>Array.isArray(b.tanaman_terkait)||Array.isArray(b.tanaman_unik_terkait)||Array.isArray(b.kelompok_tanaman_terkait));out.push('<div><strong>2b. Akses katalog role dan hubungan kebun:</strong> '+(roleOkay?'LULUS — definisi 7 role tanaman dan 5 role Inhabitant tersedia; katalog memuat '+rolePlantRows+'/'+testGardenPlants+' rekaman tanaman, '+roleInhabitantRows+'/'+testGardenInhabitants+' Inhabitant, serta '+bedRelations.length+'/'+testGardenBeds+' profil Bed-relasi.':'BELUM LULUS — katalog role/rekaman/relasi belum mencakup jumlah yang diharapkan. Tanaman: '+rolePlantRows+'/'+testGardenPlants+'; Inhabitant: '+roleInhabitantRows+'/'+testGardenInhabitants+'; Bed-relasi: '+bedRelations.length+'/'+testGardenBeds+'.')+'</div>');}
+    out.push('<div><strong>3. Konteks yang disusun untuk permintaan AI online terakhir sejak APK dibuka:</strong> '+(last?('Pertanyaan: '+escText(last.question||'')+'; waktu: '+escText(last.at||'')+'; materi Guru/memori: '+Number(last.memoryCount||0)+'; ukuran konteks pesan pengguna: '+Number(last.contextChars||0)+' karakter; perkiraan ukuran seluruh request: '+Number(last.requestBodyBytes||0)+' byte.'):'Belum ada permintaan online yang tercatat sejak APK dibuka.')+'</div>');
     if(last&&last.sourceCounts){const c=last.sourceCounts;out.push('<div><strong>Hitungan sumber pada konteks tersebut:</strong> rekaman tanaman '+Number(c.tanaman_relevan||0)+', katalog role tanaman '+Number(c.katalog_tanaman_role||0)+', katalog role Inhabitant '+Number(c.katalog_inhabitant_role||0)+', definisi role tanaman '+Number(c.definisi_role_tanaman||0)+', definisi role Inhabitant '+Number(c.definisi_role_inhabitant||0)+', katalog Bed-relasi '+Number(c.katalog_bed_hubungan||0)+', Perlu Perhatian '+Number(c.perhatian_tercatat||0)+', aktivitas kebun '+Number(c.aktivitas_kebun||0)+', riwayat panen '+Number(c.riwayat_panen||0)+', profil Bed '+Number(c.profil_bed||0)+', catatan kebun '+Number(c.catatan_kebun||0)+', materi Guru/memori '+Number(c.pelajaran_relevan||0)+'.</div>');}
     if(last){
       const status=last.requestStatus||'hasil permintaan belum dicatat';
