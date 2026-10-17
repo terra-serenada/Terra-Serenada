@@ -1957,6 +1957,8 @@ function naraFormatClock(value){const d=new Date(value||Date.now());return Numbe
 function naraAnswerSourceLabel(m){
   const source=String(m?.answerSource||'');
   if(m?.pending||source==='pending_online')return 'Menjawab dengan Guru Online…';
+  if(source==='local_structured')return 'Jawaban lokal dari rekaman terstruktur';
+  if(source==='local_evidence_fallback')return 'Jawaban lokal berbasis rekaman · AI online gagal';
   if(source==='local_rules')return 'Jawaban lokal berbasis aturan';
   if(source==='online_unclassified')return `AI online · sumber/jalur belum terklasifikasi · ${m.onlineModel||NARA_GURU_MODEL}`;
   if(source==='online_direct')return `AI online · lolos audit konteks awal · ${m.onlineModel||NARA_GURU_MODEL}`;
@@ -2353,6 +2355,15 @@ function naraScopeRecentHistory(question,history){
 function naraAuditAnswerPlantScope(question,answer){
   const focused=naraPlantEntriesMentionedInText(question);
   const explicitCrops=naraExplicitCropTerms(question);
+  // A complete garden audit/inventory is intentionally allowed to mention many plants.
+  // The narrow case-contamination check must not turn a whole-garden answer into a false failure.
+  if(typeof naraInterpretUserQuery==='function'){
+    let plan=null;try{plan=naraInterpretUserQuery(question,'');}catch{}
+    const focusKinds=Array.isArray(plan?.fokus)?plan.fokus.map(x=>x?.kind||''):[];
+    const broadIntent=['ekologi_kebun','inventaris_tanaman','ringkasan_kebun','statistik_kebun','perhatian_kebun'];
+    const broadGroupHistory=plan?.maksud==='status_kelompok_tanam'&&!focusKinds.some(k=>k==='rekaman_kebun'||k==='spesies_disebut_pengguna');
+    if(plan&&!plan.rujukan_perlu_diperjelas&&(broadIntent.includes(plan.maksud)||broadGroupHistory))return {ok:true,offending:[],mode:'whole_garden_scope'};
+  }
   const focusIds=new Set(focused.map(p=>String(p.id||p.name)));
   const clauses=String(answer||'').split(/[\n.!?;]+/).flatMap(s=>s.split(/\b(?:tetapi|namun|sedangkan)\b/i)).map(s=>s.trim()).filter(Boolean);
   const offending=new Set();
@@ -2618,6 +2629,11 @@ function naraInterpretUserQuery(question,localDraft=''){
     :correctionInheritedFocus?`${raw} [rujukan koreksi dari pertanyaan pengguna sebelumnya: ${String(previousUserForCorrection.text||'').slice(0,700)}]`
     :raw;
   const isGreeting=typeof naraIsSimpleGreeting==='function'&&naraIsSimpleGreeting(raw);
+  const ecoTaxonomyCue=/\b(role|roles|peran|pengelompokan|kelompokkan|inhabitant|penghuni|faksi|interaksi|hubungan|terkait|ekosistem|biodiversitas|klasifikasi)\b/i.test(normalized);
+  const ecoDomainCue=/\b(tanaman|kebun|terra serenada|inhabitant|penghuni|bed|faksi|semut|lebah|kumbang|tawon|katak|kutu putih|organisme|makhluk)\b/i.test(normalized);
+  const wholeGardenScopeCue=/\b(audit|tampilkan|daftar|seluruh|semua|setiap|tiap|lengkap|inventaris|katalog|definisi|klasifikasi|pengelompokan|kelompokkan|ekosistem|biodiversitas)\b/i.test(normalized);
+  const explicitWholeGardenCue=/\b(audit|tampilkan|daftar|seluruh|semua|inventaris|katalog|ekosistem|biodiversitas)\b/i.test(normalized);
+  const wholeGardenEcoQuery=ecoTaxonomyCue&&ecoDomainCue&&wholeGardenScopeCue&&(!namedPlants.length&&!explicitCrops.length||explicitWholeGardenCue);
   let intent='pertanyaan_umum';
   let label='Pertanyaan umum';
   let requiredSources=['pengetahuan umum yang relevan'];
@@ -2632,10 +2648,14 @@ function naraInterpretUserQuery(question,localDraft=''){
     intent='memori_pengguna_atau_pelajaran'; label='Pencarian memori atau pelajaran';
     requiredSources=['memori eksplisit pengguna','pelajaran yang relevan','riwayat percakapan bila diperlukan'];
     routingKeywords=['pelajaran memori ingatan aturan ajaran'];
-  }else if(/\b(role|roles|peran|pengelompokan|kelompokkan|inhabitants?|penghuni|faksi|interaksi|hubungan|terkait|ekosistem|biodiversitas|klasifikasi)\b/i.test(normalized)&&/\b(tanaman|kebun|terra serenada|inhabitants?|penghuni|faksi|semut|lebah|kumbang|tawon|katak|kutu putih|organisme|makhluk)\b/i.test(normalized)){
-    intent='ekologi_kebun'; label='Pencarian role dan hubungan ekologis kebun';
-    requiredSources=['seluruh role tanaman dan inhabitant yang didefinisikan aplikasi','role yang tersimpan pada setiap rekaman tanaman dan inhabitant','relasi Inhabitant–tanaman yang benar-benar ditautkan dalam observasi atau catatan','lokasi/Bed terkait bila tercatat'];
-    routingKeywords=['Terra Serenada role peran tanaman inhabitant faksi hubungan ekologis klasifikasi kebun semua rekaman role tersimpan tag relasi tanaman'];
+  }else if(wholeGardenEcoQuery){
+    intent='ekologi_kebun'; label='Audit katalog dan hubungan ekologis seluruh kebun';
+    requiredSources=['definisi seluruh role tanaman dan Inhabitant','penugasan role per rekaman termasuk yang belum ditentukan','tautan Inhabitant–tanaman yang benar-benar tersimpan','hubungan Bed–kelompok tanaman berdasarkan lokasi tercatat','profil Bed dari skema data aktif'];
+    routingKeywords=['audit ekosistem Terra Serenada katalog lengkap role seluruh rekaman tanaman Inhabitant relasi observasi Bed profil tanah drainase zona cahaya'];
+  }else if(/\b(hubungan|interaksi|terkait|berkaitan|hubungannya|memengaruhi|mempengaruhi|pengaruh)\b/i.test(normalized)&&/\b(inhabitant|penghuni|serangga|kumbang|lebah|tawon|semut|kutu putih|kupu-kupu|katak|organisme|makhluk|hewan)\b/i.test(normalized)&&(namedPlants.length>0||explicitCrops.length>0)&&!/\b(menguning|kuning|layu|bercak|busuk|keriting|rontok|lubang|gejala|hama|penyakit|penyebab|kenapa|mengapa)\b/i.test(normalized)){
+    intent='hubungan_inhabitant_tanaman'; label='Pencarian tautan Inhabitant–tanaman';
+    requiredSources=['rekaman Inhabitant yang benar-benar cocok','tautan observasi atau tag tanaman yang tersimpan','identitas tanaman yang disebut pengguna','batas bukti: asosiasi tercatat bukan sebab-akibat'];
+    routingKeywords=['hubungan Inhabitant tanaman observasi plantIds inhabitantTags catatan keterkaitan bukan sebab akibat'];
   }else if(/\b(apa itu|apa arti|arti dari|definisi|apa manfaat|manfaat .* untuk|kandungan|asal usul|sejarah|jenis-jenis|jenis jenis|fungsi .* secara umum|secara umum|sifat-sifat|sifat sifat|kandungan gizi|apa perbedaan|apa beda|perbedaan antara|beda antara|bandingkan secara umum)\b/i.test(normalized)){
     intent='pengetahuan_umum'; label='Pertanyaan pengetahuan umum';
     requiredSources=['pengetahuan umum yang relevan'];
@@ -2672,7 +2692,7 @@ function naraInterpretUserQuery(question,localDraft=''){
     intent='riwayat_aktivitas'; label='Pencarian riwayat aktivitas';
     requiredSources=['aktivitas kebun tercatat','catatan kebun yang relevan'];
     routingKeywords=['aktivitas kebun riwayat catatan hujan siram'];
-  }else if(/\b(gagal|gugur|mati|meninggal|selesai|aktif|campuran|failed|completed|active|mixed|status kelompok|riwayat kelompok tanam)\b/i.test(normalized)&&(/\b(tanaman apa saja|apa saja tanaman|daftar tanaman|semua tanaman|riwayat kelompok|status kelompok|kelompok|status tanaman)\b/i.test(normalized)||(namedPlants.length>0&&!/\b(kenapa|mengapa|penyebab|kok bisa)\b/i.test(normalized)))){
+  }else if(/\b(gagal|gugur|mati|meninggal|selesai|aktif|campuran|failed|completed|active|mixed|status(?:\s+akhir)?\s+(?:(?:semua|seluruh|tiap|setiap)\s+)?kelompok(?:\s+tanam)?|riwayat kelompok tanam)\b/i.test(normalized)&&(/\b(tanaman apa saja|apa saja tanaman|daftar tanaman|semua tanaman|riwayat kelompok|status(?:\s+akhir)?\s+(?:(?:semua|seluruh|tiap|setiap)\s+)?kelompok|kelompok|status tanaman)\b/i.test(normalized)||(namedPlants.length>0&&!/\b(kenapa|mengapa|penyebab|kok bisa)\b/i.test(normalized)))){
     intent='status_kelompok_tanam'; label='Pencarian status dan riwayat kelompok tanam';
     requiredSources=['seluruh rekaman tanaman terstruktur','semua kelompok tanam termasuk kelompok historis','jumlah awal, aktif, selesai, dan gagal pada setiap kelompok','tanggal perubahan status yang tersimpan secara eksplisit','peristiwa penutupan kelompok yang terhubung melalui ID kelompok'];
     routingKeywords=['riwayat kelompok tanam status gagal failedQty completedQty activeQty totalQty groupDerivedStatus group-cycle-complete statusUpdatedOn bukti rekaman kebun'];
@@ -2724,7 +2744,7 @@ function naraInterpretUserQuery(question,localDraft=''){
     routingKeywords=[];
     focusEntities.splice(0,focusEntities.length);
   }
-  const recordLookupIntents=new Set(['riwayat_penyiraman','kebutuhan_air','panen','cuaca_dan_lingkungan','riwayat_aktivitas','inventaris_tanaman','status_kelompok_tanam','riwayat_tanam','ringkasan_kebun','perhatian_kebun','statistik_kebun','profil_lingkungan','pencarian_catatan','ekologi_kebun']);
+  const recordLookupIntents=new Set(['riwayat_penyiraman','kebutuhan_air','panen','cuaca_dan_lingkungan','riwayat_aktivitas','inventaris_tanaman','status_kelompok_tanam','riwayat_tanam','ringkasan_kebun','perhatian_kebun','statistik_kebun','profil_lingkungan','pencarian_catatan','ekologi_kebun','hubungan_inhabitant_tanaman']);
   const hasGardenRecordFocus=routedPlants.length>0||!!(resolvedReference&&resolvedReference.kind==='rekaman_kebun');
   const personalWeatherQuestion=/\b(pengaruh|dampak|memengaruhi|mempengaruhi|berpengaruh|hubungannya|pengaruhi)\b/i.test(normalized)&&!!(namedPlants.length||explicitCrops.length)||/\b(hujan|cuaca)\b/i.test(normalized)&&/\b(kebun|tanaman|bed|tanah|media|siram|penyiraman)\b/i.test(normalized);
   const usePersonalGardenData=intent==='pengetahuan_umum'?explicitGardenCue:intent==='perbandingan'?(explicitGardenCue||!!resolvedReference):intent==='cuaca_dan_lingkungan'?(explicitGardenCue||personalWeatherQuestion):(hasGardenRecordFocus||explicitGardenCue||recordLookupIntents.has(intent));
@@ -2766,6 +2786,30 @@ function naraInterpretUserQuery(question,localDraft=''){
   };
 }
 
+function naraBedProfileSnapshot(bed){
+  const b=bed&&typeof bed==='object'?bed:{};
+  const profile=b.profile&&typeof b.profile==='object'?b.profile:{};
+  const soilKey=String(profile.soilType||(Array.isArray(profile.soilConditions)?profile.soilConditions[0]:'')||b.soilType||'');
+  const soilOptions=typeof TI4_SOIL_OPTIONS!=='undefined'&&Array.isArray(TI4_SOIL_OPTIONS)?TI4_SOIL_OPTIONS:[];
+  const moistureOptions=typeof TI4_MOISTURE_OPTIONS!=='undefined'&&Array.isArray(TI4_MOISTURE_OPTIONS)?TI4_MOISTURE_OPTIONS:[];
+  const drainageLabels={'very-fast':'Sangat cepat','fast':'Cepat','medium':'Sedang','slow':'Lambat','very-slow':'Sangat lambat'};
+  const zones=(Array.isArray(profile.zones)?profile.zones:[]).map(z=>({nama:z.name||'Zona cahaya',mulai:z.start||null,selesai:z.end||null,intensitas:z.intensity||null}));
+  const moistureKeys=Array.isArray(profile.moistureIndicators)?profile.moistureIndicators:[];
+  return {
+    nama:b.name||'',
+    jenis_tanah:soilKey?(soilOptions.find(o=>o[0]===soilKey)?.[1]||soilKey):null,
+    jenis_tanah_key:soilKey||null,
+    kondisi_tanah:Array.isArray(profile.soilConditions)?profile.soilConditions.map(k=>soilOptions.find(o=>o[0]===k)?.[1]||k):[],
+    drainase:profile.drainage?(drainageLabels[profile.drainage]||profile.drainage):(b.drainage||null),
+    drainase_key:profile.drainage||b.drainage||null,
+    zona_cahaya:zones,
+    indikator_vegetasi_kelembapan:moistureKeys.map(k=>moistureOptions.find(o=>o[0]===k)?.[1]||k),
+    indikator_lain:profile.moistureOther||null,
+    catatan:b.note||null,
+    sumber_profil: Object.keys(profile).length?'Bed.profile (skema aktif)':'field datar/warisan; profil belum lengkap'
+  };
+}
+
 function naraOnlineLearningContext(question,localDraft=''){
   // Local guard keeps this builder deterministic when isolated by regression tests.
   // The full app also defines asArray globally; the local equivalent avoids a hidden dependency.
@@ -2801,10 +2845,19 @@ function naraOnlineLearningContext(question,localDraft=''){
   const relatedInhabitants=ids=>[...new Set(asArray(ids).map(id=>String(id)))].map(id=>inhabitants.find(i=>String(i.id)===id)).filter(Boolean).map(i=>({nama:i.name||'Inhabitant tanpa nama',role_key:i.role||null,role:roleName(inhabitantRoleDefinitions,i.role),faksi:i.faction||'',status:i.status||''}));
   const roleCatalog={tanaman:plantRoleDefinitions.map(r=>({key:r.key,nama:r.name,ikon:r.icon,makna:r.description})),inhabitant:inhabitantRoleDefinitions.map(r=>({key:r.key,nama:r.name,ikon:r.icon,makna:r.description})),aturan:'Role adalah klasifikasi yang tersimpan/ditetapkan di Terra Serenada. Jangan mengarang penetapan ketika role kosong; uraian role adalah maksud kategori, bukan bukti bahwa fungsi ekologis atau hasilnya telah teramati.'};
   const plantRoleCatalog=catalogIntent?data.map(p=>{const activeGroups=naraActiveGroups(p);return {id_rekaman:p.id||null,nama:p.name||'Tanaman tanpa nama',varietas:p.variety||'',role_key:p.role||null,role:roleName(plantRoleDefinitions,p.role),makna_role:roleDescription(plantRoleDefinitions,p.role),kelompok_aktif:activeGroups.length,lokasi_aktif:[...new Set(activeGroups.flatMap(g=>groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||'')).filter(Boolean)))].slice(0,5)};}):[];
-  const inhabitantRoleCatalog=ecosystemContextIntent?inhabitants.map(i=>{const traces=inhabitantDerivedEvents(i.id).filter(e=>e.plantId||Array.isArray(e.plantNames)&&e.plantNames.length||Array.isArray(e.plantIds)&&e.plantIds.length);return {id_rekaman:i.id||null,nama:i.name||'Inhabitant tanpa nama',role_key:i.role||null,role:roleName(inhabitantRoleDefinitions,i.role),makna_role:roleDescription(inhabitantRoleDefinitions,i.role),faksi:i.faction||'',status:i.status||'',catatan:compact(i.note,120),tanaman_terkait:traces.map(e=>({nama:e.plantName||([...asArray(e.plantNames),...plantNames(e.plantIds||[])].filter(Boolean).join(', '))||'Tanaman tidak tersedia',tanggal:e.date||null,jenis:e.type||'',catatan:compact(e.note||e.label,100),dasar:'Tautan/observasi yang tercatat; bukan bukti sebab-akibat.'}))};}):[];
+  const inhabitantRoleCatalog=ecosystemContextIntent?inhabitants.map(i=>{const traces=inhabitantDerivedEvents(i.id).filter(e=>e.plantId||Array.isArray(e.plantNames)&&e.plantNames.length||Array.isArray(e.plantIds)&&e.plantIds.length);return {id_rekaman:i.id||null,nama:i.name||'Inhabitant tanpa nama',role_key:i.role||null,role:roleName(inhabitantRoleDefinitions,i.role),makna_role:roleDescription(inhabitantRoleDefinitions,i.role),faksi:i.faction||'',status:i.status||'',catatan:compact(i.note,120),tanaman_terkait:traces.map(e=>({nama:e.plantName||([...new Set([...asArray(e.plantNames),...plantNames(e.plantIds||[])].filter(Boolean))].join(', '))||'Tanaman tidak tersedia',tanggal:e.date||null,jenis:e.type||'',catatan:compact(e.note||e.label,100),dasar:'Tautan/observasi yang tercatat; bukan bukti sebab-akibat.'}))};}):[];
   const plantRoleAssignments=catalogIntent?plantRoleDefinitions.map(r=>({role_key:r.key,role:r.name,anggota:data.filter(p=>findRole(plantRoleDefinitions,p.role)?.key===r.key).map(p=>p.name||'Tanaman tanpa nama')})).concat([{role_key:null,role:'Belum ditentukan atau kode tak dikenal',anggota:data.filter(p=>!findRole(plantRoleDefinitions,p.role)).map(p=>p.name||'Tanaman tanpa nama')}]).map(r=>({...r,jumlah:r.anggota.length})):[];
   const inhabitantRoleAssignments=ecosystemContextIntent?inhabitantRoleDefinitions.map(r=>({role_key:r.key,role:r.name,anggota:inhabitants.filter(i=>findRole(inhabitantRoleDefinitions,i.role)?.key===r.key).map(i=>i.name||'Inhabitant tanpa nama')})).concat([{role_key:null,role:'Belum ditentukan atau kode tak dikenal',anggota:inhabitants.filter(i=>!findRole(inhabitantRoleDefinitions,i.role)).map(i=>i.name||'Inhabitant tanpa nama')}]).map(r=>({...r,jumlah:r.anggota.length})):[];
-  const bedRelationshipCatalog=ecosystemContextIntent?beds.map(b=>{const matches=[];data.forEach(p=>(Array.isArray(p.plantingGroups)?p.plantingGroups:[]).forEach(g=>{const locations=groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||''));if(locations.includes(b.name))matches.push({tanaman:p.name||'Tanaman tanpa nama',tanggal_tanam:g.date||null,status_kelompok:groupDerivedStatus(g)});}));return {nama:b.name||'',jenis_tanah:b.soilType||null,drainase:b.drainage||null,paparan_cahaya:b.lightExposure||b.light||null,vegetasi:b.vegetation||null,kelompok_tanaman_terkait:matches.slice(0,8),tanaman_unik_terkait:[...new Set(matches.map(m=>m.tanaman))],jumlah_kelompok_terkait:matches.length};}):[];
+  const bedRelationshipCatalog=ecosystemContextIntent?beds.map(b=>{
+    const profile=naraBedProfileSnapshot(b),matches=[];
+    data.forEach(p=>(Array.isArray(p.plantingGroups)?p.plantingGroups:[]).forEach(g=>{
+      const locations=groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||''));
+      if(!locations.includes(b.name))return;
+      const zone=typeof ti4GroupZone==='function'?ti4GroupZone(g):null;
+      matches.push({tanaman:p.name||'Tanaman tanpa nama',tanggal_tanam:g.date||null,status_kelompok:groupDerivedStatus(g),zona_cahaya:zone?{nama:zone.name||'',mulai:zone.start||null,selesai:zone.end||null}:null});
+    }));
+    return {...profile,kelompok_tanaman_terkait:matches,tanaman_unik_terkait:[...new Set(matches.map(m=>m.tanaman))],jumlah_kelompok_terkait:matches.length};
+  }):[];
   const statusGroupIntent=naraQueryPlan.maksud==='status_kelompok_tanam';
   const requestedGroupStatus=String(naraQueryPlan.filter_status_kelompok||'semua');
   const requestedGroupStatusMode=String(naraQueryPlan.mode_filter_status_kelompok||'jumlah_tanaman');
@@ -2884,9 +2937,9 @@ function naraOnlineLearningContext(question,localDraft=''){
   const harvestSource=plantTopicQuestion?(focusPlantIds.size?harvests.filter(h=>focusPlantIds.has(String(h.plantId))):[]):harvests;
   const harvestHistory=harvestSource.slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,7).map(h=>({jenis_sumber:'riwayat panen tersimpan',id_tanaman:h.plantId||null,tanggal:h.date||null,tanaman:data.find(p=>p.id===h.plantId)?.name||h.plantName||'Tanaman tidak diketahui',jumlah:h.qty??null,satuan:h.unit||'',kualitas:h.quality||'',catatan:compact(h.note,120)}));
   const bedRelevant=/(bed|lokasi|tanah|drainase|cahaya|teduh|media)/i.test(q)||beds.some(b=>b.name&&q.includes(String(b.name).toLowerCase()));
-  const bedRows=bedRelevant?beds.filter(b=>!plantTopicQuestion||(focusPlantIds.size&&focusBedNames.has(b.name))).slice(0,10).map(b=>({jenis_sumber:'profil Bed yang tersimpan',nama:b.name||'',jenis_tanah:b.soilType||'',drainase:b.drainage||'',paparan_cahaya:b.lightExposure||b.light||'',vegetasi:b.vegetation||'',tanaman_terkait:data.filter(p=>(Array.isArray(p.plantingGroups)?p.plantingGroups:[]).some(g=>groupLocations(g).some(x=>(typeof x==='string'?x:(x?.name||''))===b.name))).map(p=>({nama:p.name||'',role_key:p.role||null,role:roleName(plantRoleDefinitions,p.role)})).slice(0,8),catatan:compact(b.note,180)})):[];
+  const bedRows=bedRelevant?beds.filter(b=>!plantTopicQuestion||(focusPlantIds.size&&focusBedNames.has(b.name))).slice(0,10).map(b=>({jenis_sumber:'profil Bed yang tersimpan; memakai skema Bed.profile aktif',...naraBedProfileSnapshot(b),tanaman_terkait:[...new Set(data.filter(p=>(Array.isArray(p.plantingGroups)?p.plantingGroups:[]).some(g=>groupLocations(g).some(x=>(typeof x==='string'?x:(x?.name||''))===b.name))).map(p=>p.name||'Tanaman tanpa nama'))],catatan:compact(b.note,180)})):[];
   const inhabitantRelevant=/(inhabitant|hewan|serangga|kumbang|kupu|lebah|semut|siput|makhluk|satwa|organisme)/i.test(q);
-  const inhabitantRows=(inhabitantRelevant||ecosystemContextIntent)&&!statusGroupIntent?inhabitants.slice(0,10).map(i=>{const traces=inhabitantDerivedEvents(i.id).filter(e=>e.plantId||Array.isArray(e.plantNames)&&e.plantNames.length||Array.isArray(e.plantIds)&&e.plantIds.length).slice(0,5);return {jenis_sumber:'catatan Inhabitant tersimpan; hubungan berasal dari tag/observasi dan bukan bukti sebab-akibat',id_rekaman:i.id||null,nama:i.name||'',role_key:i.role||null,role:roleName(inhabitantRoleDefinitions,i.role),makna_role:roleDescription(inhabitantRoleDefinitions,i.role),faksi:i.faction||'',kelompok:i.faction||'',status:i.status||'',catatan:compact(i.note,180),tanaman_terkait:traces.map(e=>({nama:e.plantName||([...asArray(e.plantNames),...plantNames(e.plantIds||[])].filter(Boolean).join(', '))||'Tanaman tidak tersedia',tanggal:e.date||null,jenis:e.type||'',catatan:compact(e.note||e.label,140),hubungan:'Tautan/observasi yang tersimpan; tidak membuktikan sebab-akibat.'})),kejadian:[...asArray(i.events).slice(-2).map(e=>({tanggal:e.date||null,jenis:e.type||'',catatan:compact(e.note,120),tanaman_terkait:plantNames(e.plantIds||[])})),...traces.filter(e=>e.type==='attention-tag').slice(0,2).map(e=>({tanggal:e.date||null,jenis:'terkait-perhatian-tanaman',catatan:compact(e.note,150),hubungan:'Tag keterkaitan, bukan bukti penyebab'}))]};}):[];
+  const inhabitantRows=(inhabitantRelevant||ecosystemContextIntent)&&!statusGroupIntent?inhabitants.slice(0,10).map(i=>{const traces=inhabitantDerivedEvents(i.id).filter(e=>e.plantId||Array.isArray(e.plantNames)&&e.plantNames.length||Array.isArray(e.plantIds)&&e.plantIds.length).slice(0,5);return {jenis_sumber:'catatan Inhabitant tersimpan; hubungan berasal dari tag/observasi dan bukan bukti sebab-akibat',id_rekaman:i.id||null,nama:i.name||'',role_key:i.role||null,role:roleName(inhabitantRoleDefinitions,i.role),makna_role:roleDescription(inhabitantRoleDefinitions,i.role),faksi:i.faction||'',kelompok:i.faction||'',status:i.status||'',catatan:compact(i.note,180),tanaman_terkait:traces.map(e=>({nama:e.plantName||([...new Set([...asArray(e.plantNames),...plantNames(e.plantIds||[])].filter(Boolean))].join(', '))||'Tanaman tidak tersedia',tanggal:e.date||null,jenis:e.type||'',catatan:compact(e.note||e.label,140),hubungan:'Tautan/observasi yang tersimpan; tidak membuktikan sebab-akibat.'})),kejadian:[...asArray(i.events).slice(-2).map(e=>({tanggal:e.date||null,jenis:e.type||'',catatan:compact(e.note,120),tanaman_terkait:plantNames(e.plantIds||[])})),...traces.filter(e=>e.type==='attention-tag').slice(0,2).map(e=>({tanggal:e.date||null,jenis:'terkait-perhatian-tanaman',catatan:compact(e.note,150),hubungan:'Tag keterkaitan, bukan bukti penyebab'}))]};}):[];
   const noteSource=plantTopicQuestion?(focusPlantIds.size?gardenNotes.filter(n=>naraPlantEntriesMentionedInText([n.title,n.text,n.note,n.content].filter(Boolean).join(' ')).some(p=>focusPlantIds.has(String(p.id||p.name)))):[]):gardenNotes;
   const notes=/(catatan|jurnal|pernah saya tulis|riwayat|pengalaman)/i.test(q)?noteSource.slice(-5).map(n=>({jenis_sumber:'catatan kebun tersimpan',tanggal:n.date||n.createdAt||null,judul:compact(n.title,80),catatan:compact(n.text||n.note||n.content,200)})):[];
   const weather=/(cuaca|hujan|ramalan|prakiraan|suhu|kelembapan|angin)/i.test(q)?naraWeatherSnapshot():null;
@@ -2894,7 +2947,7 @@ function naraOnlineLearningContext(question,localDraft=''){
   const matched=naraGetTaughtKnowledge(retrievalQuery);
   const lessons=(statusGroupIntent?[]:matched.slice(0,4)).map(l=>({topik:compact(l.title||l.topic||String(l.text||'').split('\n')[0],150),asal:l.__memorySource||l.origin||'Ingatan Nara',materi:naraLessonContextText(l,950),jenis:l.__memoryKind||l.learningType||'pengetahuan'}));
   const history=(statusGroupIntent?[]:naraScopeRecentHistory(naraQueryPlan.routingQuestion,naraState.messages.slice(-8))).map(m=>({peran:m.role,jenis_sumber:m.role==='user'?'pesan pengguna; tafsirkan isi eksplisitnya':'jawaban asisten sebelumnya; bukan sumber fakta mandiri',isi:compact(m.text,280)}));
-  const payload={interpretasi_pertanyaan:naraQueryPlan,pedoman_sumber_dan_kasus:['Rekaman tanaman hanya berlaku pada identitas tanaman yang tercantum; jangan memindahkan fakta antar tanaman atau spesies.','Catatan Perlu Perhatian, panen, aktivitas, profil Bed, Inhabitant, dan catatan kebun adalah sumber terpisah; jangan menyimpulkan keterkaitan kausal dari tag atau kedekatan waktu saja.','Pesan pengguna adalah laporan atau hipotesis sesuai kalimat eksplisitnya; jawaban asisten sebelumnya bukan fakta terverifikasi.','Materi Guru adalah prinsip penalaran, bukan bukti bahwa suatu kejadian terjadi di kebun.','Pemeriksaan yang disarankan belum dilakukan sampai pengguna melaporkan hasilnya. Tidak tercatat bukan berarti pasti tidak ada.','Jika identitas tanaman, waktu, atau sumber bukti bertentangan, nyatakan konflik dan minta klarifikasi alih-alih menggabungkan kasus.'],pertanyaan_pengguna:compact(question,1200),draft_reasoning_lokal:statusGroupIntent?'':compact(localDraft||naraAnswer(question),1400),ringkasan_kebun:{tanaman:summary.plants,tanaman_dengan_kelompok_aktif:summary.active,bed:summary.beds,inhabitant:summary.inhabitants,panen_tercatat:summary.harvests,catatan_kebun:summary.gardenNotes,kejadian_tanaman:summary.events,perlu_diperiksa:summary.attention.length,perkiraan_panen_14_hari:summary.upcoming.length},tanaman_relevan:plants,katalog_role_kebun:ecosystemContextIntent?roleCatalog:null,katalog_tanaman_role:catalogIntent?plantRoleCatalog:[],ringkasan_role_tanaman:catalogIntent?plantRoleAssignments:[],katalog_inhabitant_role:ecosystemContextIntent?inhabitantRoleCatalog:[],ringkasan_role_inhabitant:ecosystemContextIntent?inhabitantRoleAssignments:[],katalog_bed_hubungan:ecosystemContextIntent?bedRelationshipCatalog:[],ringkasan_pencarian_kelompok_tanam:groupSearchCounts,aturan_status_kelompok_tanam:statusGroupIntent?'Gunakan rumus status yang sama dengan aplikasi: jumlah_awal=total; aktif=total-selesai-gagal; status kelompok adalah active bila aktif>0, completed bila selesai=total, failed bila gagal=total, dan mixed bila tidak ada yang aktif tetapi terdapat kombinasi selesai dan gagal. Karena itu, kelompok dengan tanaman aktif sekaligus gagal tetap berstatus active; mixed tidak berarti aktif+gagal. Bedakan filter jumlah tanaman dari filter status kelompok: untuk mode jumlah_tanaman, gagal berarti jumlah_gagal>0 meskipun status kelompok active; untuk mode status_kelompok, cocokkan status tepat dengan field status. Jumlah aktif+selesai+gagal harus sama dengan jumlah_awal; jika tidak, nyatakan inkonsistensi data. Kelompok tidak aktif tetap merupakan riwayat. Jangan menyatakan tanggal_status_dicatat bila null; jelaskan bahwa tanggal perubahan status tidak tersedia dan laporkan tanggal_penutupan_kelompok secara terpisah. Bila tanggal status berasal dari statusUpdatedOn, itu adalah tanggal saat jumlah selesai/gagal terakhir berubah, bukan otomatis tanggal pertama tanaman gagal. Laporkan cakupan pemeriksaan; bila jumlah kelompok yang dikirim lebih sedikit daripada jumlah yang cocok, nyatakan bahwa daftar bukti yang tampil belum lengkap dan jangan mengklaim tidak ada data.':null,perhatian_tercatat:statusGroupIntent?[]:(/(perhatian|masalah|hama|penyakit|sakit|tanaman)/i.test(q)?attention:attention.slice(0,3)),aktivitas_kebun:statusGroupIntent?[]:(/(hujan|siram|penyiraman|aktivitas|riwayat|catatan)/i.test(q)?activity:activity.slice(0,2)),riwayat_panen:statusGroupIntent?[]:(/panen/i.test(q)?harvestHistory:harvestHistory.slice(0,3)),profil_bed:statusGroupIntent?[]:bedRows,inhabitant:statusGroupIntent?[]:inhabitantRows,catatan_kebun:statusGroupIntent?[]:notes,cuaca:statusGroupIntent?null:weather,ingatan_belajar_relevan:lessons,percakapan_terakhir:history};
+  const payload={interpretasi_pertanyaan:naraQueryPlan,pedoman_sumber_dan_kasus:['Rekaman tanaman hanya berlaku pada identitas tanaman yang tercantum; jangan memindahkan fakta antar tanaman atau spesies.','Catatan Perlu Perhatian, panen, aktivitas, profil Bed, Inhabitant, dan catatan kebun adalah sumber terpisah; jangan menyimpulkan keterkaitan kausal dari tag atau kedekatan waktu saja.','Pesan pengguna adalah laporan atau hipotesis sesuai kalimat eksplisitnya; jawaban asisten sebelumnya bukan fakta terverifikasi.','Materi Guru adalah prinsip penalaran, bukan bukti bahwa suatu kejadian terjadi di kebun.','Pemeriksaan yang disarankan belum dilakukan sampai pengguna melaporkan hasilnya. Tidak tercatat bukan berarti pasti tidak ada.','Jika identitas tanaman, waktu, atau sumber bukti bertentangan, nyatakan konflik dan minta klarifikasi alih-alih menggabungkan kasus.'],pertanyaan_pengguna:compact(question,1200),draft_reasoning_lokal:(statusGroupIntent||['koreksi_jawaban','diagnosis_tanaman','panen','riwayat_penyiraman','riwayat_aktivitas','ekologi_kebun','hubungan_inhabitant_tanaman','perhatian_kebun','inventaris_tanaman','riwayat_tanam','kebutuhan_air'].includes(naraQueryPlan.maksud))?'':compact(localDraft||naraAnswerWithIntentPlan(question,naraQueryPlan),900),ringkasan_kebun:{tanaman:summary.plants,tanaman_dengan_kelompok_aktif:summary.active,bed:summary.beds,inhabitant:summary.inhabitants,panen_tercatat:summary.harvests,catatan_kebun:summary.gardenNotes,kejadian_tanaman:summary.events,perlu_diperiksa:summary.attention.length,perkiraan_panen_14_hari:summary.upcoming.length},tanaman_relevan:plants,katalog_role_kebun:ecosystemContextIntent?roleCatalog:null,katalog_tanaman_role:catalogIntent?plantRoleCatalog:[],ringkasan_role_tanaman:catalogIntent?plantRoleAssignments:[],katalog_inhabitant_role:ecosystemContextIntent?inhabitantRoleCatalog:[],ringkasan_role_inhabitant:ecosystemContextIntent?inhabitantRoleAssignments:[],katalog_bed_hubungan:ecosystemContextIntent?bedRelationshipCatalog:[],ringkasan_pencarian_kelompok_tanam:groupSearchCounts,aturan_status_kelompok_tanam:statusGroupIntent?'Gunakan rumus status yang sama dengan aplikasi: jumlah_awal=total; aktif=total-selesai-gagal; status kelompok adalah active bila aktif>0, completed bila selesai=total, failed bila gagal=total, dan mixed bila tidak ada yang aktif tetapi terdapat kombinasi selesai dan gagal. Karena itu, kelompok dengan tanaman aktif sekaligus gagal tetap berstatus active; mixed tidak berarti aktif+gagal. Bedakan filter jumlah tanaman dari filter status kelompok: untuk mode jumlah_tanaman, gagal berarti jumlah_gagal>0 meskipun status kelompok active; untuk mode status_kelompok, cocokkan status tepat dengan field status. Jumlah aktif+selesai+gagal harus sama dengan jumlah_awal; jika tidak, nyatakan inkonsistensi data. Kelompok tidak aktif tetap merupakan riwayat. Jangan menyatakan tanggal_status_dicatat bila null; jelaskan bahwa tanggal perubahan status tidak tersedia dan laporkan tanggal_penutupan_kelompok secara terpisah. Bila tanggal status berasal dari statusUpdatedOn, itu adalah tanggal saat jumlah selesai/gagal terakhir berubah, bukan otomatis tanggal pertama tanaman gagal. Laporkan cakupan pemeriksaan; bila jumlah kelompok yang dikirim lebih sedikit daripada jumlah yang cocok, nyatakan bahwa daftar bukti yang tampil belum lengkap dan jangan mengklaim tidak ada data.':null,perhatian_tercatat:statusGroupIntent?[]:(/(perhatian|masalah|hama|penyakit|sakit|tanaman)/i.test(q)?attention:attention.slice(0,3)),aktivitas_kebun:statusGroupIntent?[]:(/(hujan|siram|penyiraman|aktivitas|riwayat|catatan)/i.test(q)?activity:activity.slice(0,2)),riwayat_panen:statusGroupIntent?[]:(/panen/i.test(q)?harvestHistory:harvestHistory.slice(0,3)),profil_bed:statusGroupIntent?[]:bedRows,inhabitant:statusGroupIntent?[]:inhabitantRows,catatan_kebun:statusGroupIntent?[]:notes,cuaca:statusGroupIntent?null:weather,ingatan_belajar_relevan:lessons,percakapan_terakhir:history};
   if(naraQueryPlan.suppressPersonalGardenSources){
     payload.ringkasan_kebun=null;
     payload.tanaman_relevan=[];
@@ -2952,7 +3005,7 @@ function naraOnlineLearningContext(question,localDraft=''){
       id_rekaman:p.id_rekaman||null,nama:p.nama||'Tanaman tanpa nama',role_key:p.role_key||null,
       role:!p.role_key?'Belum ditentukan':((plantRoleDefinitions.some(r=>r.key===p.role_key||r.name===p.role_key))?p.role:`Kode role tidak dikenal: ${String(p.role_key)}`)
     }));
-    payload.ringkasan_role_tanaman=(Array.isArray(payload.ringkasan_role_tanaman)?payload.ringkasan_role_tanaman:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0),anggota:Array.isArray(r.anggota)?r.anggota.map(x=>String(x)):[]}));
+    payload.ringkasan_role_tanaman=(Array.isArray(payload.ringkasan_role_tanaman)?payload.ringkasan_role_tanaman:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0)}));
     payload.katalog_inhabitant_role=(Array.isArray(payload.katalog_inhabitant_role)?payload.katalog_inhabitant_role:[]).map(i=>({
       id_rekaman:i.id_rekaman||null,nama:i.nama||'Inhabitant tanpa nama',role_key:i.role_key||null,
       role:!i.role_key?'Belum ditentukan':((inhabitantRoleDefinitions.some(r=>r.key===i.role_key||r.name===i.role_key))?i.role:`Kode role tidak dikenal: ${String(i.role_key)}`),
@@ -2960,10 +3013,14 @@ function naraOnlineLearningContext(question,localDraft=''){
       tanaman_terkait:[...new Set((Array.isArray(i.tanaman_terkait)?i.tanaman_terkait:[]).map(t=>String(t.nama||'').trim()).filter(Boolean))],
       dasar_relasi:'tautan/observasi tanaman yang benar-benar tercatat; bukan bukti sebab-akibat'
     }));
-    payload.ringkasan_role_inhabitant=(Array.isArray(payload.ringkasan_role_inhabitant)?payload.ringkasan_role_inhabitant:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0),anggota:Array.isArray(r.anggota)?r.anggota.map(x=>String(x)):[]}));
+    payload.ringkasan_role_inhabitant=(Array.isArray(payload.ringkasan_role_inhabitant)?payload.ringkasan_role_inhabitant:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0)}));
     payload.katalog_bed_hubungan=(Array.isArray(payload.katalog_bed_hubungan)?payload.katalog_bed_hubungan:[]).map(b=>({
-      nama:b.nama||'',jenis_tanah:b.jenis_tanah||null,drainase:b.drainase||null,
-      paparan_cahaya:b.paparan_cahaya||null,vegetasi:b.vegetasi||null,
+      nama:b.nama||'',jenis_tanah:b.jenis_tanah||null,jenis_tanah_key:b.jenis_tanah_key||null,
+      kondisi_tanah:Array.isArray(b.kondisi_tanah)?b.kondisi_tanah:[],drainase:b.drainase||null,drainase_key:b.drainase_key||null,
+      zona_cahaya:Array.isArray(b.zona_cahaya)?b.zona_cahaya:[],
+      indikator_vegetasi_kelembapan:Array.isArray(b.indikator_vegetasi_kelembapan)?b.indikator_vegetasi_kelembapan:[],indikator_lain:b.indikator_lain||null,
+      sumber_profil:b.sumber_profil||'profil belum diverifikasi',
+      kelompok_tanaman_terkait:Array.isArray(b.kelompok_tanaman_terkait)?b.kelompok_tanaman_terkait:[],
       tanaman_terkait:Array.isArray(b.tanaman_unik_terkait)?b.tanaman_unik_terkait:[...new Set((Array.isArray(b.kelompok_tanaman_terkait)?b.kelompok_tanaman_terkait:[]).map(g=>g.tanaman).filter(Boolean))],
       jumlah_kelompok_terkait:Number(b.jumlah_kelompok_terkait||0),sumber_relasi:'lokasi yang cocok dengan nama Bed pada kelompok tanam tercatat'
     }));
@@ -3011,7 +3068,7 @@ function naraOnlineLearningContext(question,localDraft=''){
   }
   return serial;
 }
-async function naraRequestOnlineAnswer(question,localAnswer,recentHistory=[]){
+async function naraRequestOnlineAnswer(question,localAnswer,recentHistory=[],intendedPlan=null){
   const systemPrompt=`Kamu adalah NARA, asisten AI yang terintegrasi di Terra Serenada. Jawab langsung kepada pengguna dalam bahasa Indonesia yang alami, hangat, jelas, dan membantu. Kamu bukan Guru AI yang sedang mengajar; Guru Online adalah mentor terpisah. Gunakan materi Guru yang relevan sebagai kemampuan dan kerangka berpikir aktif, lalu terapkan pada pertanyaan ini—jangan menyalin isi modul pelajaran kecuali pengguna bertanya tentang materi tersebut.
 
 KONTEKS DAN BUKTI: Data terstruktur Terra Serenada, draft reasoning lokal, dan riwayat yang disertakan adalah bukti utama tentang kebun pengguna.
@@ -3039,6 +3096,21 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
   const correctionMode=naraIsCorrectionTurn(question);
   const greetingCorrectionMode=naraIsGreetingCorrection(question);
   const base=JSON.parse(naraOnlineLearningContext(question,localAnswer?.text||''));
+  const ecosystemContextIntent=base.interpretasi_pertanyaan?.maksud==='ekologi_kebun';
+  if(ecosystemContextIntent&&!base.interpretasi_pertanyaan?.disambiguationRequired){
+    base.draft_reasoning_lokal='';
+    base.tanaman_relevan=[];base.perhatian_tercatat=[];base.aktivitas_kebun=[];base.riwayat_panen=[];
+    base.profil_bed=[];base.inhabitant=[];base.catatan_kebun=[];base.cuaca=null;
+    base.ingatan_belajar_relevan=[];base.percakapan_terakhir=[];
+    base.ringkasan_kebun=base.ringkasan_kebun?{tanaman:base.ringkasan_kebun.tanaman,bed:base.ringkasan_kebun.bed,inhabitant:base.ringkasan_kebun.inhabitant}:null;
+    base.katalog_tanaman_role=(Array.isArray(base.katalog_tanaman_role)?base.katalog_tanaman_role:[]).map(p=>({id_rekaman:p.id_rekaman||null,nama:p.nama||'Tanaman tanpa nama',varietas:p.varietas||'',role_key:p.role_key||null,role:p.role||'Belum ditentukan'}));
+    base.ringkasan_role_tanaman=(Array.isArray(base.ringkasan_role_tanaman)?base.ringkasan_role_tanaman:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0)}));
+    base.katalog_inhabitant_role=(Array.isArray(base.katalog_inhabitant_role)?base.katalog_inhabitant_role:[]).map(i=>({id_rekaman:i.id_rekaman||null,nama:i.nama||'Inhabitant tanpa nama',role_key:i.role_key||null,role:i.role||'Belum ditentukan',faksi:i.faksi||'',status:i.status||'',tanaman_terkait:[...new Set((Array.isArray(i.tanaman_terkait)?i.tanaman_terkait:[]).map(t=>String(t.nama||'').trim()).filter(Boolean))]}));
+    base.ringkasan_role_inhabitant=(Array.isArray(base.ringkasan_role_inhabitant)?base.ringkasan_role_inhabitant:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0)}));
+    base.katalog_bed_hubungan=(Array.isArray(base.katalog_bed_hubungan)?base.katalog_bed_hubungan:[]).map(b=>({nama:b.nama||'',jenis_tanah:b.jenis_tanah||null,jenis_tanah_key:b.jenis_tanah_key||null,kondisi_tanah:Array.isArray(b.kondisi_tanah)?b.kondisi_tanah:[],drainase:b.drainase||null,drainase_key:b.drainase_key||null,zona_cahaya:Array.isArray(b.zona_cahaya)?b.zona_cahaya:[],indikator_vegetasi_kelembapan:Array.isArray(b.indikator_vegetasi_kelembapan)?b.indikator_vegetasi_kelembapan:[],tanaman_terkait:Array.isArray(b.tanaman_unik_terkait)?b.tanaman_unik_terkait:[],jumlah_kelompok_terkait:Number(b.jumlah_kelompok_terkait||0)}));
+    base.pedoman_sumber_dan_kasus=['Role adalah klasifikasi tersimpan; jangan mengisi yang kosong.','Bed–tanaman berasal dari lokasi kelompok tanam; Inhabitant–tanaman berasal dari tag/observasi tersimpan.','Tidak ada tautan bukan bukti interaksi tidak ada; tautan bukan bukti sebab-akibat.'];
+    base.konteks_dibatasi='Audit seluruh kebun memakai katalog struktural ringkas. Setiap rekaman tanaman, Inhabitant, dan Bed harus dipertahankan; daftar ringkasan hitungan tidak menggantikan penugasan tiap rekaman.';
+  }
   if(greetingMode){
     // Social greetings should not carry private garden evidence.
     base.draft_reasoning_lokal='';
@@ -3072,6 +3144,7 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
   }else if(correctionMode){
     modeInstruction='\n\nMODE KOREKSI: Tanggapi keberatan pengguna terlebih dahulu. Gunakan riwayat percakapan untuk memeriksa maksud pengguna dan jawaban sebelumnya. Akui lalu perbaiki kesalahan yang ditemukan; jangan mengulang jawaban lama atau mengalihkan topik. Jika bukti tidak cukup, nyatakan batasnya.';
   }
+  const ecosystemSystemPrompt=ecosystemContextIntent?`Kamu adalah NARA, asisten Terra Serenada. Jawab dalam bahasa Indonesia. Untuk audit katalog kebun, pakai hanya katalog terstruktur yang ada dalam pesan pengguna. Tampilkan definisi semua role, setiap rekaman tanaman dan Inhabitant beserta penugasan role (termasuk belum ditentukan/kode tidak dikenal), setiap Bed beserta profil aktif dan tanaman yang tertaut, serta semua tautan Inhabitant–tanaman yang dikirim. Jangan menghilangkan nama untuk menghemat jawaban. Jika data relasi tidak ada, katakan tidak ada relasi tercatat; jangan menyimpulkan tidak ada interaksi. Role bukan bukti fungsi efektif; tag/observasi bukan sebab-akibat. Jangan mengarang isi katalog.`:systemPrompt;
   const diagnosticMemories=Array.isArray(base.ingatan_belajar_relevan)?base.ingatan_belajar_relevan:[];
   naraLastRetrievalAudit={
               at:new Date().toISOString(),
@@ -3100,10 +3173,19 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
                 materi:naraGuruSafe(m.materi||m.text||'',950)
               }))
             };
+  if(intendedPlan&&base.interpretasi_pertanyaan&&String(intendedPlan.maksud||'')!==String(base.interpretasi_pertanyaan.maksud||'')){
+    naraLastRetrievalAudit.requestStatus='failed';
+    naraLastRetrievalAudit.requestFinishedAt=new Date().toISOString();
+    naraLastRetrievalAudit.requestFailureStage='intent_consistency_preflight';
+    naraLastRetrievalAudit.requestError=`Maksud pertanyaan berubah antarlangkah: rencana awal ${String(intendedPlan.maksud||'tidak diketahui')} tetapi Context Builder menghasilkan ${String(base.interpretasi_pertanyaan.maksud||'tidak diketahui')}. Permintaan AI dihentikan agar bukti tidak diarahkan ke maksud berbeda.`;
+    naraLastRetrievalAudit.intentConsistency='failed';
+    throw new Error(naraLastRetrievalAudit.requestError);
+  }
+  naraLastRetrievalAudit.intentConsistency=intendedPlan?'passed':'not_checked';
   if(base.interpretasi_pertanyaan?.disambiguationRequired){modeInstruction+='\n\nMODE KLARIFIKASI WAJIB: Rujukan pengguna ambigu. Jangan menganalisis tanaman atau mengambil kesimpulan dari rekaman mana pun. Tanyakan satu pertanyaan singkat untuk memastikan objek yang dimaksud.';}
   let content=JSON.stringify(base);
   const workerBodyBytes=()=>{
-    const body=JSON.stringify({model:NARA_GURU_MODEL,messages:[{role:'system',content:systemPrompt+modeInstruction},{role:'user',content}],max_tokens:1400});
+    const body=JSON.stringify({model:(typeof NARA_GURU_MODEL==='string'?NARA_GURU_MODEL:'gpt-4o-mini'),messages:[{role:'system',content:ecosystemSystemPrompt+modeInstruction},{role:'user',content}],max_tokens:1400});
     return typeof TextEncoder==='function'?new TextEncoder().encode(body).length:unescape(encodeURIComponent(body)).length;
   };
   let requestBodyBytes=workerBodyBytes();
@@ -3124,9 +3206,28 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
     // while preserving every individual role record and every distinct recorded relation.
     base.ringkasan_role_tanaman=(Array.isArray(base.ringkasan_role_tanaman)?base.ringkasan_role_tanaman:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0)}));
     base.ringkasan_role_inhabitant=(Array.isArray(base.ringkasan_role_inhabitant)?base.ringkasan_role_inhabitant:[]).map(r=>({role_key:r.role_key||null,role:r.role||'Belum ditentukan',jumlah:Number(r.jumlah||0)}));
-    base.katalog_bed_hubungan=(Array.isArray(base.katalog_bed_hubungan)?base.katalog_bed_hubungan:[]).map(b=>({nama:b.nama||'',tanaman_terkait:Array.isArray(b.tanaman_terkait)?b.tanaman_terkait:[],jumlah_kelompok_terkait:Number(b.jumlah_kelompok_terkait||0)}));
+    base.katalog_bed_hubungan=(Array.isArray(base.katalog_bed_hubungan)?base.katalog_bed_hubungan:[]).map(b=>({
+      nama:b.nama||'',
+      jenis_tanah:b.jenis_tanah||null,
+      kondisi_tanah:Array.isArray(b.kondisi_tanah)?b.kondisi_tanah:[],
+      drainase:b.drainase||null,
+      zona_cahaya:(Array.isArray(b.zona_cahaya)?b.zona_cahaya:[]).map(z=>({nama:z.nama||'',mulai:z.mulai||null,selesai:z.selesai||null})),
+      indikator_vegetasi_kelembapan:Array.isArray(b.indikator_vegetasi_kelembapan)?b.indikator_vegetasi_kelembapan:[],
+      tanaman_terkait:Array.isArray(b.tanaman_terkait)?b.tanaman_terkait:[],
+      jumlah_kelompok_terkait:Number(b.jumlah_kelompok_terkait||0)
+    }));
     base.katalog_role_kebun=base.katalog_role_kebun?{...base.katalog_role_kebun,tanaman:(base.katalog_role_kebun.tanaman||[]).map(r=>({...r,makna:naraGuruSafe(r.makna,100)})),inhabitant:(base.katalog_role_kebun.inhabitant||[]).map(r=>({...r,makna:naraGuruSafe(r.makna,100)}))}:null;
     content=JSON.stringify(base);requestBodyBytes=workerBodyBytes();
+  }
+  const evidencePacketCheck=naraValidateEvidencePacketForIntent(base);
+  naraLastRetrievalAudit.evidencePacketStatus=evidencePacketCheck.ok?'passed':'failed';
+  naraLastRetrievalAudit.evidencePacketIssues=evidencePacketCheck.issues.slice(0,8);
+  if(!evidencePacketCheck.ok){
+    naraLastRetrievalAudit.requestStatus='failed';
+    naraLastRetrievalAudit.requestFinishedAt=new Date().toISOString();
+    naraLastRetrievalAudit.requestFailureStage='preflight_evidence_validation';
+    naraLastRetrievalAudit.requestError='Bukti wajib tidak lengkap sebelum AI dipanggil: '+evidencePacketCheck.issues.join('; ');
+    throw new Error(naraLastRetrievalAudit.requestError);
   }
   naraLastRetrievalAudit.requestBodyBytes=requestBodyBytes;
   if(requestBodyBytes>24576){
@@ -3166,7 +3267,7 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
   naraLastRetrievalAudit.requestFailureStage='primary_chat';
   let response;
   try{
-    response=await naraGuruChat([{role:'system',content:systemPrompt+modeInstruction},{role:'user',content:content}],1400);
+    response=await naraGuruChat([{role:'system',content:ecosystemSystemPrompt+modeInstruction},{role:'user',content:content}],1400);
     naraLastRetrievalAudit.requestStatus='primary_response_received';
     naraLastRetrievalAudit.requestModel=response?.model||'';
     naraLastRetrievalAudit.requestFailureStage='';
@@ -3180,10 +3281,15 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
   // A correction inherits its target from recent user history. Audit scope must use that routed
   // reference, otherwise a valid answer about the inherited plant is misclassified as unrelated.
   const auditScopeQuestion=String(base.interpretasi_pertanyaan?.routingQuestion||question);
-  const firstAudit=naraAuditAnswerPlantScope(auditScopeQuestion,response.text);
+  const scopeAuditFirst=naraAuditAnswerPlantScope(auditScopeQuestion,response.text);
+  const completenessAuditFirst=naraAuditStructuredAnswerCompleteness(auditScopeQuestion,response.text,base);
+  const firstAudit={ok:scopeAuditFirst.ok&&completenessAuditFirst.ok,offending:scopeAuditFirst.offending||[],mode:scopeAuditFirst.mode,completenessIssues:completenessAuditFirst.issues||[]};
+  naraLastRetrievalAudit.firstAnswerAudit={scope:scopeAuditFirst,completeness:completenessAuditFirst};
   if(!firstAudit.ok){
-    const strictBase={...base,percakapan_terakhir:[],peringatan_konsistensi:'Jawaban percobaan sebelumnya berisiko menyebut tanaman di luar fokus kasus. Abaikan kasus lain sepenuhnya.'};
-    const strictPrompt=systemPrompt+modeInstruction+'\n\nPENGUNCI KASUS WAJIB: Jawab hanya untuk tanaman yang secara eksplisit disebut dalam pertanyaan terbaru dan rekaman yang sesuai. Jangan menyebut atau memakai fakta dari tanaman lain. Jika tidak cukup data, nyatakan keterbatasan. Jangan berikan contoh lintas tanaman dalam jawaban ini.';
+    const strictBase={...base,percakapan_terakhir:[],peringatan_konsistensi:ecosystemContextIntent?'Jawaban percobaan sebelumnya tidak mencakup seluruh katalog. Lengkapi semua definisi role, setiap rekaman tanaman/Inhabitant/Bed, dan setiap relasi yang tercatat.':'Jawaban percobaan sebelumnya berisiko menyebut tanaman di luar fokus kasus. Abaikan kasus lain sepenuhnya.'};
+    const strictPrompt=ecosystemContextIntent
+      ? ecosystemSystemPrompt+modeInstruction+'\n\nAUDIT KELENGKAPAN WAJIB: Gunakan semua katalog terstruktur dalam payload. Pastikan setiap definisi role, semua tanaman, semua Inhabitant, semua Bed, dan relasi yang tersedia disebut. Jangan mengarang informasi yang kosong. Batas relasi: tag dan kedekatan pengamatan bukan bukti sebab-akibat. Kekurangan jawaban sebelumnya yang harus diperbaiki: '+firstAudit.completenessIssues.join('; ')
+      : ecosystemSystemPrompt+modeInstruction+'\n\nPENGUNCI KASUS WAJIB: Jawab hanya untuk tanaman yang secara eksplisit disebut dalam pertanyaan terbaru dan rekaman yang sesuai. Jangan menyebut atau memakai fakta dari tanaman lain. Jika tidak cukup data, nyatakan keterbatasan. Jangan berikan contoh lintas tanaman dalam jawaban ini.';
     const explicitCrops=naraExplicitCropTerms(auditScopeQuestion);
     const targetHasRecord=naraPlantEntriesMentionedInText(auditScopeQuestion).length>0;
     const generalSpeciesDirective=(!targetHasRecord&&explicitCrops.length)?('\n\nSPESIES EKSPLISIT TANPA REKAMAN: Pengguna sudah menyebut '+explicitCrops[0]+' dengan jelas. Jangan meminta nama tanaman lagi. Rekaman kebun yang cocok belum tersedia, jadi jawab berdasarkan pengetahuan hortikultura umum, pisahkan kemungkinan dari fakta, berikan pemeriksaan awal yang aman, dan jangan menyebut atau menggunakan rekaman tanaman lain.') : '';
@@ -3203,11 +3309,15 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
       naraLastRetrievalAudit.requestFailureStage='scope_retry_chat';
       throw err;
     }
-    const secondAudit=naraAuditAnswerPlantScope(auditScopeQuestion,retry.text);
+    const secondScopeAudit=naraAuditAnswerPlantScope(auditScopeQuestion,retry.text);
+    const secondCompletenessAudit=naraAuditStructuredAnswerCompleteness(auditScopeQuestion,retry.text,base);
+    const secondAudit={ok:secondScopeAudit.ok&&secondCompletenessAudit.ok,offending:secondScopeAudit.offending||[],completenessIssues:secondCompletenessAudit.issues||[]};
+    naraLastRetrievalAudit.secondAnswerAudit={scope:secondScopeAudit,completeness:secondCompletenessAudit};
     if(!secondAudit.ok){
       naraLastRetrievalAudit.requestStatus='response_received_audit_rejected';
       naraLastRetrievalAudit.requestOutcome='response_rejected_after_retry';
       naraLastRetrievalAudit.requestFinishedAt=new Date().toISOString();
+      if(ecosystemContextIntent)return {text:naraBuildEcosystemAuditFallback(),model:retry.model||response.model,answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'};
       if(!targetHasRecord&&explicitCrops.length){console.warn('Nara scope audit used safe general-knowledge fallback for explicit species without matching garden record.',secondAudit.offending||[]);return {text:naraPlantScopeSafeFallback(auditScopeQuestion),model:retry.model||response.model,answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'};}
       console.warn('Nara scope audit retained safe answer path after retry failed a factual source-attribution check.',secondAudit.offending||[]);return {text:naraPlantScopeSafeFallback(auditScopeQuestion),model:retry.model||response.model,answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'};
     }
@@ -3223,6 +3333,77 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
   naraLastRetrievalAudit.requestError='';naraLastRetrievalAudit.requestFailureStage='';
   return {...response,answerSource:'online_direct',answerAudit:'passed_first_audit'};
 }
+function naraAuditStructuredAnswerCompleteness(question,answer,payload){
+  const plan=payload&&payload.interpretasi_pertanyaan||{};
+  const text=String(answer||'').normalize('NFKC').toLocaleLowerCase('id-ID');
+  const issues=[];
+  if(!text.trim())issues.push('jawaban kosong');
+  if(plan.maksud==='ekologi_kebun'){
+    const roles=payload.katalog_role_kebun||{};
+    const expected=[];
+    for(const r of [...(Array.isArray(roles.tanaman)?roles.tanaman:[]),...(Array.isArray(roles.inhabitant)?roles.inhabitant:[])])if(r&&r.nama)expected.push(String(r.nama));
+    for(const row of Array.isArray(payload.katalog_tanaman_role)?payload.katalog_tanaman_role:[])if(row&&row.nama)expected.push(String(row.nama));
+    for(const row of Array.isArray(payload.katalog_inhabitant_role)?payload.katalog_inhabitant_role:[])if(row&&row.nama)expected.push(String(row.nama));
+    for(const row of Array.isArray(payload.katalog_bed_hubungan)?payload.katalog_bed_hubungan:[])if(row&&row.nama)expected.push(String(row.nama));
+    const missing=[...new Set(expected.filter(name=>!text.includes(name.normalize('NFKC').toLocaleLowerCase('id-ID'))))];
+    if(missing.length)issues.push('jawaban belum mencakup '+missing.slice(0,20).join(', ')+(missing.length>20?` dan ${missing.length-20} nama lain`:''));
+    if(!/bukan bukti sebab[- ]akibat|tidak membuktikan sebab[- ]akibat|bukan bukti bahwa.*menyebabkan|tidak menyimpulkan sebab[- ]akibat/i.test(text)){
+      issues.push('batas interpretasi relasi atau sebab-akibat tidak dinyatakan');
+    }
+  }else if(plan.maksud==='status_kelompok_tanam'){
+    const counts=payload.ringkasan_pencarian_kelompok_tanam||{};
+    if(Number(counts.kelompok_tidak_dikirim||0)>0||Number(counts.tanaman_tidak_dikirim||0)>0){
+      issues.push('riwayat kelompok belum mencakup seluruh hasil pencarian');
+    }
+    const sent=(Array.isArray(payload.tanaman_relevan)?payload.tanaman_relevan:[]).reduce((n,p)=>n+(Array.isArray(p.kelompok_tanam)?p.kelompok_tanam.length:0),0);
+    if(sent!==Number(counts.kelompok_cocok||0))issues.push('jumlah kelompok dalam jawaban tidak dapat divalidasi karena payload tidak lengkap');
+  }else if(plan.maksud==='inventaris_tanaman'){
+    const expected=Array.isArray(payload.katalog_tanaman_role)&&payload.katalog_tanaman_role.length?payload.katalog_tanaman_role:(Array.isArray(payload.tanaman_relevan)?payload.tanaman_relevan:[]);
+    const missing=expected.filter(p=>p&&p.nama&&!text.includes(String(p.nama).normalize('NFKC').toLocaleLowerCase('id-ID'))).map(p=>p.nama);
+    if(missing.length)issues.push('inventaris belum mencakup '+missing.slice(0,20).join(', '));
+  }
+  return {ok:issues.length===0,issues,mode:plan.maksud||'general'};
+}
+
+function naraValidateEvidencePacketForIntent(payload){
+  const plan=payload&&payload.interpretasi_pertanyaan||{};
+  const intent=String(plan.maksud||'');
+  const issues=[];
+  if(plan.disambiguationRequired||plan.rujukan_perlu_diperjelas){
+    const hasPersonalRows=(Array.isArray(payload.tanaman_relevan)&&payload.tanaman_relevan.length)||
+      (Array.isArray(payload.perhatian_tercatat)&&payload.perhatian_tercatat.length)||
+      (Array.isArray(payload.katalog_tanaman_role)&&payload.katalog_tanaman_role.length)||
+      (Array.isArray(payload.katalog_inhabitant_role)&&payload.katalog_inhabitant_role.length);
+    if(hasPersonalRows)issues.push('rujukan ambigu masih membawa rekaman kebun pribadi');
+    return {ok:issues.length===0,issues};
+  }
+  if(intent==='status_kelompok_tanam'){
+    const counts=payload.ringkasan_pencarian_kelompok_tanam||{};
+    const rows=Array.isArray(payload.tanaman_relevan)?payload.tanaman_relevan:[];
+    const sentGroups=rows.reduce((n,p)=>n+(Array.isArray(p.kelompok_tanam)?p.kelompok_tanam.length:0),0);
+    if(Number(counts.tanaman_tidak_dikirim||0)>0)issues.push(`${Number(counts.tanaman_tidak_dikirim)} tanaman yang memiliki kelompok cocok tidak ikut dikirim`);
+    if(Number(counts.kelompok_tidak_dikirim||0)>0)issues.push(`${Number(counts.kelompok_tidak_dikirim)} kelompok tanam cocok tidak ikut dikirim`);
+    if(sentGroups!==Number(counts.kelompok_cocok||0))issues.push(`jumlah kelompok dalam payload (${sentGroups}) tidak sama dengan hasil pencarian (${Number(counts.kelompok_cocok||0)})`);
+  }
+  if(intent==='ekologi_kebun'){
+    const expected=payload.ringkasan_kebun||{};
+    const roles=payload.katalog_role_kebun||{};
+    const plants=Array.isArray(payload.katalog_tanaman_role)?payload.katalog_tanaman_role:[];
+    const inhabitantsRows=Array.isArray(payload.katalog_inhabitant_role)?payload.katalog_inhabitant_role:[];
+    const bedRows=Array.isArray(payload.katalog_bed_hubungan)?payload.katalog_bed_hubungan:[];
+    const expectedPlantRoles=typeof TS_PLANT_ROLES!=='undefined'&&Array.isArray(TS_PLANT_ROLES)?TS_PLANT_ROLES.length:7;
+    const expectedInhabitantRoles=typeof TS_INHABITANT_ROLES!=='undefined'&&Array.isArray(TS_INHABITANT_ROLES)?TS_INHABITANT_ROLES.length:5;
+    if(!Array.isArray(roles.tanaman)||roles.tanaman.length!==expectedPlantRoles)issues.push(`definisi role tanaman: diharapkan ${expectedPlantRoles}, ditemukan ${Array.isArray(roles.tanaman)?roles.tanaman.length:0}`);
+    if(!Array.isArray(roles.inhabitant)||roles.inhabitant.length!==expectedInhabitantRoles)issues.push(`definisi role Inhabitant: diharapkan ${expectedInhabitantRoles}, ditemukan ${Array.isArray(roles.inhabitant)?roles.inhabitant.length:0}`);
+    if(plants.length!==Number(expected.tanaman||0))issues.push(`rekaman tanaman: diharapkan ${Number(expected.tanaman||0)}, ditemukan ${plants.length}`);
+    if(inhabitantsRows.length!==Number(expected.inhabitant||0))issues.push(`rekaman Inhabitant: diharapkan ${Number(expected.inhabitant||0)}, ditemukan ${inhabitantsRows.length}`);
+    if(bedRows.length!==Number(expected.bed||0))issues.push(`rekaman Bed: diharapkan ${Number(expected.bed||0)}, ditemukan ${bedRows.length}`);
+    if(bedRows.some(b=>!Array.isArray(b.tanaman_terkait)))issues.push('sebagian relasi Bed–tanaman tidak tersedia dalam format daftar');
+    if(inhabitantsRows.some(i=>!Array.isArray(i.tanaman_terkait)))issues.push('sebagian relasi Inhabitant–tanaman tidak tersedia dalam format daftar');
+  }
+  return {ok:issues.length===0,issues};
+}
+
 function naraBuildTeacherPrompt(stage){
   const st=naraGuruState();const prior=naraState.onlineTeacherLessons.slice(-10).map(l=>({judul:naraGuruSafe(l.title,150),bidang:naraGuruSafe(l.topic,150),inti:naraGuruSafe(l.summary,250),tahap:l.stage||''}));
   const chat=naraState.messages.slice(-8).map(m=>({peran:m.role,isi:naraGuruSafe(m.text,280)}));
@@ -3360,6 +3541,208 @@ function naraIsCorrectionTurn(question){
   const auditCorrection=/(?:\b(?:audit|periksa|tinjau)\s+(?:ulang|kembali)\b.{0,100}\b(?:jawaban(?:mu|\s+nara)?|respons(?:mu)?|jawaban sebelumnya|sumber(?: data)?|rekaman)\b|\b(?:jawaban(?:mu|\s+nara)?|respons(?:mu)?)\b.{0,60}\b(?:audit|periksa|tinjau)\s+(?:ulang|kembali)\b)/.test(q);
   return naraIsGreetingCorrection(q)||explicitCorrection||auditCorrection||/(?:jawaban(?:mu| nara)?\s+(?:salah|keliru|tidak relevan)|(?:bukan itu|bukan yang saya|itu bukan).{0,50}(?:tanya|maksud|minta|ucap)|(?:kenapa|mengapa).{0,60}(?:kamu|nara).{0,50}(?:malah|justru)|(?:saya|aku)\s+(?:sudah|tadi)\s+(?:bilang|menjelaskan)|kamu salah|tidak menjawab pertanyaan|aku hanya bertanya|saya hanya bertanya)/.test(q);
 }
+function naraRoleDefinitionForValue(roles,value){
+  const key=String(value||'').trim();
+  return (Array.isArray(roles)?roles:[]).find(r=>String(r.key||'')===key||String(r.name||'')===key)||null;
+}
+function naraRoleAssignmentLabel(roles,value){
+  const key=String(value||'').trim();
+  if(!key)return 'Belum ditentukan';
+  const match=naraRoleDefinitionForValue(roles,key);
+  return match?match.name:`Kode role tidak dikenal (${key})`;
+}
+function naraBuildPlantInventoryFallback(){
+  const plants=Array.isArray(data)?data:[];
+  if(!plants.length)return 'Belum ada rekaman tanaman yang tersimpan pada perangkat ini.';
+  const roles=typeof TS_PLANT_ROLES!=='undefined'&&Array.isArray(TS_PLANT_ROLES)?TS_PLANT_ROLES:[];
+  const lines=[`Inventaris tanaman dari rekaman Terra Serenada (${plants.length} rekaman):`];
+  plants.forEach((p,i)=>{
+    const groups=Array.isArray(p.plantingGroups)?p.plantingGroups:[];
+    const active=groups.filter(g=>groupActiveQty(g)>0);
+    const locations=[...new Set(active.flatMap(g=>groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||'')).filter(Boolean)))];
+    lines.push(`${i+1}. ${p.name||'Tanaman tanpa nama'}${p.variety?' ('+p.variety+')':''} — role: ${naraRoleAssignmentLabel(roles,p.role)}; kelompok aktif ${active.length}; lokasi aktif: ${locations.join(', ')||'tidak tercatat'}.`);
+  });
+  lines.push('Daftar ini mencakup rekaman tanaman yang saat ini tersimpan, bukan hitungan spesies biologis independen. Role kosong tidak saya isi berdasarkan dugaan.');
+  return lines.join('\n');
+}
+function naraBuildGroupHistoryFallback(question,planOverride=null){
+  const raw=String(question||'').trim();
+  const plan=planOverride||(typeof naraInterpretUserQuery==='function'?naraInterpretUserQuery(raw,''):null);
+  if(!plan||plan.rujukan_perlu_diperjelas||plan.disambiguationRequired){
+    return 'Aku belum yakin kelompok atau tanaman yang kamu maksud. Sebutkan nama tanaman atau jelaskan apakah kamu ingin melihat semua riwayat kelompok tanam.';
+  }
+  const filter=String(plan.filter_status_kelompok||'semua');
+  const mode=String(plan.mode_filter_status_kelompok||'jumlah_tanaman');
+  const routedQuestion=String(plan.routingQuestion||raw);
+  const named=typeof naraPlantEntriesMentionedInText==='function'?naraPlantEntriesMentionedInText(routedQuestion):[];
+  const explicitCrops=typeof naraExplicitCropTerms==='function'?naraExplicitCropTerms(routedQuestion):[];
+  // A named but unrecorded crop must never fall through to an all-plant history report.
+  const sourcePlants=named.length?named:(explicitCrops.length?[]:(Array.isArray(data)?data:[]));
+  const wantedStatus=filter==='gagal'?'failed':filter==='selesai'?'completed':filter==='aktif'?'active':filter==='campuran'?'mixed':'all';
+  const groups=[];
+  let inspectedGroups=0;
+  const dateLabel=value=>{if(!value)return 'tidak tercatat';try{return typeof fmt==='function'?fmt(value):String(value);}catch{return String(value);}};
+  const statusMatches=g=>{
+    if(filter==='semua')return true;
+    if(mode==='status_kelompok')return groupDerivedStatus(g)===wantedStatus;
+    if(filter==='gagal')return groupFailedQty(g)>0;
+    if(filter==='selesai')return groupCompletedQty(g)>0;
+    if(filter==='aktif')return groupActiveQty(g)>0;
+    if(filter==='campuran')return groupDerivedStatus(g)==='mixed';
+    return true;
+  };
+  const safeLocations=g=>groupLocations(g).map(x=>typeof x==='string'?x:(x?.name||'')).filter(Boolean);
+  for(const plant of sourcePlants){
+    const all=Array.isArray(plant?.plantingGroups)?plant.plantingGroups:[];
+    inspectedGroups+=all.length;
+    all.forEach((g,index)=>{
+      if(!statusMatches(g))return;
+      const id=String(g?.id||'');
+      const events=Array.isArray(plant?.events)?plant.events:[];
+      const statusEvents=events.filter(e=>e&&String(e.groupId||'')===id&&e.type==='group-status-updated').sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
+      const completionEvents=events.filter(e=>e&&String(e.groupId||'')===id&&e.type==='group-cycle-complete').sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
+      const statusDate=g.statusUpdatedOn||statusEvents[statusEvents.length-1]?.date||null;
+      const completionDate=completionEvents[completionEvents.length-1]?.date||null;
+      let harvestDate='';
+      try{harvestDate=typeof groupHarvestDate==='function'?(groupHarvestDate(plant,g)||''):'';}catch{}
+      const total=groupTotal(g),active=groupActiveQty(g),completed=groupCompletedQty(g),failed=groupFailedQty(g);
+      groups.push({plant:plant?.name||'Tanaman tanpa nama',date:g?.date||null,index,id,total,active,completed,failed,status:groupDerivedStatus(g),locations:safeLocations(g),statusDate,completionDate,harvestDate,sumMatches:active+completed+failed===total,note:completionEvents[completionEvents.length-1]?.note||''});
+    });
+  }
+  groups.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||a.plant.localeCompare(b.plant,'id-ID')||a.index-b.index);
+  const scope=named.length?`tanaman yang disebut (${[...new Set(named.map(p=>p.name))].join(', ')})`:explicitCrops.length?`spesies yang disebut (${explicitCrops.join(', ')})`:'seluruh rekaman tanaman';
+  const statusLabel={semua:'semua status',gagal:mode==='status_kelompok'?'status kelompok gagal':'kelompok yang memuat tanaman gagal',selesai:mode==='status_kelompok'?'status kelompok selesai':'kelompok yang memuat tanaman selesai',aktif:'kelompok yang masih aktif',campuran:'kelompok berstatus campuran'}[filter]||'semua status';
+  const lines=[`Riwayat kelompok tanam berdasarkan rekaman lokal Terra Serenada.`,`Cakupan: ${scope}; filter: ${statusLabel}. Diperiksa ${sourcePlants.length} rekaman tanaman dan ${inspectedGroups} kelompok yang tersimpan; ditemukan ${groups.length} kelompok yang cocok.`];
+  if(!groups.length){
+    if(explicitCrops.length&&!named.length)lines.push('Spesies yang disebut tidak memiliki rekaman tanaman yang cocok pada data lokal. Riwayat tanaman lain tidak digunakan sebagai pengganti.');
+    else lines.push('Tidak ada kelompok yang cocok dengan filter pada rekaman yang diperiksa. Ini hanya menyatakan tidak ditemukan kecocokan dalam data yang tersimpan, bukan bukti bahwa penanaman tidak pernah terjadi.');
+  }else{
+    lines.push('');
+    groups.forEach((g,i)=>{
+      const date=g.date?dateLabel(g.date):'tanggal tanam tidak tercatat';
+      const loc=g.locations.length?g.locations.join(', '):'lokasi tidak tercatat';
+      const harvest=g.harvestDate?dateLabel(g.harvestDate):'estimasi panen tidak tersedia';
+      const changed=g.statusDate?dateLabel(g.statusDate):'tanggal perubahan status tidak tercatat';
+      const closed=g.completionDate?dateLabel(g.completionDate):'tanggal penutupan tidak tercatat';
+      const consistency=g.sumMatches?'':' [INKONSISTENSI: aktif+selesai+gagal tidak sama dengan total awal]';
+      lines.push(`${i+1}. ${g.plant} — ditanam ${date}; status ${g.status.toUpperCase()}; total awal ${g.total}, aktif ${g.active}, selesai ${g.completed}, gagal ${g.failed}; lokasi ${loc}; estimasi panen ${harvest}; perubahan status ${changed}; penutupan siklus ${closed}.${consistency}${g.note?` Catatan penutupan: ${String(g.note).replace(/\s+/g,' ').slice(0,140)}.`:''}`);
+    });
+  }
+  lines.push('', 'Aturan pembacaan: kelompok berstatus active bila jumlah aktif > 0, meskipun ada tanaman yang gagal; mixed berarti tidak ada tanaman aktif tetapi kelompok berisi campuran selesai dan gagal. Filter “kelompok yang memuat tanaman gagal” berbeda dari filter status akhir “gagal”. Tanggal perubahan status, tanggal penutupan, dan estimasi panen adalah hal terpisah. Estimasi panen adalah perkiraan aplikasi, bukan jaminan kematangan.');
+  return lines.join('\n');
+}
+
+function naraBuildEcosystemAuditFallback(){
+  const plants=Array.isArray(data)?data:[];
+  const inhab=Array.isArray(inhabitants)?inhabitants:[];
+  const bedList=Array.isArray(beds)?beds:[];
+  const pRoles=typeof TS_PLANT_ROLES!=='undefined'&&Array.isArray(TS_PLANT_ROLES)?TS_PLANT_ROLES:[];
+  const iRoles=typeof TS_INHABITANT_ROLES!=='undefined'&&Array.isArray(TS_INHABITANT_ROLES)?TS_INHABITANT_ROLES:[];
+  const label=(x)=>String(x?.name||'Tanpa nama');
+  const plantRole=(p)=>naraRoleAssignmentLabel(pRoles,p?.role);
+  const inhabitantRole=(i)=>naraRoleAssignmentLabel(iRoles,i?.role);
+  const membersFor=(rows,fn,role)=>rows.filter(x=>fn(x)===role).map(label);
+  const lines=[`Audit ekosistem kebun — hasil langsung dari rekaman lokal Terra Serenada.`,`Cakupan: ${plants.length} rekaman tanaman, ${inhab.length} rekaman Inhabitant, ${bedList.length} Bed; angka ini mengikuti penyimpanan aplikasi saat audit dijalankan.`,'', '1. DEFINISI ROLE TANAMAN'];
+  for(const role of pRoles){
+    const members=membersFor(plants,plantRole,role.name);
+    lines.push(`• ${role.name}: ${role.description||'Definisi belum tersedia.'}`);
+    lines.push(`  Rekaman (${members.length}): ${members.join(', ')||'tidak ada rekaman yang ditetapkan ke role ini'}.`);
+  }
+  const noRole=plants.filter(p=>!String(p.role||'').trim()).map(label);
+  const unknownPlants=plants.filter(p=>String(p.role||'').trim()&&!naraRoleDefinitionForValue(pRoles,p.role)).map(p=>`${label(p)} [${String(p.role)}]`);
+  lines.push(`• Belum ditentukan (${noRole.length}): ${noRole.join(', ')||'tidak ada'}.`);
+  lines.push(`• Kode role tidak dikenal (${unknownPlants.length}): ${unknownPlants.join(', ')||'tidak ada'}.`);
+  lines.push('', '2. DEFINISI ROLE INHABITANT');
+  for(const role of iRoles){
+    const members=membersFor(inhab,inhabitantRole,role.name);
+    lines.push(`• ${role.name}: ${role.description||'Definisi belum tersedia.'}`);
+    lines.push(`  Rekaman (${members.length}): ${members.join(', ')||'tidak ada rekaman yang ditetapkan ke role ini'}.`);
+  }
+  const noInhabRole=inhab.filter(i=>!String(i.role||'').trim()).map(label);
+  const unknownInhab=inhab.filter(i=>String(i.role||'').trim()&&!naraRoleDefinitionForValue(iRoles,i.role)).map(i=>`${label(i)} [${String(i.role)}]`);
+  lines.push(`• Belum ditentukan (${noInhabRole.length}): ${noInhabRole.join(', ')||'tidak ada'}.`);
+  lines.push(`• Kode role tidak dikenal (${unknownInhab.length}): ${unknownInhab.join(', ')||'tidak ada'}.`);
+  lines.push('', '3. HUBUNGAN BED–TANAMAN YANG TERCATAT');
+  for(const b of bedList){
+    const profile=naraBedProfileSnapshot(b);
+    const byPlant=new Map();
+    for(const p of plants){
+      const groups=(Array.isArray(p.plantingGroups)?p.plantingGroups:[]).filter(g=>groupLocations(g).some(x=>(typeof x==='string'?x:(x?.name||''))===b.name));
+      if(groups.length)byPlant.set(label(p),groups);
+    }
+    const relations=[...byPlant.entries()].map(([name,groups])=>`${name} (${groups.length} kelompok${groups.some(g=>groupDerivedStatus(g)==='active')?'; ada kelompok aktif':''})`);
+    const zones=profile.zona_cahaya.length?profile.zona_cahaya.map(z=>`${z.nama} ${z.mulai||'?'}–${z.selesai||'?'}`).join(', '):'belum dicatat';
+    lines.push(`• ${b.name}: tanaman/kelompok tertaut ${relations.join('; ')||'tidak ada kelompok tanam yang menunjuk Bed ini'}; tanah ${profile.jenis_tanah||'belum dicatat'}; drainase ${profile.drainase||'belum dicatat'}; zona cahaya ${zones}; indikator vegetasi/kelembapan ${profile.indikator_vegetasi_kelembapan.join(', ')||'belum dicatat'}.`);
+  }
+  lines.push('', '4. HUBUNGAN INHABITANT–TANAMAN DARI TAG/OBSERVASI');
+  let linksFound=0;
+  for(const i of inhab){
+    let traces=[];
+    try{traces=typeof inhabitantDerivedEvents==='function'?inhabitantDerivedEvents(i.id):[];}catch{}
+    const relationRows=[];
+    for(const e of traces){
+      const names=new Set();
+      if(e.plantId){const p=plants.find(x=>String(x.id)===String(e.plantId));if(p)names.add(label(p));else if(e.plantName)names.add(String(e.plantName));}
+      for(const n of Array.isArray(e.plantNames)?e.plantNames:[])if(n)names.add(String(n));
+      if(Array.isArray(e.plantIds)&&typeof plantNames==='function')for(const n of plantNames(e.plantIds))if(n)names.add(String(n));
+      if(!names.size)continue;
+      const row=`${[...names].join(', ')} (${e.date||'tanpa tanggal'}${e.type?' · '+e.type:''}${e.note||e.label?' · '+String(e.note||e.label).replace(/\s+/g,' ').slice(0,110):''})`;
+      if(!relationRows.includes(row))relationRows.push(row);
+    }
+    if(relationRows.length){linksFound+=relationRows.length;lines.push(`• ${label(i)}: ${relationRows.join('; ')}.`);}
+    else lines.push(`• ${label(i)}: belum ditemukan tautan tanaman dalam observasi/tag yang bisa dibaca.`);
+  }
+  lines.push('', '5. BATAS INTERPRETASI',
+    '• Role adalah klasifikasi tersimpan. Makna kategori tidak membuktikan bahwa fungsi ekologis sudah terjadi atau efektif.',
+    '• Hubungan Bed–tanaman dihitung dari lokasi kelompok tanam yang cocok dengan Bed; hubungan Inhabitant–tanaman berasal dari tag/observasi yang tersimpan.',
+    '• Tidak ada tautan tercatat bukan bukti bahwa interaksi tidak pernah terjadi. Tautan atau kedekatan pengamatan juga bukan bukti sebab-akibat.',
+    `• Hubungan Inhabitant–tanaman yang berhasil dibaca dari catatan: ${linksFound} jejak. Catatan ini adalah data aplikasi, bukan verifikasi independen atas kejadian di kebun.`);
+  return lines.join('\n');
+}
+function naraBuildInhabitantPlantRelationFallback(question){
+  const q=naraMemoryTokens(question);
+  const containsName=name=>{const nt=naraMemoryTokens(name);if(!nt.length)return false;const n=new Set(q);return nt.filter(t=>t.length>=3).length>0&&nt.filter(t=>t.length>=3).every(t=>n.has(t));};
+  const matchedInhabitants=(Array.isArray(inhabitants)?inhabitants:[]).filter(i=>containsName(i.name||''));
+  const targetPlants=typeof naraPlantEntriesMentionedInText==='function'?naraPlantEntriesMentionedInText(question):[];
+  const explicitCrops=typeof naraExplicitCropTerms==='function'?naraExplicitCropTerms(question):[];
+  const targetIds=new Set(targetPlants.map(p=>String(p.id||p.name)));
+  const targetWords=new Set([...targetPlants.map(p=>naraMemoryTokens(p.name||'')).flat(),...explicitCrops]);
+  const lines=['Hasil pemeriksaan hubungan berdasarkan rekaman Terra Serenada:'];
+  if(!targetPlants.length&&!explicitCrops.length) return 'Aku belum dapat menentukan tanaman sasaran. Sebutkan nama tanaman atau spesies yang dimaksud agar aku tidak mencocokkan tag ke tanaman yang salah.';
+  if(!matchedInhabitants.length) lines.push('Nama Inhabitant yang disebut belum cocok dengan rekaman lokal yang tersimpan. Karena itu, hubungan pribadi Inhabitant–tanaman tidak dapat dikonfirmasi dari data saat ini.');
+  for(const i of matchedInhabitants){
+    let traces=[];try{traces=typeof inhabitantDerivedEvents==='function'?inhabitantDerivedEvents(i.id):[];}catch{}
+    const matches=[];
+    for(const e of traces){
+      const linked=new Set();
+      if(e.plantId){const p=data.find(p=>String(p.id)===String(e.plantId));if(p)linked.add(String(p.id||p.name));}
+      for(const name of Array.isArray(e.plantNames)?e.plantNames:[]){const p=data.find(p=>String(p.name||'')===String(name));if(p)linked.add(String(p.id||p.name));}
+      if(Array.isArray(e.plantIds))for(const id of e.plantIds)if(targetIds.has(String(id)))linked.add(String(id));
+      const targetMatch=linked.size?[...linked].some(id=>targetIds.has(id)): [...naraMemoryTokens(e.plantName||'')].some(t=>targetWords.has(t));
+      if(targetMatch)matches.push(`${e.date||'tanpa tanggal'} ${e.type||'observasi'}: ${e.note||e.label||'tautan tersimpan'}`);
+    }
+    lines.push(matches.length?`• ${i.name}: ${matches.join('; ')}.`:`• ${i.name}: belum ada tag/observasi tersimpan yang menghubungkan Inhabitant ini dengan tanaman sasaran.`);
+  }
+  lines.push('Role atau faksi Inhabitant hanya menyatakan klasifikasi yang dipilih pada aplikasi. Data hubungan ini tidak membuktikan bahwa Inhabitant menyebabkan gejala, memangsa hama, atau memberi manfaat; untuk itu diperlukan observasi spesifik yang mendukung. Tidak ditemukannya tautan bukan bukti interaksi tidak pernah terjadi.');
+  return lines.join('\n');
+}
+function naraShouldUseStructuredLocalAnswer(question,planOverride){
+  // If the caller explicitly passed a plan (including null), never rerun a failed parser implicitly.
+  const plan=arguments.length>1?planOverride:(typeof naraInterpretUserQuery==='function'?naraInterpretUserQuery(question,''):null);
+  if(!plan||plan.rujukan_perlu_diperjelas||plan.disambiguationRequired)return false;
+  if(plan.maksud==='inventaris_tanaman'||plan.maksud==='status_kelompok_tanam')return true;
+  return plan.maksud==='ekologi_kebun'&&/\b(audit|tampilkan|daftar|seluruh|semua|setiap|tiap|inventaris|katalog|definisi|tercatat|rekaman|role)\b/i.test(String(question||''));
+}
+
+let naraIntentPlanForCurrentAnswer=null;
+function naraAnswerWithIntentPlan(question,plan){
+  // Fail closed if the preflight could not construct an intent plan; do not silently reinterpret it later.
+  if(!plan)return 'Aku belum bisa memastikan maksud pertanyaan ini dengan aman karena penafsir pertanyaanku tidak berhasil. Aku tidak akan mengirim permintaan AI dengan sumber yang belum dipastikan. Coba tulis ulang pertanyaanmu sedikit lebih spesifik.';
+  const previous=naraIntentPlanForCurrentAnswer;
+  naraIntentPlanForCurrentAnswer={question:String(question||'').trim(),plan};
+  try{return naraAnswer(question);}
+  finally{naraIntentPlanForCurrentAnswer=previous;}
+}
 function naraAnswer(question){
   const raw=String(question||'').trim();const q=raw.toLocaleLowerCase('id-ID');
   if(!raw)return 'Tulis pertanyaan atau pengamatanmu dulu, ya.';
@@ -3378,7 +3761,16 @@ function naraAnswer(question){
     return `Pengetahuan yang kamu ajarkan kepadaku (${naraState.userLessons.length}):\n${naraState.userLessons.slice(-10).map((l,i)=>`${i+1}. ${l.text}`).join('\n')}\n\nSemua ini disimpan sebagai pengetahuan dari pengguna, bukan fakta yang diverifikasi secara otomatis.`;
   }
 
-  // A named plant query takes precedence over broad topics.
+  const sharedPlan=naraIntentPlanForCurrentAnswer&&naraIntentPlanForCurrentAnswer.question===raw?naraIntentPlanForCurrentAnswer.plan:null;
+  const intentPlan=sharedPlan||(typeof naraInterpretUserQuery==='function'?naraInterpretUserQuery(raw,''):null);
+  if(intentPlan?.rujukan_perlu_diperjelas||intentPlan?.disambiguationRequired){
+    return 'Aku belum yakin objek yang kamu maksud. Tanaman atau Inhabitant mana yang ingin kamu periksa? Aku akan menahan rekaman yang berisiko tidak relevan sampai rujukannya jelas.';
+  }
+  if(intentPlan?.maksud==='ekologi_kebun')return naraBuildEcosystemAuditFallback();
+  if(intentPlan?.maksud==='inventaris_tanaman')return naraBuildPlantInventoryFallback();
+  if(intentPlan?.maksud==='status_kelompok_tanam')return naraBuildGroupHistoryFallback(raw,intentPlan);
+  if(intentPlan?.maksud==='hubungan_inhabitant_tanaman')return naraBuildInhabitantPlantRelationFallback(raw);
+  // A named plant query takes precedence over generic summaries, not over an explicit whole-garden audit.
   const plant=data.find(p=>p.name&&p.name.trim().length>=3&&q.includes(p.name.toLocaleLowerCase('id-ID')));
   if(plant)return naraAnswerForPlant(plant);
 
@@ -3418,9 +3810,9 @@ function naraAnswer(question){
     if(!snap.flowering.length)return 'Aku belum menemukan tanaman dengan catatan berbunga dalam 14 hari terakhir. Jika ada bunga yang terlihat, tandai melalui “Tandai Berbunga” agar perubahan itu masuk ke memori Terra Serenada.';
     return `Tanaman dengan catatan berbunga dalam 14 hari terakhir: ${snap.flowering.map(p=>{const e=naraPlantEvents(p).find(e=>e.type==='flowering'&&daysBetween(e.date)<=14);return `${p.name} (${fmt(e?.date)})`}).join(', ')}.\n\nIni mengikuti catatan berbunga yang kamu masukkan, bukan pengenalan bunga otomatis dari foto.`;
   }
-  if(/(bed|lokasi kebun|lokasi tanam|profil tanah|tanah)/.test(q)){
+  if(/(bed|lokasi kebun|lokasi tanam|profil tanah|tanah|drainase|zona cahaya|paparan cahaya)/.test(q)){
     if(!beds.length)return 'Belum ada Bed yang tercatat. Tambahkan lokasi melalui “Lokasi / Bed Kebun” di Beranda; setelah itu aku dapat menghubungkan kelompok tanam dengan lokasi dan profilnya.';
-    return `Bed yang tercatat di Terra Serenada:\n${beds.map((b,i)=>{const count=data.filter(p=>naraActiveGroups(p).some(g=>groupLocations(g).includes(b.name))).length;return `${i+1}. ${b.name} — ${count} catatan tanaman terkait${b.soilType?`; tanah: ${b.soilType}`:''}${b.drainage?`; drainase: ${b.drainage}`:''}.`}).join('\n')}\n\nJika kamu menanyakan rekomendasi berdasarkan tanah tertentu, lengkapi profil Bed dan pengamatan aktualnya dulu.`;
+    return `Profil Bed yang tercatat di Terra Serenada:\n${beds.map((b,i)=>{const p=naraBedProfileSnapshot(b);const count=[...new Set(data.filter(x=>(Array.isArray(x.plantingGroups)?x.plantingGroups:[]).some(g=>groupLocations(g).includes(b.name))).map(x=>x.name))].length;const zones=p.zona_cahaya.length?p.zona_cahaya.map(z=>`${z.nama} ${z.mulai||'?'}–${z.selesai||'?'}`).join(', '):'zona cahaya belum diatur';const soil=p.jenis_tanah||'jenis tanah belum diatur';const drainage=p.drainase||'drainase belum diatur';const moisture=p.indikator_vegetasi_kelembapan.length?p.indikator_vegetasi_kelembapan.join(', '):'indikator vegetasi/kelembapan belum dipilih';return `${i+1}. ${b.name} — ${count} tanaman unik terkait; tanah: ${soil}; drainase: ${drainage}; zona cahaya: ${zones}; indikator vegetasi/kelembapan: ${moisture}.`;}).join('\n')}\n\nZona cahaya, drainase, dan indikator adalah data profil yang tersimpan, bukan pengukuran langsung saat ini. Jika suatu profil kosong, itu berarti belum dicatat, bukan bukti kondisi tertentu.`;
   }
   if(/(inhabitant|hewan|serangga|makhluk|satwa|organisme)/.test(q)){
     if(!inhabitants.length)return 'Belum ada Inhabitant yang tercatat. Kamu bisa menambahkan makhluk yang ditemukan di kebun melalui halaman Inhabitants; nanti aku bisa memakai jejak kehadiran dan hubungan dengan tanaman sebagai konteks.';
@@ -3501,6 +3893,10 @@ function naraRunRetrievalDiagnostic(){
     if(last){
       const status=last.requestStatus||'hasil permintaan belum dicatat';
       out.push('<div><strong>Status permintaan AI online:</strong> '+escText(status)+(last.requestOutcome?' · hasil: '+escText(last.requestOutcome):'')+(last.requestModel?' · model: '+escText(last.requestModel):'')+(last.requestStartedAt?' · mulai: '+escText(last.requestStartedAt):'')+(last.requestFinishedAt?' · selesai: '+escText(last.requestFinishedAt):'')+'.</div>');
+      if(last.intentConsistency)out.push('<div><strong>Konsistensi maksud:</strong> '+escText(last.intentConsistency)+'</div>');
+      if(last.evidencePacketStatus)out.push('<div><strong>Validasi paket bukti:</strong> '+escText(last.evidencePacketStatus)+(Array.isArray(last.evidencePacketIssues)&&last.evidencePacketIssues.length?' — '+escText(last.evidencePacketIssues.join('; ')):'')+'</div>');
+      if(last.firstAnswerAudit)out.push('<div><strong>Audit jawaban pertama:</strong> '+escText(last.firstAnswerAudit.scope?.ok?'cakupan lolos':'cakupan belum lolos')+'; '+escText(last.firstAnswerAudit.completeness?.ok?'kelengkapan lolos':(last.firstAnswerAudit.completeness?.issues||[]).join('; '))+'</div>');
+      if(last.secondAnswerAudit)out.push('<div><strong>Audit jawaban revisi:</strong> '+escText(last.secondAnswerAudit.scope?.ok?'cakupan lolos':'cakupan belum lolos')+'; '+escText(last.secondAnswerAudit.completeness?.ok?'kelengkapan lolos':(last.secondAnswerAudit.completeness?.issues||[]).join('; '))+'</div>');
       if(last.requestFailureStage||last.requestError)out.push('<div><strong>Rincian kegagalan:</strong> tahap '+escText(last.requestFailureStage||'tidak tercatat')+'; '+escText(last.requestError||'pesan error tidak tersedia')+'.</div>');
     }
     if(last)out.push('<div>'+(auditContextMissingGardenEvidence?'BELUM LULUS — istilah audit ditemukan dalam riwayat percakapan, tetapi konteks online terakhir memuat 0 rekaman tanaman meskipun percakapan mengandung rujukan tanaman. Teks riwayat saja bukan bukti kebun.':exactLast?'Istilah kunci ditemukan dalam salah satu item konteks terakhir; ini hanya kecocokan teks, bukan kelulusan kelengkapan sumber.':'Item sumber yang diuji tidak memuat semua istilah kunci dalam satu item. Ini bukan bukti bahwa seluruh payload online kosong.')+'</div>');
@@ -3525,26 +3921,63 @@ async function naraSendMessage(text){
   const raw=String(text||'').trim();if(!raw)return;
   naraNormalizeState();const teacher=naraGuruState();teacher.totalUserQuestions+=1;
   const history=naraState.messages.slice(-8).map(m=>({role:m.role,text:m.text}));
+  // Compute one intent plan before generating a draft so local and online routing share a source of truth.
+  let intentPlan=null;
+  try{intentPlan=typeof naraInterpretUserQuery==='function'?naraInterpretUserQuery(raw,''):null;}catch(err){console.warn('Nara intent preflight failed; using a cautious fallback.',err);}
   naraState.messages.push({id:makeId('nara-user'),role:'user',text:raw,createdAt:new Date().toISOString()});
-  const localAnswer=naraAnswer(raw);
+  const localAnswer=naraAnswerWithIntentPlan(raw,intentPlan);
   const isExplicitMemory=/^(?:nara[, :]*\s*)?(?:ingat(?:lah)?|ajarkan ke nara|catat pengetahuan|simpan sebagai pengetahuan)\s*[:：-]?\s*.+$/i.test(raw);
   const asksMemoryList=/(pengetahuan yang kamu ajarkan|apa yang kamu ingat|ingatanku|apa yang pernah saya ajarkan|daftar pengetahuan)/i.test(raw);
   const simpleGreeting=naraIsSimpleGreeting(raw);
   const greetingCorrection=naraIsGreetingCorrection(raw);
-  const useOnline=!isExplicitMemory&&!asksMemoryList&&!simpleGreeting&&!greetingCorrection;
-  const answerMessage={id:makeId('nara-answer'),role:'assistant',text:localAnswer,localDraft:localAnswer,createdAt:new Date().toISOString(),pending:useOnline,onlineFailed:false,answerSource:useOnline?'pending_online':'local_rules'};
+  const structuredLocalAnswer=naraShouldUseStructuredLocalAnswer(raw,intentPlan);
+  const needsClarification=!!(intentPlan&&(intentPlan.rujukan_perlu_diperjelas||intentPlan.disambiguationRequired));
+  const useOnline=!!intentPlan&&!needsClarification&&!structuredLocalAnswer&&!isExplicitMemory&&!asksMemoryList&&!simpleGreeting&&!greetingCorrection;
+  const localSource=structuredLocalAnswer?'local_structured':'local_rules';
+  const answerMessage={id:makeId('nara-answer'),role:'assistant',text:localAnswer,localDraft:localAnswer,intentPlan,createdAt:new Date().toISOString(),pending:useOnline,onlineFailed:false,answerSource:useOnline?'pending_online':localSource};
   naraState.messages.push(answerMessage);naraState.messages=naraState.messages.slice(-80);naraPersistState();naraRenderChat();naraRefreshOverview();
   const input=$('naraInput');if(input){input.value='';input.focus();}
   if(!useOnline){naraMaybeScheduleAutomaticTeacher();return;}
   naraOnlinePendingCount++;const sendBtn=$('naraSendBtn');if(sendBtn){sendBtn.disabled=true;sendBtn.textContent='…';}
   try{
-    const result=await naraRequestOnlineAnswer(raw,{text:localAnswer},history);
+    const result=await naraRequestOnlineAnswer(raw,{text:localAnswer},history,intentPlan);
     const target=naraState.messages.find(m=>m.id===answerMessage.id);
     if(target){target.text=result.text;target.onlineModel=result.model;target.answerSource=result.answerSource||result.source||'online_unclassified';target.answerAudit=result.answerAudit||'';target.pending=false;target.onlineFailed=false;naraPersistState();naraRenderChat();}
   }catch(err){
     console.warn('Nara online answer failed; keeping local response:',err);
     const target=naraState.messages.find(m=>m.id===answerMessage.id);
-    if(target){const fallback=target.localDraft||target.text;const audit=naraAuditAnswerPlantScope(raw,fallback);const hasOneFocus=naraExplicitCropTerms(raw).length===1||naraPlantEntriesMentionedInText(raw).length===1;target.text=audit.ok?fallback:(hasOneFocus?naraPlantScopeSafeFallback(raw):'Aku belum bisa memastikan fokus tanaman dengan aman. Sebutkan tanaman yang ingin diperiksa.');target.answerSource='local_fallback';target.answerAudit='online_request_failed';target.pending=false;target.onlineFailed=true;naraPersistState();naraRenderChat();}
+    if(target){
+      const fallback=target.localDraft||target.text;
+      const auditPlan=target?.intentPlan||(typeof naraInterpretUserQuery==='function'?naraInterpretUserQuery(raw,fallback):null);
+      const audit=naraAuditAnswerPlantScope(auditPlan?.routingQuestion||raw,fallback);
+      const hasOneFocus=naraExplicitCropTerms(raw).length===1||naraPlantEntriesMentionedInText(raw).length===1;
+      if(auditPlan?.maksud==='ekologi_kebun'){
+        target.text=naraBuildEcosystemAuditFallback();
+        target.answerSource='local_evidence_fallback';
+      }else if(auditPlan?.maksud==='inventaris_tanaman'){
+        target.text=naraBuildPlantInventoryFallback();
+        target.answerSource='local_evidence_fallback';
+      }else if(auditPlan?.maksud==='status_kelompok_tanam'){
+        target.text=naraBuildGroupHistoryFallback(raw,auditPlan);
+        target.answerSource='local_evidence_fallback';
+      }else if(auditPlan?.maksud==='hubungan_inhabitant_tanaman'){
+        target.text=naraBuildInhabitantPlantRelationFallback(raw);
+        target.answerSource='local_evidence_fallback';
+      }else if(auditPlan?.maksud==='koreksi_jawaban'){
+        const routedCorrection=String(auditPlan.routingQuestion||raw);
+        const correctionFocus=typeof naraPlantEntriesMentionedInText==='function'?naraPlantEntriesMentionedInText(routedCorrection):[];
+        if(correctionFocus.length){
+          const cropName=correctionFocus[0].name;
+          target.text=naraBuildCorrectionAuditFallback(routedCorrection,cropName)||naraPlantScopeSafeFallback(routedCorrection);
+          target.answerSource='local_evidence_fallback';
+        }else{
+          target.text='Aku mengenali ini sebagai koreksi atas jawaban sebelumnya, tetapi pemeriksaan AI online gagal. Aku tidak akan menganggap jawaban lama benar tanpa memeriksanya. Tempelkan klaim atau bagian jawaban yang ingin diaudit agar dapat kuperiksa secara spesifik.';
+          target.answerSource='local_fallback';
+        }
+      }else target.text=audit.ok?fallback:(hasOneFocus?naraPlantScopeSafeFallback(auditPlan?.routingQuestion||raw):'Permintaan AI online gagal. Aku belum dapat memverifikasi jawaban ini dengan bukti yang cukup, jadi aku tidak akan menyebutnya benar. Coba ulangi saat koneksi pulih atau sebutkan objek dan klaim spesifik yang ingin diperiksa.');
+      if(!target.answerSource||target.answerSource==='pending_online')target.answerSource='local_fallback';
+      target.answerAudit='online_request_failed';target.pending=false;target.onlineFailed=true;naraPersistState();naraRenderChat();
+    }
     naraSetGuruStatus('Mode lokal aktif','warn',`Guru Online belum dapat menjawab saat ini. Nara tetap menggunakan reasoning lokal. ${naraGuruSafe(err?.name==='AbortError'?'Permintaan melewati batas waktu.':err?.message||err,180)}${naraGuruOriginHint()}`);
   }finally{
     naraOnlinePendingCount=Math.max(0,naraOnlinePendingCount-1);if(sendBtn){sendBtn.disabled=naraOnlinePendingCount>0;sendBtn.textContent=naraOnlinePendingCount?'…':'Kirim ↑';}
