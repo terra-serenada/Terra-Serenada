@@ -108,7 +108,9 @@ jobs:
           set -euo pipefail
           html="android/app/src/main/assets/index.html"
           grep -q 'async function naraRequestOnlineAnswer' "$html"
-          grep -q "NARA_GURU_MODEL='gpt-4o-mini'" "$html"
+          grep -Eq "const NARA_GURU_MODEL='[^']+'" "$html"
+          grep -q 'model:NARA_GURU_MODEL' "$html"
+          grep -q 'function naraGuruErrorMessage(payload,status,rawBody=' "$html"
           grep -q 'function naraInterpretUserQuery(question,localDraft=' "$html"
           grep -q "intent='status_kelompok_tanam'" "$html"
           grep -q 'ringkasan_pencarian_kelompok_tanam:groupSearchCounts' "$html"
@@ -178,6 +180,41 @@ jobs:
               raise SystemExit("ERROR: No inline JavaScript block was checked.")
           print(f"PASS: JavaScript syntax valid in {checked} inline script block(s).")
           PYTHON
+
+      - name: Test Anoman upstream error diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+          const assert = require('assert');
+          const html = fs.readFileSync('android/app/src/main/assets/index.html', 'utf8');
+          const start = html.indexOf('function naraGuruErrorMessage(payload,status,rawBody=');
+          const end = html.indexOf('\nasync function naraGuruChat(', start);
+          if (start < 0 || end <= start) throw new Error('Could not isolate the provider error parser.');
+          const context = {};
+          vm.runInNewContext(html.slice(start, end), context, {timeout: 1000});
+          let message = context.naraGuruErrorMessage({error:{type:'billing_error',code:'token_quota_exceeded',message:'Monthly token cap reached',model_tier_class:'budget',window:'monthly'}}, 402);
+          assert.match(message, /HTTP 402/);
+          assert.match(message, /kuota token/i);
+          assert.match(message, /budget, monthly/i);
+          assert.match(message, /Monthly token cap reached/);
+          message = context.naraGuruErrorMessage({error:{type:'billing_error',code:'budget_exceeded',message:'Monthly budget exhausted'}}, 402);
+          assert.match(message, /budget bulanan/i);
+          message = context.naraGuruErrorMessage({detail:{error:'insufficient_credits',message:'Prepaid balance exhausted'}}, 402);
+          assert.match(message, /kredit prabayar/i);
+          message = context.naraGuruErrorMessage({error:'upstream failed',upstreamResponse:{status:402,body:{error:{code:'token_quota_exceeded',message:'Class cap reached',model_tier_class:'budget',window:'weekly'}}}}, 402);
+          assert.match(message, /kuota token/i);
+          assert.match(message, /weekly/i);
+          message = context.naraGuruErrorMessage(null, 402, '');
+          assert.match(message, /Usage\/Billing\/Quota/);
+          message = context.naraGuruErrorMessage({error:{message:'Temporarily unavailable'}}, 503);
+          assert.match(message, /HTTP 503/);
+          console.log('PASS: Anoman 402 quota, budget, and credit errors are classified');
+          console.log('PASS: nested Worker/upstream error bodies are parsed');
+          console.log('PASS: generic HTTP failures retain actionable diagnostics');
+          NODE
 
       - name: Run Nara query-understanding regression tests
         shell: bash
