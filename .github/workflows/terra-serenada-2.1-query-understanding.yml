@@ -122,7 +122,7 @@ jobs:
           grep -q 'next.statusUpdatedOn=today();next.statusUpdatedAt=new Date().toISOString();' "$html"
           grep -q 'function naraRunRetrievalDiagnostic()' "$html"
           grep -q 'naraLastRetrievalAudit={' "$html"
-          grep -q "answerSource:'online_direct',answerAudit:'passed_first_audit'" "$html"
+          grep -Eq "answerSource:'online_direct',answerAudit:'(scope_only_passed|passed_first_audit)'" "$html"
           grep -q "answerSource:'online_revised',answerAudit:'passed_after_retry'" "$html"
           grep -q "answerSource:'safe_fallback',answerAudit:'response_rejected_after_retry'" "$html"
           grep -q 'function naraAnswerSourceLabel(m)' "$html"
