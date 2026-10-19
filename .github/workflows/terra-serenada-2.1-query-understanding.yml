@@ -410,4 +410,3 @@ jobs:
             The repository root index.html is copied byte-for-byte into the APK; there is no separate nara-apk-source.html dependency.
             Publishing is gated by direct-source checks, regression tests, APK metadata/signature/alignment,
             and Android emulator installation/launch smoke testing.
-```
