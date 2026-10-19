@@ -217,6 +217,7 @@ jobs:
           NODE
 
       
+
       - name: Load production role helpers into query regression VM
         shell: bash
         run: |
@@ -308,7 +309,6 @@ const roleHelperSource = [
               "and naraRequestedRoleCategory."
           )
           PYTHON
-
 
       - name: Run Nara query-understanding regression tests
         shell: bash
