@@ -216,6 +216,73 @@ jobs:
           console.log('PASS: generic HTTP failures retain actionable diagnostics');
           NODE
 
+      - name: Load production role helpers into query regression VM
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from pathlib import Path
+
+          p = Path(".github/scripts/test_nara_query_understanding.js")
+          source = p.read_text(encoding="utf-8")
+
+          marker = "const interpreter = html.slice(start, end);"
+          if source.count(marker) != 1:
+              raise SystemExit(
+                  "ERROR: Could not safely locate the interpreter extraction in the regression harness."
+              )
+
+          if "const roleHelperSource = ['TS_PLANT_ROLES'" not in source:
+              role_block = r"""
+          const extractTopLevelDeclaration = name => {
+            const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const escaped = escapeRegex(name);
+            const declarationPattern = new RegExp(
+              '^(?:function\\s+' + escaped + '\\s*\\(|(?:const|let|var)\\s+' + escaped + '\\s*=)',
+              'm'
+            );
+            const match = declarationPattern.exec(html);
+
+            if (!match) {
+              throw new Error('Could not find production declaration for ' + name + '.');
+            }
+
+            const start = match.index;
+            const tail = html.slice(start);
+            const nextDeclarationPattern =
+              /^(?:async\\s+)?function\\s+[A-Za-z_$][\\w$]*\\s*\\(|^(?:const|let|var)\\s+[A-Za-z_$][\\w$]*\\s*=/m;
+            const nextDeclaration = nextDeclarationPattern.exec(tail.slice(match[0].length));
+            const end = nextDeclaration
+              ? start + match[0].length + nextDeclaration.index
+              : html.length;
+
+            return html.slice(start, end).trim();
+          };
+
+          const roleHelperSource = [
+            'TS_PLANT_ROLES',
+            'TS_INHABITANT_ROLES',
+            'naraRequestedRoleCategory'
+          ].map(extractTopLevelDeclaration).join('\\n');
+          """
+              source = source.replace(marker, marker + "\n" + role_block, 1)
+
+          old_call = r"vm.runInContext(interpreter + '\n' + plantHelpers + '\n' + correctionHelpers + '\n' + auditHelpers, context, {timeout:1000});"
+          new_call = r"vm.runInContext(roleHelperSource + '\n' + interpreter + '\n' + plantHelpers + '\n' + correctionHelpers + '\n' + auditHelpers, context, {timeout:1000});"
+
+          if source.count(old_call) != 1:
+              raise SystemExit(
+                  "ERROR: Could not safely locate the regression VM evaluation call."
+              )
+
+          source = source.replace(old_call, new_call, 1)
+          p.write_text(source, encoding="utf-8")
+          print(
+              "PASS: regression VM now loads the production role catalogs and "
+              "naraRequestedRoleCategory."
+          )
+          PYTHON
+
       - name: Run Nara query-understanding regression tests
         shell: bash
         run: |
@@ -343,3 +410,4 @@ jobs:
             The repository root index.html is copied byte-for-byte into the APK; there is no separate nara-apk-source.html dependency.
             Publishing is gated by direct-source checks, regression tests, APK metadata/signature/alignment,
             and Android emulator installation/launch smoke testing.
+```
