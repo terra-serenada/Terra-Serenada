@@ -216,9 +216,6 @@ jobs:
           console.log('PASS: generic HTTP failures retain actionable diagnostics');
           NODE
 
-      
-
-     
       - name: Load production role helpers into query regression VM
         shell: bash
         run: |
@@ -231,86 +228,64 @@ jobs:
           marker = "const interpreter = html.slice(start, end);"
 
           if source.count(marker) != 1:
-              raise SystemExit(
-                  "ERROR: Could not safely locate the interpreter extraction "
-                  "in the regression harness."
-              )
+              raise SystemExit("ERROR: Could not safely locate interpreter extraction.")
 
-          role_block_marker = "const roleHelperSource = ["
-
-          if role_block_marker not in source:
+          if "const roleHelperSource = [" not in source:
               role_block = r"""
-const extractTopLevelDeclaration = name => {
-  const headers = [
-    'function ' + name + '(',
-    'async function ' + name + '(',
-    'const ' + name + '=',
-    'const ' + name + ' =',
-    'let ' + name + '=',
-    'let ' + name + ' =',
-    'var ' + name + '=',
-    'var ' + name + ' ='
-  ];
+          const extractTopLevelDeclaration = name => {
+            const prefixes = [
+              'function ' + name + '(',
+              'async function ' + name + '(',
+              'const ' + name + '=',
+              'const ' + name + ' =',
+              'let ' + name + '=',
+              'let ' + name + ' =',
+              'var ' + name + '=',
+              'var ' + name + ' ='
+            ];
+            const starts = prefixes
+              .map(prefix => html.indexOf(prefix))
+              .filter(index => index >= 0);
 
-  const starts = headers
-    .map(header => html.indexOf(header))
-    .filter(index => index >= 0);
+            if (!starts.length) {
+              throw new Error('Could not find production declaration for ' + name + '.');
+            }
 
-  if (!starts.length) {
-    throw new Error(
-      'Could not find production declaration for ' + name + '.'
-    );
-  }
+            const start = Math.min(...starts);
+            const after = start + name.length + 1;
+            const nextMarkers = [
+              '\\nasync function ',
+              '\\nfunction ',
+              '\\nconst ',
+              '\\nlet ',
+              '\\nvar '
+            ];
+            const ends = nextMarkers
+              .map(nextMarker => html.indexOf(nextMarker, after))
+              .filter(index => index >= 0);
+            const end = ends.length ? Math.min(...ends) : html.length;
 
-  const start = Math.min(...starts);
-  const terminators = [
-    '\nasync function ',
-    '\nfunction ',
-    '\nconst ',
-    '\nlet ',
-    '\nvar '
-  ];
+            return html.slice(start, end).trim();
+          };
 
-  const ends = terminators
-    .map(marker => html.indexOf(marker, start + name.length + 1))
-    .filter(index => index >= 0);
-
-  const end = ends.length ? Math.min(...ends) : html.length;
-
-  return html.slice(start, end).trim();
-};
-
-const roleHelperSource = [
-  'TS_PLANT_ROLES',
-  'TS_INHABITANT_ROLES',
-  'naraRequestedRoleCategory'
-].map(extractTopLevelDeclaration).join('\n');
-"""
-              source = source.replace(
-                  marker,
-                  marker + "\n" + role_block,
-                  1
-              )
+          const roleHelperSource = [
+            'TS_PLANT_ROLES',
+            'TS_INHABITANT_ROLES',
+            'naraRequestedRoleCategory'
+          ].map(extractTopLevelDeclaration).join('\\n');
+          """
+              source = source.replace(marker, marker + "\n" + role_block, 1)
 
           old_call = r"vm.runInContext(interpreter + '\n' + plantHelpers + '\n' + correctionHelpers + '\n' + auditHelpers, context, {timeout:1000});"
-
           new_call = r"vm.runInContext(roleHelperSource + '\n' + interpreter + '\n' + plantHelpers + '\n' + correctionHelpers + '\n' + auditHelpers, context, {timeout:1000});"
 
           if source.count(old_call) != 1:
-              raise SystemExit(
-                  "ERROR: Could not safely locate the regression VM "
-                  "evaluation call."
-              )
+              raise SystemExit("ERROR: Could not safely locate regression VM evaluation call.")
 
           source = source.replace(old_call, new_call, 1)
           p.write_text(source, encoding="utf-8")
-
-          print(
-              "PASS: regression VM now loads the production role catalogs "
-              "and naraRequestedRoleCategory."
-          )
+          print("PASS: role catalogs and naraRequestedRoleCategory are loaded into the regression VM.")
           PYTHON
-
 
       - name: Run Nara query-understanding regression tests
         shell: bash
