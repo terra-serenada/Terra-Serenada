@@ -451,6 +451,8 @@ jobs:
           retention-days: 30
 
       - name: Enable KVM permissions for Android emulator
+        id: kvm_setup
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -461,6 +463,8 @@ jobs:
           ls -l /dev/kvm
 
       - name: Android emulator install and launch smoke test
+        id: android_emulator_smoke
+        continue-on-error: true
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -472,22 +476,48 @@ jobs:
           script: >-
             bash -c 'set -euo pipefail; adb wait-for-device; adb install -r Terra-Serenada.apk; adb logcat -c; adb shell monkey -p com.terra.serenada -c android.intent.category.LAUNCHER 1; app_pid=""; for attempt in $(seq 1 30); do app_pid="$(adb shell pidof com.terra.serenada 2>/dev/null || true)"; if [ -n "$app_pid" ]; then break; fi; sleep 1; done; if [ -z "$app_pid" ]; then echo "ERROR: Terra Serenada did not remain running after launch. Android runtime logs follow:"; adb logcat -d -s AndroidRuntime:E ActivityManager:E || true; exit 1; fi; crash_log="$(adb logcat -d -s AndroidRuntime:E 2>&1)" || { echo "ERROR: Unable to read Android runtime logs after launching the app."; exit 1; }; if printf "%s\n" "$crash_log" | grep -q "FATAL EXCEPTION"; then printf "%s\n" "$crash_log"; exit 1; fi; echo "PASS: APK installed and app process remained running in Android emulator."'
 
-      - name: Enforce regression gate before publishing
-        if: ${{ steps.role_helper_setup.outcome != 'success' || steps.nara_query_regression.outcome != 'success' || steps.group_history_regression.outcome != 'success' }}
+      - name: Summarize APK build and verification outcomes
+        if: always()
         shell: bash
         env:
           ROLE_HELPER_SETUP_OUTCOME: ${{ steps.role_helper_setup.outcome }}
           QUERY_REGRESSION_OUTCOME: ${{ steps.nara_query_regression.outcome }}
-          GROUP_HISTORY_OUTCOME: ${{ steps.group_history_regression.outcome }}
+          GROUP_HISTORY_REGRESSION_OUTCOME: ${{ steps.group_history_regression.outcome }}
+          KVM_SETUP_OUTCOME: ${{ steps.kvm_setup.outcome }}
+          EMULATOR_SMOKE_OUTCOME: ${{ steps.android_emulator_smoke.outcome }}
         run: |
           set -euo pipefail
-          echo "ERROR: APK candidate was built, but publication is blocked because at least one required regression suite failed."
-          echo "Production role-helper setup: ${ROLE_HELPER_SETUP_OUTCOME:-unknown}"
-          echo "Nara query-understanding regression: ${QUERY_REGRESSION_OUTCOME:-unknown}"
-          echo "Historical-group retrieval regression: ${GROUP_HISTORY_OUTCOME:-unknown}"
-          exit 1
+          {
+            echo "## Terra Serenada 2.1 — APK build summary"
+            if [ -s Terra-Serenada.apk ]; then
+              echo "- APK candidate: file exists; the artifact upload step was attempted after signing and metadata validation."
+            else
+              echo "- APK candidate: **not produced** or not available at this stage."
+            fi
+            echo "- Production role-helper setup: ${ROLE_HELPER_SETUP_OUTCOME:-unknown}"
+            echo "- Nara query regression: ${QUERY_REGRESSION_OUTCOME:-unknown}"
+            echo "- Historical-group retrieval regression: ${GROUP_HISTORY_REGRESSION_OUTCOME:-unknown}"
+            echo "- KVM setup: ${KVM_SETUP_OUTCOME:-unknown}"
+            echo "- Android emulator smoke test: ${EMULATOR_SMOKE_OUTCOME:-unknown}"
+            if [ "${ROLE_HELPER_SETUP_OUTCOME:-}" = success ] && \
+               [ "${QUERY_REGRESSION_OUTCOME:-}" = success ] && \
+               [ "${GROUP_HISTORY_REGRESSION_OUTCOME:-}" = success ] && \
+               [ "${EMULATOR_SMOKE_OUTCOME:-}" = success ]; then
+              echo "- GitHub Release: eligible for publication."
+            else
+              echo "- GitHub Release: **blocked** until required regression and emulator checks pass."
+              echo "- Build artifact and regression status are reported separately; test failures do not discard an already validated APK."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${ROLE_HELPER_SETUP_OUTCOME:-}" != success ] || \
+             [ "${QUERY_REGRESSION_OUTCOME:-}" != success ] || \
+             [ "${GROUP_HISTORY_REGRESSION_OUTCOME:-}" != success ] || \
+             [ "${EMULATOR_SMOKE_OUTCOME:-}" != success ]; then
+            echo "::warning::One or more regression/smoke checks did not pass. The signed APK artifact is retained when build/signature/metadata validation succeeded; GitHub Release publication is blocked."
+          fi
 
       - name: Publish APK to GitHub Releases
+        if: ${{ steps.role_helper_setup.outcome == 'success' && steps.nara_query_regression.outcome == 'success' && steps.group_history_regression.outcome == 'success' && steps.android_emulator_smoke.outcome == 'success' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-terra-serenada-2.1-${{ github.run_number }}
