@@ -243,36 +243,40 @@ jobs:
               'var ' + name + '=',
               'var ' + name + ' ='
             ];
-            const starts = prefixes
-              .map(prefix => html.indexOf(prefix))
-              .filter(index => index >= 0);
+            const matches = prefixes
+              .map(prefix => ({prefix, index: html.indexOf(prefix)}))
+              .filter(match => match.index >= 0)
+              .sort((a, b) => a.index - b.index);
 
-            if (!starts.length) {
+            if (!matches.length) {
               throw new Error('Could not find production declaration for ' + name + '.');
             }
 
-            const start = Math.min(...starts);
-            const after = start + name.length + 1;
+            const {prefix, index: start} = matches[0];
+            const after = start + prefix.length;
             const nextMarkers = [
-              '\\nasync function ',
-              '\\nfunction ',
-              '\\nconst ',
-              '\\nlet ',
-              '\\nvar '
+              '\nasync function ',
+              '\nfunction ',
+              '\nconst ',
+              '\nlet ',
+              '\nvar '
             ];
             const ends = nextMarkers
               .map(nextMarker => html.indexOf(nextMarker, after))
               .filter(index => index >= 0);
             const end = ends.length ? Math.min(...ends) : html.length;
-
-            return html.slice(start, end).trim();
+            const declaration = html.slice(start, end).trim();
+            if (!declaration) {
+              throw new Error('Extracted an empty production declaration for ' + name + '.');
+            }
+            return declaration;
           };
 
           const roleHelperSource = [
             'TS_PLANT_ROLES',
             'TS_INHABITANT_ROLES',
             'naraRequestedRoleCategory'
-          ].map(extractTopLevelDeclaration).join('\\n');
+          ].map(extractTopLevelDeclaration).join('\n');
           """
               source = source.replace(marker, marker + "\n" + role_block, 1)
 
@@ -286,6 +290,8 @@ jobs:
           p.write_text(source, encoding="utf-8")
           print("PASS: role catalogs and naraRequestedRoleCategory are loaded into the regression VM.")
           PYTHON
+          node --check .github/scripts/test_nara_query_understanding.js
+          echo "PASS: patched query regression harness passes Node syntax validation."
 
       - name: Run Nara query-understanding regression tests
         shell: bash
@@ -371,6 +377,14 @@ jobs:
           grep -F "package: name='com.terra.serenada' versionCode='${expected_code}' versionName='${expected_name}'" apk-metadata.txt
           echo "PASS: APK package, version, signature, archive, and alignment checks."
 
+      - name: Upload validated APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Terra-Serenada-APK-2.1-${{ github.run_number }}
+          path: Terra-Serenada.apk
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Enable KVM permissions for Android emulator
         shell: bash
         run: |
@@ -392,14 +406,6 @@ jobs:
           disable-animations: true
           script: >-
             bash -c 'set -euo pipefail; adb wait-for-device; adb install -r Terra-Serenada.apk; adb logcat -c; adb shell monkey -p com.terra.serenada -c android.intent.category.LAUNCHER 1; app_pid=""; for attempt in $(seq 1 30); do app_pid="$(adb shell pidof com.terra.serenada 2>/dev/null || true)"; if [ -n "$app_pid" ]; then break; fi; sleep 1; done; if [ -z "$app_pid" ]; then echo "ERROR: Terra Serenada did not remain running after launch. Android runtime logs follow:"; adb logcat -d -s AndroidRuntime:E ActivityManager:E || true; exit 1; fi; crash_log="$(adb logcat -d -s AndroidRuntime:E 2>&1)" || { echo "ERROR: Unable to read Android runtime logs after launching the app."; exit 1; }; if printf "%s\n" "$crash_log" | grep -q "FATAL EXCEPTION"; then printf "%s\n" "$crash_log"; exit 1; fi; echo "PASS: APK installed and app process remained running in Android emulator."'
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Terra-Serenada-APK-2.1-${{ github.run_number }}
-          path: Terra-Serenada.apk
-          if-no-files-found: error
-          retention-days: 30
 
       - name: Publish APK to GitHub Releases
         uses: softprops/action-gh-release@v2
