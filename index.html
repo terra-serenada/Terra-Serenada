@@ -756,11 +756,15 @@ input,select,textarea{width:100%;color:var(--text);background:var(--surface);bor
     </details>
     <details class="nara-knowledge" id="naraRetrievalDiagnosticPanel">
   <summary>🧪 Diagnostik Retrieval Pengetahuan</summary>
-  <div class="nara-knowledge-intro">Pemeriksaan baca-saja untuk menguji tiga hal: apakah memori cocok ditemukan oleh pencarian lokal, apakah memori masuk ke payload konteks yang disusun untuk AI online, dan apa yang benar-benar disertakan pada permintaan online terakhir. Tombol ini tidak mengirim pertanyaan baru dan tidak mengubah atau menghapus data.</div>
+  <div class="nara-knowledge-intro">Pemeriksaan lokal membaca retrieval dan payload tanpa mengirim pertanyaan baru. Tes koneksi terpisah mengirim satu prompt sangat pendek ke Cloudflare Worker dan model AI yang dikonfigurasi; tes ini dapat memakai sedikit kuota API. Keduanya tidak mengubah atau menghapus data kebun.</div>
   <label for="naraRetrievalDiagnosticQuery">Kata kunci atau kode pengujian</label>
   <input id="naraRetrievalDiagnosticQuery" type="text" value="KODE_UJI_RETRIEVAL_582" autocomplete="off" style="display:block;width:100%;box-sizing:border-box;margin:10px 0;padding:12px;border:1px solid var(--line,#405442);border-radius:12px;background:var(--card,#17241b);color:inherit">
-  <button type="button" class="secondary" id="naraRetrievalDiagnosticRun" data-nara-retrieval-diagnostic-run>Periksa retrieval dan konteks</button>
-  <div id="naraRetrievalDiagnosticResult" class="nara-knowledge-intro" role="status" aria-live="polite">Belum dijalankan. Tekan tombol untuk memeriksa memori lokal dan susunan konteks.</div>
+  <div style="display:grid;gap:8px;margin:10px 0">
+    <button type="button" class="secondary" id="naraRetrievalDiagnosticRun" data-nara-retrieval-diagnostic-run>Periksa retrieval dan konteks (lokal)</button>
+    <div id="naraRetrievalDiagnosticResult" class="nara-knowledge-intro" role="status" aria-live="polite">Belum dijalankan. Tombol lokal memeriksa memori dan konteks tanpa mengakses layanan online.</div>
+    <button type="button" class="secondary" id="naraOnlineConnectionTestRun" data-nara-online-connection-test>Uji koneksi AI online</button>
+    <div id="naraOnlineConnectionTestResult" class="nara-knowledge-intro" role="status" aria-live="polite">Koneksi Worker dan provider belum diuji pada sesi ini.</div>
+  </div>
 </details>
     <div class="nara-boundary">Nara menggabungkan reasoning lokal, data Terra Serenada, dan Guru AI Online melalui Cloudflare Worker. Saat online, pertanyaan serta konteks kebun dan ingatan yang relevan dikirim ke Anoman AI untuk menyusun jawaban; kunci API tidak ditanam di HTML. Jika koneksi gagal, Nara tetap menggunakan jawaban lokal. Materi Guru adalah ingatan eksternal—bukan pelatihan ulang bobot model dan bukan bukti otomatis tentang keadaan kebun.</div>
   </section>
@@ -3575,6 +3579,19 @@ function naraValidateFinalAnswerStructure(question,answer,payload){
 }
 
 async function naraRequestOnlineAnswer(question,localAnswer,recentHistory=[]){
+  naraLastRetrievalAudit={
+    at:new Date().toISOString(),
+    question:naraGuruSafe(question,220),
+    requestStatus:'preparing_context',
+    requestOutcome:'',
+    requestStartedAt:null,
+    requestFinishedAt:null,
+    requestError:'',
+    requestFailureStage:'context_build',
+    requestModel:'',
+    memoryCount:0,
+    memories:[]
+  };
   const systemPrompt=`Kamu adalah NARA, asisten AI yang terintegrasi di Terra Serenada. Jawab langsung kepada pengguna dalam bahasa Indonesia yang alami, hangat, jelas, dan membantu. Kamu bukan Guru AI yang sedang mengajar; Guru Online adalah mentor terpisah. Gunakan materi Guru yang relevan sebagai kemampuan dan kerangka berpikir aktif, lalu terapkan pada pertanyaan ini—jangan menyalin isi modul pelajaran kecuali pengguna bertanya tentang materi tersebut.
 
 KONTEKS DAN BUKTI: Data terstruktur Terra Serenada adalah sumber utama tentang kebun pengguna. Perhatikan objek validasi_sumber dan audit_pemangkasan. Jangan menyatakan konteks lengkap atau audit lulus bila siap_kirim bernilai false atau sumber wajib berstatus tidak tersedia. Rekaman kosong setelah pencarian lengkap berarti target/kejadian tidak ditemukan pada data yang diperiksa; itu berbeda dari sumber yang tidak ikut dikirim.
@@ -3605,7 +3622,17 @@ PRIORITAS MAKSUD TERBARU: Pesan pengguna yang paling baru adalah fokus utama. Ja
   const greetingMode=naraIsSimpleGreeting(question);
   const correctionMode=naraIsCorrectionTurn(question);
   const greetingCorrectionMode=naraIsGreetingCorrection(question);
-  const base=JSON.parse(naraOnlineLearningContext(question,localAnswer?.text||''));
+  let base;
+  try{
+    base=JSON.parse(naraOnlineLearningContext(question,localAnswer?.text||''));
+  }catch(err){
+    naraLastRetrievalAudit.requestStatus='failed_before_network';
+    naraLastRetrievalAudit.requestOutcome='context_build_failed';
+    naraLastRetrievalAudit.requestFinishedAt=new Date().toISOString();
+    naraLastRetrievalAudit.requestFailureStage='context_build';
+    naraLastRetrievalAudit.requestError=naraGuruSafe(err?.name==='AbortError'?'Pembuatan konteks melewati batas waktu.':err?.message||err||'Kegagalan saat menyusun konteks online.',260);
+    throw err;
+  }
   const effectiveIntent=base.interpretasi_pertanyaan?.maksud_asal||base.interpretasi_pertanyaan?.maksud||'';
   const packetAudit=(typeof naraValidateEvidencePacketForIntent==='function'&&['status_kelompok_tanam','ekologi_kebun'].includes(effectiveIntent))?naraValidateEvidencePacketForIntent(base):{ok:true,issues:[]};
   naraLastRetrievalAudit.packetValidation=packetAudit;
@@ -4241,12 +4268,19 @@ function naraAnswer(question){
   return `Aku belum bisa menjawab itu dengan andal dari catatan yang tersedia. Aku bisa membaca data tanaman, penyiraman, perkiraan panen, catatan perhatian, Bed, Inhabitants, dan pengetahuan yang kamu ajarkan.\n\nCoba sebutkan nama tanaman atau tanyakan “ringkasan kebun hari ini”, “apa yang perlu perhatian?”, atau “perkiraan panen”. Kalau ini pengalaman baru dari kebun, ajarkan dengan “Ingat: …” atau catat dulu sebagai Perjalanan Tanaman agar menjadi bagian dari memori Terra Serenada.`;
 }
 let naraLastRetrievalAudit=null;
-function naraRunRetrievalDiagnostic(){
+async function naraRunRetrievalDiagnostic(){
   const queryInput=$('naraRetrievalDiagnosticQuery');
   const resultBox=$('naraRetrievalDiagnosticResult');
+  const button=$('naraRetrievalDiagnosticRun');
   if(!resultBox)return;
+  if(button&&button.disabled)return;
   const query=String(queryInput&&queryInput.value||'').trim();
   if(!query){resultBox.textContent='Masukkan kata kunci atau kode pengujian terlebih dahulu.';return;}
+  const oldButtonText=button?button.textContent:'';
+  if(button){button.disabled=true;button.textContent='Memeriksa retrieval lokal…';}
+  resultBox.setAttribute('aria-busy','true');
+  resultBox.textContent='Sedang memeriksa memori lokal dan menyusun payload uji…';
+  await new Promise(resolve=>setTimeout(resolve,0));
   try{
     naraNormalizeState();
     const terms=typeof naraMemoryTokens==='function'?naraMemoryTokens(query).filter(t=>t.length>=3):query.toLocaleLowerCase('id-ID').split(/[^a-z0-9]+/).filter(t=>t.length>=3);
@@ -4314,13 +4348,53 @@ function naraRunRetrievalDiagnostic(){
       if(last.contextAudit)out.push('<div><strong>Ukuran konteks:</strong> '+Number(last.contextBytes||0)+' byte UTF-8 final; diagnostik pemangkasan '+escText(JSON.stringify(last.contextAudit))+'</div>');
     }
     if(lastRows.length){out.push('<div>Ringkasan materi Guru/memori pada permintaan terakhir:</div><ul>'+lastRows.slice(0,4).map(m=>'<li>'+escText(m.asal||'Sumber tidak berlabel')+' — '+escText(m.topik||'Tanpa topik')+': '+escText(String(m.materi||'').slice(0,180))+'</li>').join('')+'</ul>');}
+    const onlineTest=naraLastOnlineConnectionTest;
+    if(onlineTest){out.push('<div><strong>Tes AI online terakhir:</strong> '+escText(onlineTest.status==='success'?'LULUS':'GAGAL')+' · '+escText(onlineTest.testedAt||'waktu tidak tersedia')+' · '+escText(onlineTest.durationMs??'?')+' ms'+(onlineTest.model?' · model '+escText(onlineTest.model):'')+(onlineTest.error?' · '+escText(onlineTest.error):'')+'.</div>');}
     out.push('<div><em>Batas uji:</em> keberadaan item dalam payload membuktikan item disertakan dalam konteks yang dikirim, bukan bahwa model pasti menggunakannya atau jawaban otomatis benar.</div>');
     resultBox.innerHTML=out.join('');
-  }catch(err){resultBox.textContent='Diagnostik gagal: '+String(err&&err.message||err||'kesalahan tidak diketahui');}
+  }catch(err){resultBox.textContent='Diagnostik lokal gagal: '+String(err&&err.message||err||'kesalahan tidak diketahui');}
+  finally{resultBox.removeAttribute('aria-busy');if(button){button.disabled=false;button.textContent=oldButtonText||'Periksa retrieval dan konteks (lokal)';}}
 }
+
+let naraLastOnlineConnectionTest=null;
+async function naraRunOnlineConnectionTest(){
+  const button=$('naraOnlineConnectionTestRun');
+  const resultBox=$('naraOnlineConnectionTestResult');
+  if(!button||!resultBox||button.disabled)return;
+  const oldButtonText=button.textContent;
+  const started=Date.now();
+  const testedAt=new Date().toISOString();
+  button.disabled=true;
+  button.textContent='Menguji koneksi…';
+  resultBox.setAttribute('aria-busy','true');
+  resultBox.textContent='Mengirim tes singkat ke Cloudflare Worker dan menunggu respons provider AI. Maksimum sekitar 40 detik…';
+  await new Promise(resolve=>setTimeout(resolve,0));
+  try{
+    const answer=await naraGuruChat([
+      {role:'system',content:'Ini tes konektivitas. Balas persis dengan token NARA_ONLINE_OK dan jangan tambahkan apa pun.'},
+      {role:'user',content:'Tes koneksi AI online.'}
+    ],16);
+    const durationMs=Date.now()-started;
+    naraLastOnlineConnectionTest={status:'success',testedAt,durationMs,model:String(answer?.model||NARA_GURU_MODEL),response:String(answer?.text||'').slice(0,120),error:''};
+    resultBox.innerHTML='<div><strong>LULUS — Worker dan provider AI merespons.</strong></div><div>Durasi: '+durationMs+' ms.</div><div>Model: '+esc(typeof answer?.model==='string'?answer.model:NARA_GURU_MODEL)+'</div><div>Respons uji: '+esc(String(answer?.text||'').slice(0,120))+'</div><div>Ini menguji jalur online saat ini, bukan isi atau akurasi percakapan sebelumnya.</div>';
+  }catch(err){
+    const durationMs=Date.now()-started;
+    const errorText=naraGuruSafe(err?.name==='AbortError'?'Tes koneksi melewati batas waktu (timeout).':err?.message||err||'Kegagalan online tidak diketahui',420);
+    const failureStage=Number(err?.httpStatus)?'HTTP '+Number(err.httpStatus):(err?.name==='AbortError'?'timeout':'network_or_fetch');
+    naraLastOnlineConnectionTest={status:'failed',testedAt,durationMs,model:'',response:'',failureStage,error:errorText};
+    resultBox.innerHTML='<div><strong>GAGAL — jalur AI online belum berhasil.</strong></div><div>Tahap: '+esc(failureStage)+'.</div><div>Durasi: '+durationMs+' ms.</div><div>Rincian: '+esc(errorText)+'</div><div>Jika terlihat “Failed to fetch”, penyebabnya bisa jaringan, DNS, CORS, atau Worker tidak dapat dijangkau; pesan itu saja belum menentukan yang mana.</div>';
+    console.warn('Nara online connection diagnostic failed:',failureStage,errorText);
+  }finally{
+    resultBox.removeAttribute('aria-busy');
+    if(button){button.disabled=false;button.textContent=oldButtonText||'Uji koneksi AI online';}
+  }
+}
+
 document.addEventListener('click',function(e){
-  const button=e.target&&e.target.closest?e.target.closest('[data-nara-retrieval-diagnostic-run]'):null;
-  if(button)naraRunRetrievalDiagnostic();
+  const target=e.target&&e.target.closest?e.target.closest('[data-nara-retrieval-diagnostic-run], [data-nara-online-connection-test]'):null;
+  if(!target)return;
+  if(target.matches('[data-nara-retrieval-diagnostic-run]')){naraRunRetrievalDiagnostic();return;}
+  if(target.matches('[data-nara-online-connection-test]'))naraRunOnlineConnectionTest();
 });
 
 async function naraSendMessage(text){
